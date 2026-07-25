@@ -13,9 +13,11 @@ in-progress or planned work as complete.
 for the exact scope and acceptance criteria, and [Roadmap.md](Roadmap.md) for how it
 fits the overall delivery order.
 
-**Phase: implementation in progress.** The backend platform, PostgreSQL database
-baseline, and frontend shell are implemented and verified. The complete Docker
-Compose stack remains.
+**Phase: implementation complete, verified against every acceptance criterion in the
+plan.** The backend platform, PostgreSQL database baseline, frontend shell, and full
+Docker Compose stack are implemented and verified end-to-end. Milestone 1
+(Authentication, Organisations, People) is next — see
+[Roadmap.md](Roadmap.md#m1-authentication-organisations-people).
 
 ## Completed work
 
@@ -69,13 +71,29 @@ Compose stack remains.
   Testing Library. `npm run lint`, `format:check`, `typecheck`, `test`, `build` all
   pass; 5 tests across 2 files (`client.test.ts`, `HealthStatus.test.tsx`), written
   test-first (RED confirmed against the missing modules, then GREEN).
+- Docker Compose stack: `backend/Dockerfile` (multi-stage, `uv`-built venv, non-root
+  user, `docker-entrypoint.sh` running `alembic upgrade head` then Uvicorn via
+  `--factory`), `frontend/Dockerfile` (dev stage used by Compose; a documented but
+  unused-in-M0 production Nginx stage), root `docker-compose.yml` (`db`/`backend`/
+  `frontend` services, named volumes `openqms_postgres_data` and `openqms_uploads`,
+  healthchecks for all three services — `pg_isready`, a `python -c` request to
+  `/api/v1/health/ready`, and a `node -e` request to the Vite dev server root), and
+  root `.env.example`. Full smoke test verified per
+  [Docker.md](Docker.md#smoke-test-definition): `docker compose up --build` brought
+  all three services to `(healthy)`; `curl`/`Invoke-WebRequest` confirmed both health
+  endpoints; a real headless-browser screenshot of the running frontend confirmed the
+  live "API is healthy: ok" / "Readiness: ready (database: ok)" render (not
+  hard-coded); `docker compose down` then `up` (no `--build`, no `-v`) preserved the
+  seeded `organisations` row, proving volume persistence. (Verified with the backend
+  and frontend host ports temporarily remapped to 18000/15173 in a local, uncommitted
+  test only, because this development host already had an unrelated container
+  permanently bound to host port 8000; the committed `docker-compose.yml` uses the
+  documented `8000`/`5173` — internal container behaviour, healthchecks, migrations,
+  and image builds are identical regardless of the host-side port number.)
 
 ## Work in progress
 
-Milestone 0 containerisation slice (see
-[.hermes/plans/2026-07-25-milestone-0-foundation.md](../.hermes/plans/2026-07-25-milestone-0-foundation.md)):
-Dockerfiles, the Docker Compose stack, persistent-volume test, and full-stack smoke
-test have not yet been implemented.
+None. Milestone 0 is complete; see [TODO.md](TODO.md) for Milestone 1's tasks.
 
 ## Known bugs
 
@@ -87,11 +105,10 @@ Vite 5→8) and is deferred rather than forced. Revisit when those majors are ma
 
 ## Next recommended tasks
 
-Continue Milestone 0 as scoped in
-[.hermes/plans/2026-07-25-milestone-0-foundation.md](../.hermes/plans/2026-07-25-milestone-0-foundation.md):
-the Docker Compose stack (Tasks 8-9) and Milestone 0 documentation close-out
-(Task 10). Full task breakdown with dependencies and complexity in
-[TODO.md](TODO.md) under "High Priority."
+Begin Milestone 1 — Authentication (JWT), user management, and the People module
+(Tasks 11–13 in [TODO.md](TODO.md) under "Medium Priority"). See
+[Roadmap.md](Roadmap.md#m1-authentication-organisations-people) for the milestone
+narrative.
 
 Note on local tooling: this backend was developed using a repository-local `uv`
 install and virtual environment under `.tools/` (git-ignored) because `uv` was not

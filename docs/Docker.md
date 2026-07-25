@@ -72,10 +72,12 @@ VITE_API_BASE_URL=http://localhost:8000
 
 ## Health checks
 
-`docker-compose.yml` defines a Compose `healthcheck` for `db` (using `pg_isready`)
-and for `backend` (using the `/api/v1/health/ready` endpoint from
-[API.md](API.md)), so `docker compose ps` accurately reflects whether the stack is
-actually usable, not just running.
+`docker-compose.yml` defines a Compose `healthcheck` for `db` (using `pg_isready`),
+for `backend` (using the `/api/v1/health/ready` endpoint from [API.md](API.md), via
+`python -c` since the runtime image has no `curl`), and for `frontend` (a `node -e`
+one-liner requesting the Vite dev server root, since `node:20-slim` also has no
+`curl`), so `docker compose ps` accurately reflects whether the stack is actually
+usable, not just running, for all three services.
 
 ## Dockerfiles
 

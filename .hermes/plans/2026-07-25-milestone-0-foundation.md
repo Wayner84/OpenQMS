@@ -1,6 +1,6 @@
 # Milestone 0 — Platform Foundation
 
-**Status:** Planning complete (this batch). Implementation not started (next batch).
+**Status:** Implemented and verified; all acceptance criteria below confirmed.
 **Date planned:** 2026-07-25
 
 ## Purpose
@@ -89,22 +89,28 @@ Background reading before implementing: [Architecture.md](../../docs/Architectur
 
 Implementation of this milestone is complete when all of the following are true:
 
-- [ ] `docker compose up --build` succeeds from a clean clone with only `.env`
+- [x] `docker compose up --build` succeeds from a clean clone with only `.env`
       populated from `.env.example`.
-- [ ] `docker compose ps` shows `db`, `backend`, `frontend` all healthy.
-- [ ] `curl http://localhost:8000/api/v1/health` → `200 {"status": "ok"}`.
-- [ ] `curl http://localhost:8000/api/v1/health/ready` → `200 {"status": "ready", "database": "ok"}`.
-- [ ] Loading the frontend shows the API reported as healthy, live (not hard-coded).
-- [ ] `docker compose down` then `docker compose up` (no `--build`, no `-v`) preserves
+- [x] `docker compose ps` shows `db`, `backend`, `frontend` all healthy.
+- [x] `curl http://localhost:8000/api/v1/health` → `200 {"status": "ok"}`.
+- [x] `curl http://localhost:8000/api/v1/health/ready` → `200 {"status": "ready", "database": "ok"}`.
+- [x] Loading the frontend shows the API reported as healthy, live (not hard-coded).
+- [x] `docker compose down` then `docker compose up` (no `--build`, no `-v`) preserves
       the seeded `organisations` row (proves volume persistence).
-- [ ] All commands under "Tooling commands" above pass locally and inside the
+- [x] All commands under "Tooling commands" above pass locally and inside the
       `backend`/`frontend` containers.
-- [ ] At least one backend unit test, one backend integration test (hitting
+- [x] At least one backend unit test, one backend integration test (hitting
       `/api/v1/health/ready` against real PostgreSQL), and one frontend component test
       exist and pass, written test-first per
       [Contributing.md](../../docs/Contributing.md#test-first-workflow-red-green-refactor).
-- [ ] `docs/CurrentStatus.md` and `docs/TODO.md` updated in the same commit(s) to
+- [x] `docs/CurrentStatus.md` and `docs/TODO.md` updated in the same commit(s) to
       reflect Milestone 0 as implemented, not just planned.
+
+Verified via a full `docker compose up --build` smoke test (see
+[CurrentStatus.md](../../docs/CurrentStatus.md) for the exact evidence and a note on
+the host-specific port remap used only because this development host already had an
+unrelated container bound to port 8000; the committed Compose file uses the documented
+`8000`/`5173`).
 
 ## Suggested commit boundaries
 

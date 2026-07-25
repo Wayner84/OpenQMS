@@ -42,14 +42,14 @@ Full scope and acceptance criteria:
 8. **Docker Compose stack** — `backend/Dockerfile`, `frontend/Dockerfile`,
    `docker-compose.yml`, `.env.example`, named volumes, health checks, per
    [Docker.md](Docker.md). Dependencies: Tasks 1–7. Complexity: **M**.
-   Status: Not Started.
+   Status: Done.
 9. **Docker smoke test** — verify the full smoke test sequence in
    [Docker.md](Docker.md#smoke-test-definition), including volume persistence across
-   `down`/`up`. Dependencies: Task 8. Complexity: **S**. Status: Not Started.
+   `down`/`up`. Dependencies: Task 8. Complexity: **S**. Status: Done.
 10. **Close out Milestone 0 documentation** — update
     [CurrentStatus.md](CurrentStatus.md), this file, and check off acceptance
     criteria in the Milestone 0 plan once verified. Dependencies: Tasks 1–9.
-    Complexity: **S**. Status: Not Started.
+    Complexity: **S**. Status: Done.
 
 ## Medium Priority — Milestone 1 (Auth, Organisations, People)
 
