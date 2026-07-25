@@ -18,10 +18,10 @@ Full scope and acceptance criteria:
 1. **Backend project skeleton** — FastAPI app factory, `core/config.py` (typed
    `Settings`), `core/db.py` (async engine/session), `core/logging.py` (structured
    JSON logging), directory layout per [Architecture.md](Architecture.md).
-   Dependencies: none. Complexity: **M**. Status: Not Started.
+   Dependencies: none. Complexity: **M**. Status: Done.
 2. **Health and readiness endpoints** — `GET /api/v1/health`,
    `GET /api/v1/health/ready` per [API.md](API.md). Dependencies: Task 1.
-   Complexity: **S**. Status: Not Started.
+   Complexity: **S**. Status: Done.
 3. **Alembic setup + organisations/configuration baseline** — initialise Alembic,
    write the migration creating `organisations` and `configuration` tables plus a
    data migration seeding one organisation row, per [Database.md](Database.md).

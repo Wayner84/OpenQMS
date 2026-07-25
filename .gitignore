@@ -16,6 +16,9 @@ htmlcov/
 .coverage
 .coverage.*
 
+# Local, repository-scoped tooling (uv, venvs) — never committed, never shared
+.tools/
+
 # Node / frontend
 node_modules/
 dist/
