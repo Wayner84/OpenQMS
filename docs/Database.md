@@ -1,0 +1,134 @@
+# Database
+
+This document defines the database engine, migration workflow, and schema
+conventions for openQMS. It is written before any schema exists; it is the contract
+the Milestone 0 implementation and every later module must follow. See
+[DecisionLog.md](DecisionLog.md) for why these choices were made.
+
+## Engines
+
+- **Production / Docker: PostgreSQL** (a recent stable major version, pinned in
+  `docker-compose.yml`). This is the only engine self-hosted deployments run.
+- **Local development and fast unit tests: SQLite** is permitted, using an on-disk or
+  in-memory database via SQLAlchemy's `sqlite+aiosqlite` driver.
+- **Policy:** any test that exercises a PostgreSQL-only feature (`JSONB` operators,
+  `ON CONFLICT` specifics, full-text search, etc.) must run as an integration test
+  against real PostgreSQL (via the `db` Compose service or a disposable test
+  container), never against SQLite. Unit tests that only exercise ORM-level logic
+  reachable identically on both engines may use SQLite for speed. This split is
+  enforced by directory: `backend/tests/unit/` may use SQLite; `backend/tests/
+  integration/` must use PostgreSQL.
+
+## ORM and migrations
+
+- SQLAlchemy 2.0 declarative models using typed `Mapped[]` / `mapped_column()` syntax
+  — no untyped `Column()` declarations in new code.
+- Alembic manages all schema changes. Workflow:
+  1. Change the SQLAlchemy model(s).
+  2. Run `alembic revision --autogenerate -m "<reason>"` to draft a migration.
+  3. **Manually review** the generated migration — autogenerate does not reliably
+     detect column type changes, renames, or data migrations. Adjust by hand as
+     needed, including a data migration where a schema change requires one.
+  4. Run `alembic upgrade head` locally (and let the `backend` container run it on
+     startup — see [Docker.md](Docker.md)) to verify it applies cleanly.
+  5. Commit the migration file together with the model change and any doc updates in
+     the same commit, per the project's [Contributing.md](Contributing.md) workflow.
+- Migrations are never edited after being merged; a mistake is fixed by a new,
+  forward-only migration.
+- Downgrades (`alembic downgrade`) are implemented on a best-effort basis; PostgreSQL
+  volume backups (see [Deployment.md](Deployment.md)) are the primary recovery path
+  for destructive mistakes, not migration downgrades.
+
+## Naming conventions
+
+- Tables: `snake_case`, plural nouns (`documents`, `ncr_records`, `calibration_events`).
+- Columns: `snake_case`.
+- Primary key column: `id`, type UUID (see below).
+- Foreign key columns: `<referenced_table_singular>_id`, e.g. `organisation_id`,
+  `document_id`.
+- Timestamps: every table includes `created_at` and `updated_at`
+  (`timestamptz`/`TIMESTAMP WITH TIME ZONE`, set server-side, `updated_at` maintained
+  by an ORM-level `onupdate`). Tables that need it also carry `created_by_id` /
+  `updated_by_id` referencing the acting user, added when auth lands in Milestone 1.
+- Enumerations (status fields, workflow states) are implemented as PostgreSQL
+  `ENUM` types where the set of values is truly fixed by the domain (e.g. an NCR's
+  fixed workflow stage names), and as a database-driven lookup table where the spec
+  calls for configurability (e.g. document/NCR numbering prefixes, risk matrices —
+  see "Business configuration" below). When in doubt, prefer the configurable lookup
+  table, per the spec's cross-cutting data-driven-configuration requirement.
+- Migration file names: Alembic's default revision ID prefix plus a short slug, e.g.
+  `2026_08_01_1200_add_organisations_table.py`.
+
+## Primary key strategy
+
+All new tables use a UUID primary key (SQLAlchemy 2.0 `Uuid` column type, Python
+`uuid.uuid4` default, stored as native `uuid` in PostgreSQL and as `CHAR(32)` in
+SQLite). Rationale and trade-offs are recorded in
+[DecisionLog.md](DecisionLog.md#2026-07-25-primary-key-strategy).
+
+## Multi-tenancy baseline
+
+Every tenant-scoped table (i.e. every table except genuinely global, cross-instance
+metadata such as an Alembic version table) carries a non-nullable `organisation_id`
+foreign key to `organisations.id`. Milestone 0 introduces:
+
+### `organisations` table
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID, PK | |
+| `name` | text, not null | Display name, e.g. "Default Organisation" |
+| `slug` | text, unique, not null | URL/identifier-safe short name |
+| `created_at` / `updated_at` | timestamptz | |
+
+Milestone 0 seeds exactly one row (via an Alembic data migration) representing the
+self-hosted instance's own organisation. No UI or API for creating additional
+organisations exists yet — that is deferred until hosted/SaaS work is scheduled (see
+[FutureIdeas.md](FutureIdeas.md)); the table exists now purely so every later
+tenant-scoped table has something correct to reference from day one.
+
+### `configuration` table
+
+Proves the "business configuration is database-driven" cross-cutting requirement end
+to end in Milestone 0, without yet having a real business rule (like document
+numbering) to attach it to:
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID, PK | |
+| `organisation_id` | UUID, FK → `organisations.id`, not null | |
+| `key` | text, not null | e.g. `"instance.display_name"` |
+| `value` | JSONB, not null | Structured value; shape depends on `key` |
+| `created_at` / `updated_at` | timestamptz | |
+
+Unique constraint on (`organisation_id`, `key`). Later modules add their own typed
+configuration (e.g. an NCR module's `ncr_numbering_scheme` row) using this same
+pattern rather than hard-coding prefixes, intervals, or thresholds in code.
+
+## Soft delete and audit trail
+
+Not implemented in Milestone 0. Planned approach (documented now so later modules are
+consistent, tracked in [TODO.md](TODO.md)): tables holding records with regulatory or
+audit significance (documents, NCRs, calibration certificates) will use a nullable
+`deleted_at` column rather than hard deletes, plus an append-only `audit_log` table
+recording who changed what and when. Purely operational/lookup tables may hard-delete.
+This is deferred until the first module that needs it (Document Management,
+Milestone 2) rather than speculatively built now.
+
+## Connection and session management
+
+- `backend/app/core/db.py` creates a single async SQLAlchemy `Engine` from the
+  `DATABASE_URL` environment variable and an `async_sessionmaker`.
+- Routers depend on a `get_session` FastAPI dependency that yields an `AsyncSession`
+  scoped to one request and closes it afterward; no session is ever shared across
+  requests.
+- Services receive the session via dependency injection; they do not create their own
+  engine or session.
+
+## Related documents
+
+- [DecisionLog.md](DecisionLog.md) — reasoning for engine, ORM, PK and multi-tenancy
+  choices.
+- [Architecture.md](Architecture.md) — how the database fits the layered backend.
+- [API.md](API.md) — how database state is exposed over HTTP.
+- [Docker.md](Docker.md) — how PostgreSQL runs and persists data in Compose.
