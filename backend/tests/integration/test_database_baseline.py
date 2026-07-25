@@ -29,7 +29,9 @@ def _database_url() -> str:
 
 
 def _run_alembic_upgrade_head(database_url: str) -> None:
-    env = dict(os.environ, DATABASE_URL=database_url, PYTHONPATH="")
+    env = dict(
+        os.environ, DATABASE_URL=database_url, JWT_SECRET_KEY="alembic-cli-secret", PYTHONPATH=""
+    )
     subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", "head"],
         cwd=BACKEND_DIR,
@@ -139,6 +141,7 @@ async def test_health_ready_reports_ready_against_real_postgres(
 
     monkeypatch.setenv("DATABASE_URL", database_url)
     monkeypatch.setenv("BACKEND_CORS_ORIGINS", "http://localhost:5173")
+    monkeypatch.setenv("JWT_SECRET_KEY", "test-jwt-secret")
     config_module.get_settings.cache_clear()
     db_module.get_session_factory.cache_clear()
 

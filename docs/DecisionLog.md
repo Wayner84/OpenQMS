@@ -404,3 +404,101 @@ variables; no build-time cost; trivially inspectable in devtools.
 **Cons:** no pre-built component primitives (buttons, tables, dialogs) — acceptable
 since Milestone 0 has no such components yet; revisit when a module needs a data grid
 or complex form library.
+
+---
+
+## 2026-07-25 — Authentication: password hashing and token revocation strategy
+
+**Problem:** Milestone 1 needs real user accounts, password storage, and JWT issuing/
+validation, per
+[the Milestone 1 plan](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md).
+Three sub-decisions: which password hashing library, which JWT library, and how
+logout/revocation works without adding infrastructure (Redis, a session table) this
+milestone doesn't otherwise need.
+
+**Password hashing options considered:**
+- **`passlib[argon2]`** — the traditional choice, but effectively unmaintained (no
+  release since 2020) and has had compatibility breaks with newer `argon2-cffi`
+  releases it wraps.
+- **`argon2-cffi` directly** — the same underlying Argon2 C library, actively
+  maintained, a smaller and simpler API (`PasswordHasher().hash()`/`.verify()`) for
+  exactly the one algorithm the spec requires.
+
+**Chosen:** `argon2-cffi` directly, Argon2id (`argon2-cffi`'s default variant).
+
+**JWT library options considered:**
+- **`PyJWT`** — small, actively maintained, the most common minimal JWT library for
+  Python.
+- **`python-jose`** — broader (JWS/JWE/JWK), but heavier than needed for one HS256
+  signing/verification use case.
+
+**Chosen:** `PyJWT`, HS256, secret from a required `JWT_SECRET_KEY` environment
+variable with no default (the app refuses to start without one — see
+`backend/app/core/config.py`).
+
+**Token revocation options considered:**
+- **Refresh tokens + a server-side session/blocklist table** — the conventional
+  "proper" design, but adds a second token type, rotation logic, and a table this
+  milestone doesn't otherwise need.
+- **A pure stateless JWT with no revocation at all** — simplest, but a "logout"
+  button that does nothing until the token naturally expires is a poor security
+  property for a QMS that will hold access-controlled records.
+- **A `token_version` integer column on `users`, embedded in the JWT as a `ver`
+  claim** — logout increments it; `get_current_user` rejects any token whose `ver`
+  doesn't match the user's current value. Coarse (revokes every outstanding token for
+  that user, not just the current device/session) but requires no new
+  infrastructure and no second token type.
+
+**Chosen:** the `token_version` column, with a 60-minute default access-token expiry
+(`JWT_ACCESS_TOKEN_EXPIRE_MINUTES`) so the blast radius of an unrevoked token is
+bounded even between explicit logouts.
+
+**Pros:** no Redis/session-store dependency; one extra integer column; simple to
+reason about and test; bounded exposure window via short-lived tokens.
+
+**Cons:** logout revokes *all* of a user's sessions at once, not just the current
+one — acceptable for Milestone 1's scope (no "log out other devices" UX is
+promised); revisit with real refresh tokens if per-device session management is ever
+needed (see [FutureIdeas.md](FutureIdeas.md)).
+
+---
+
+## 2026-07-25 — Bootstrap admin mechanism
+
+**Problem:** A fresh self-hosted instance needs exactly one admin account to exist
+after first startup, without a committed default password (a well-known security
+anti-pattern) and without any manual out-of-band step beyond `docker compose up`.
+
+**Options considered:**
+- **A committed default admin/password** (e.g. `admin`/`admin`) — rejected outright:
+  a well-known, real-world source of compromised self-hosted deployments.
+- **A required interactive setup wizard on first web visit** — safe, but adds a
+  first-run UI flow this milestone doesn't otherwise need, and complicates the
+  Docker smoke test (no clean way to script "the first browser visit" as a
+  reproducible test step).
+- **Environment-variable-driven bootstrap, run once at backend startup, before
+  Uvicorn starts serving** (`BOOTSTRAP_ADMIN_EMAIL` required to opt in;
+  `BOOTSTRAP_ADMIN_PASSWORD` optional — if unset, a random password is generated
+  with `secrets.token_urlsafe` and logged once at `WARNING` level, never persisted
+  anywhere but the hashed column) — no committed secret, no required UI flow,
+  scriptable and testable, and idempotent (a no-op once any user exists).
+
+**Chosen:** the environment-variable-driven bootstrap
+(`backend/app/core/bootstrap.py`), invoked from `docker-entrypoint.sh` after
+`alembic upgrade head` and before Uvicorn starts.
+
+**Reason:** Matches the "no secrets committed" security baseline
+([Architecture.md](Architecture.md#security-baseline)) while still giving a
+self-hosted operator a working login immediately after `docker compose up --build`
+with zero manual database steps — the generated password is readable via
+`docker compose logs backend` on first boot.
+
+**Pros:** no committed credential ever; idempotent and safe to run on every restart;
+no new UI surface required this milestone; fully unit-testable
+(`backend/tests/unit/test_bootstrap.py`).
+
+**Cons:** an operator who doesn't check the backend logs promptly after first boot
+could have a generated password logged and then rotated out of the log buffer with
+no other way to recover it short of re-triggering bootstrap by deleting the user row
+directly in the database — acceptable for Milestone 1 given `BOOTSTRAP_ADMIN_PASSWORD`
+is always available as an explicit alternative for operators who want a known value.

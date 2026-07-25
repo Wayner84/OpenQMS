@@ -13,10 +13,12 @@ in-progress or planned work as complete.
 for the exact scope and acceptance criteria, and [Roadmap.md](Roadmap.md) for how it
 fits the overall delivery order.
 
-**Phase: implementation starting.** M0 (Platform Foundation) is complete and
-verified — see the "Completed work" section below. The M1 plan has been written and
-recorded; JWT authentication, user management, and the People module implementation
-is beginning this session. This section will be updated as each slice lands.
+**Phase: backend authentication implemented and verified; user management, People
+module, and all frontend work remain.** M0 (Platform Foundation) is complete and
+verified. The M1 plan has been written and recorded. The backend authentication
+slice (JWT login/logout/me, Argon2id hashing, `Depends()`-based current-user
+resolution, bootstrap admin) is implemented, tested, and gated — see "Completed
+work" below. This section will be updated as each remaining slice lands.
 
 ## Completed work
 
@@ -89,13 +91,53 @@ is beginning this session. This section will be updated as each slice lands.
   permanently bound to host port 8000; the committed `docker-compose.yml` uses the
   documented `8000`/`5173` — internal container behaviour, healthchecks, migrations,
   and image builds are identical regardless of the host-side port number.)
+- **Milestone 1 — backend authentication** (TODO Task 11, backend portion):
+  - `users` table (`backend/app/models/user.py`,
+    `backend/alembic/versions/bace347a5fca_add_users_table.py`): organisation-scoped,
+    `role` as a native PostgreSQL ENUM (`admin`/`member`), `is_active`,
+    `token_version`. Migration verified with a real upgrade → downgrade → upgrade
+    cycle against PostgreSQL 16, in addition to the integration suite running
+    `alembic upgrade head` itself.
+  - Password hashing (Argon2id via `argon2-cffi`) and JWT access tokens (`PyJWT`,
+    HS256) in `backend/app/core/security.py`; `Depends()`-based current-user/
+    current-admin resolution in `backend/app/core/deps.py`.
+  - Auth module (`backend/app/modules/auth/`): `POST /api/v1/auth/login`,
+    `POST /api/v1/auth/logout` (token-version-based revocation — see
+    [DecisionLog.md](DecisionLog.md)), `GET /api/v1/auth/me`, per
+    [API.md](API.md#authentication).
+  - Bootstrap admin mechanism (`backend/app/core/bootstrap.py`, wired into
+    `backend/docker-entrypoint.sh` after migrations): creates exactly one admin user
+    from `BOOTSTRAP_ADMIN_EMAIL`/`BOOTSTRAP_ADMIN_PASSWORD` (or a generated,
+    once-logged password if the latter is unset), idempotent across restarts, no
+    committed credential. See [DecisionLog.md](DecisionLog.md).
+  - Security acceptance criteria verified by passing tests: identical `401` for
+    wrong password / unknown email / inactive user; expired, tampered, and
+    revoked-by-logout tokens all rejected; `hashed_password` never appears in any
+    API response; `JWT_SECRET_KEY` has no default and `Settings` fails fast without
+    it.
+  - 50 backend tests passing (up from 14 at the end of Milestone 0): unit tests for
+    the model, security core, auth service, current-user dependencies, and
+    bootstrap; integration tests for the full login/logout/me HTTP flow against real
+    PostgreSQL 16. All written test-first (RED confirmed, then GREEN).
+  - Gates pass: `ruff format --check`, `ruff check`, `mypy --strict` (44 source
+    files), full `pytest` suite (unit + integration).
+  - Dependency check: `pip-audit` reports zero vulnerabilities in the new
+    dependencies (`argon2-cffi`, `pyjwt`, `email-validator`) — see "Known bugs"
+    below for pre-existing, unrelated findings.
+  - Docs updated in this slice: [API.md](API.md#authentication),
+    [Database.md](Database.md#users-table-milestone-1),
+    [DecisionLog.md](DecisionLog.md#2026-07-25-authentication-password-hashing-and-token-revocation-strategy),
+    [DecisionLog.md](DecisionLog.md#2026-07-25-bootstrap-admin-mechanism),
+    `.env.example`, `docker-compose.yml`.
 
 ## Work in progress
 
 Milestone 1 (Authentication, Organisations, People) — see
 [.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md)
-for the full scope. Plan written and committed; implementation of TODO Tasks 11–13
-(JWT auth, user management, People module) is in progress this session.
+for the full scope. Backend authentication (above) is done. Still to do: the
+authentication frontend UI, organisation-scoped user management (backend + frontend,
+TODO Task 12), the People module (backend + frontend, TODO Task 13), then a full
+Docker Compose end-to-end verification and security/tenant-isolation review.
 
 ## Known bugs
 
@@ -105,12 +147,20 @@ vulnerabilities, all in dev-only tooling transitive dependencies (ESLint's
 code; each documented fix requires an unproven major-version jump (ESLint 9→10,
 Vite 5→8) and is deferred rather than forced. Revisit when those majors are mature.
 
+`pip-audit` (backend) reports pre-existing advisories in `starlette` (0.46.2,
+pulled in transitively by the Milestone-0-pinned `fastapi>=0.115,<0.116`) and
+`pytest` (8.3.5, dev-only). Neither is a dependency introduced by Milestone 1's
+authentication work; upgrading either is an unproven major/minor jump out of this
+slice's scope (same posture as the frontend `npm audit` deferral above) — tracked
+here rather than silently fixed or silently ignored. Revisit alongside a future
+FastAPI/pytest version bump.
+
 ## Next recommended tasks
 
-Implement Milestone 1 in the commit order recorded in
+Continue Milestone 1 in the commit order recorded in
 [.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md#suggested-commit-boundaries):
-JWT auth first, then user management, then the People module, backend before
-frontend for each slice.
+authentication UI next, then user management (backend + frontend), then the People
+module (backend + frontend), then the full Docker Compose smoke test.
 
 Note on local tooling: this backend was developed using a repository-local `uv`
 install and virtual environment under `.tools/` (git-ignored) because `uv` was not

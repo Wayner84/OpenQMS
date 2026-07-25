@@ -113,6 +113,29 @@ The baseline is implemented by
 PostgreSQL, including exact-one-row seeding after repeated upgrades, JSONB storage,
 and the readiness endpoint. SQLite unit tests cover portable ORM constraints only.
 
+### `users` table (Milestone 1)
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID, PK | |
+| `organisation_id` | UUID, FK → `organisations.id`, not null | |
+| `email` | text, not null | Unique per (`organisation_id`, `email`) — see below |
+| `hashed_password` | text, not null | Argon2id, never plaintext (see [DecisionLog.md](DecisionLog.md)) |
+| `full_name` | text, not null | |
+| `role` | native PostgreSQL ENUM (`admin`, `member`) | Fixed by domain, not a `configuration` row |
+| `is_active` | boolean, not null, default `true` | Deactivation, not deletion — no hard delete of users |
+| `token_version` | integer, not null, default `0` | Implements logout/all-sessions revocation — see DecisionLog |
+| `created_at` / `updated_at` | timestamptz | |
+
+Unique constraint on (`organisation_id`, `email`). Login resolves a user by email
+alone (not scoped by organisation), because Milestone 1 has exactly one organisation
+in practice — see `backend/app/modules/auth/service.py` and the
+[Milestone 1 plan](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md).
+Implemented by `backend/alembic/versions/bace347a5fca_add_users_table.py`; no
+credential data is ever seeded by a migration — the bootstrap admin is created by
+application code at startup (`backend/app/core/bootstrap.py`) instead, per
+[DecisionLog.md](DecisionLog.md).
+
 ## Soft delete and audit trail
 
 Not implemented in Milestone 0. Planned approach (documented now so later modules are

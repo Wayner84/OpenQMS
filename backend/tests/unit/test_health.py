@@ -12,6 +12,7 @@ from httpx import ASGITransport, AsyncClient
 def app(monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
     monkeypatch.setenv("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
     monkeypatch.setenv("BACKEND_CORS_ORIGINS", "http://localhost:5173")
+    monkeypatch.setenv("JWT_SECRET_KEY", "test-jwt-secret")
 
     from app.core.config import get_settings
     from app.main import create_app

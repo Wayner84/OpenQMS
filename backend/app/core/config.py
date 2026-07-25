@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     environment: str = "development"
     log_level: str = "INFO"
 
+    # Authentication (Milestone 1) — see docs/DecisionLog.md for the JWT/Argon2id
+    # decision and .hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md.
+    jwt_secret_key: str
+    jwt_access_token_expire_minutes: int = 60
+    bootstrap_admin_email: str | None = None
+    bootstrap_admin_password: str | None = None
+
     @field_validator("backend_cors_origins", mode="before")
     @classmethod
     def _split_cors_origins(cls, value: object) -> object:

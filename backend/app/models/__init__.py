@@ -8,5 +8,6 @@ submodule is imported — required for Alembic autogenerate and for tests that c
 from app.models.base import Base
 from app.models.configuration import Configuration
 from app.models.organisation import Organisation
+from app.models.user import User, UserRole
 
-__all__ = ["Base", "Configuration", "Organisation"]
+__all__ = ["Base", "Configuration", "Organisation", "User", "UserRole"]

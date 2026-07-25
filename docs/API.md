@@ -84,14 +84,55 @@ simple and typed.
 
 ## Authentication
 
-Not implemented in Milestone 0 (see
-[the Milestone 0 plan](../.hermes/plans/2026-07-25-milestone-0-foundation.md)).
-Planned for Milestone 1: JWT bearer tokens (`Authorization: Bearer <token>`) issued
-on login, validated per-request via a FastAPI dependency that resolves the current
-user and their organisation. Designed from the start to support a user belonging to
-one organisation per token (see the multi-tenancy decision in
-[DecisionLog.md](DecisionLog.md)), which is what a future hosted/SaaS mode would need
-without requiring a rework of the token shape.
+Implemented in Milestone 1: JWT bearer tokens (`Authorization: Bearer <token>`)
+issued on login, validated per-request via the `get_current_user` FastAPI dependency
+(`backend/app/core/deps.py`), which resolves the current user and their organisation
+from the token — never from client-supplied input. A user belongs to exactly one
+organisation per token (see the multi-tenancy decision in
+[DecisionLog.md](DecisionLog.md)); multi-organisation login is future SaaS work (see
+[FutureIdeas.md](FutureIdeas.md)).
+
+Full design reasoning (password hashing, token claims, the logout/revocation
+strategy, the bootstrap admin mechanism) is recorded in
+[DecisionLog.md](DecisionLog.md#2026-07-25-authentication-password-hashing-and-token-revocation-strategy)
+and the
+[Milestone 1 plan](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md#1-authentication).
+
+### `POST /api/v1/auth/login`
+
+Request:
+```json
+{ "email": "user@example.com", "password": "..." }
+```
+
+Response `200`:
+```json
+{
+  "access_token": "<jwt>",
+  "token_type": "bearer",
+  "user": {
+    "id": "...", "organisation_id": "...", "email": "...",
+    "full_name": "...", "role": "admin", "is_active": true
+  }
+}
+```
+
+Response `401` for wrong password, unknown email, or an inactive user — always the
+same body (`{"detail": "Incorrect email or password"}`), so the response never
+reveals which of the three occurred.
+
+### `POST /api/v1/auth/logout`
+
+Requires `Authorization: Bearer <token>`. Increments the calling user's
+`token_version`, immediately invalidating every access token issued to that user so
+far (all sessions, not just the current one — see the DecisionLog entry for the
+trade-off). Response `204`.
+
+### `GET /api/v1/auth/me`
+
+Requires `Authorization: Bearer <token>`. Returns the authenticated user's own
+profile (same shape as the `user` object in the login response). `401` if the token
+is missing, invalid, expired, revoked, or the user is inactive.
 
 ## Health and readiness endpoints (Milestone 0)
 
@@ -121,15 +162,16 @@ Response `503` (database unreachable):
 { "status": "not_ready", "database": "error" }
 ```
 
-## Module endpoint prefixes (reserved, not yet implemented)
+## Module endpoint prefixes
 
-Reserved prefixes for future modules, so routing collisions are avoided as modules
-land per the [Roadmap](Roadmap.md). Each will get full documentation in its
+`/api/v1/auth` is implemented (see "Authentication" above). The rest are reserved
+prefixes for future modules, so routing collisions are avoided as modules land per
+the [Roadmap](Roadmap.md). Each will get full documentation in its
 `docs/modules/<Module>.md` "Planned APIs" section as it is implemented:
 
 | Prefix | Module |
 |---|---|
-| `/api/v1/auth` | Authentication (Milestone 1) |
+| `/api/v1/auth` | Authentication (Milestone 1) — implemented |
 | `/api/v1/people` | People |
 | `/api/v1/documents` | Document Management |
 | `/api/v1/products` | Products |
