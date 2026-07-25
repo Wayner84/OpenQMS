@@ -11,6 +11,10 @@ from logging.config import fileConfig
 from sqlalchemy import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
+# Each module's models.py must be imported here (not just app.models) so its tables
+# are registered on Base.metadata before autogenerate/upgrade run. Add one line per
+# module as it's built.
+import app.modules.people.models  # noqa: F401  (registers Company/Person on Base.metadata)
 from alembic import context
 from app.core.config import get_settings
 from app.models import Base

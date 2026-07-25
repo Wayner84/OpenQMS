@@ -59,14 +59,16 @@ Full scope and acceptance criteria:
 11. **Authentication (JWT)** — user model, password hashing (Argon2id), login
     endpoint, `Depends()`-based current-user resolution, scoped to one organisation
     per user. Dependencies: Milestone 0 complete. Complexity: **L**.
-    Status: In Progress.
+    Status: In Progress (backend done; frontend not started).
 12. **User management** — create/list/deactivate users within the seeded
     organisation; roles/permissions model (at least a basic admin/member
-    distinction). Dependencies: Task 11. Complexity: **M**. Status: In Progress.
+    distinction). Dependencies: Task 11. Complexity: **M**. Status: In Progress
+    (backend done; frontend not started).
 13. **People module** — shared employees/customers/suppliers/contacts records per
     [docs/modules/People.md](modules/People.md); multiple contacts per
     customer/supplier. Dependencies: Task 11 (owner/creator attribution),
-    Milestone 0's `organisation_id` pattern. Complexity: **L**. Status: In Progress.
+    Milestone 0's `organisation_id` pattern. Complexity: **L**. Status: In Progress
+    (backend done; frontend not started).
 
 ## Low Priority — Later modules (Milestones 2–9)
 

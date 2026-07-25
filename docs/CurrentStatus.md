@@ -13,12 +13,12 @@ in-progress or planned work as complete.
 for the exact scope and acceptance criteria, and [Roadmap.md](Roadmap.md) for how it
 fits the overall delivery order.
 
-**Phase: backend authentication implemented and verified; user management, People
-module, and all frontend work remain.** M0 (Platform Foundation) is complete and
-verified. The M1 plan has been written and recorded. The backend authentication
-slice (JWT login/logout/me, Argon2id hashing, `Depends()`-based current-user
-resolution, bootstrap admin) is implemented, tested, and gated — see "Completed
-work" below. This section will be updated as each remaining slice lands.
+**Phase: backend authentication, user management, and the People module are all
+implemented and verified; all frontend work remains.** M0 (Platform Foundation) is
+complete and verified. The M1 plan has been written and recorded. All three backend
+vertical slices (auth, user management, People) are implemented, tested, and
+gated — see "Completed work" below. This section will be updated as each remaining
+frontend slice lands.
 
 ## Completed work
 
@@ -145,15 +145,44 @@ work" below. This section will be updated as each remaining slice lands.
   - Gates pass: `ruff format --check`, `ruff check`, `mypy --strict` (50 source
     files), full `pytest` suite (unit + integration).
   - Docs updated in this slice: [API.md](API.md#user-management-milestone-1).
+- **Milestone 1 — People module backend** (TODO Task 13, backend portion):
+  - People module (`backend/app/modules/people/`): `companies` and `people` tables
+    (`backend/alembic/versions/f151a2c68c12_add_companies_and_people_tables.py`),
+    Pydantic schemas enforcing the `is_employee`/`company_id` invariant (`422` on
+    violation — see
+    [DecisionLog.md](DecisionLog.md#2026-07-26-people-module-is_employeecompany_id-invariant-enforced-at-the-schema-layer-not-a-db-constraint)),
+    service layer, and router mounted at `/api/v1/people` and `/api/v1/companies`,
+    per [API.md](API.md#people-module-milestone-1) and
+    [docs/modules/People.md](modules/People.md).
+  - Every operation requires authentication but not admin privilege (People is a
+    shared directory), is scoped to the caller's own organisation (`404` for
+    cross-organisation ids, never `403`), and attributes `created_by_id`/
+    `updated_by_id` from the authenticated caller. A `companies` row cannot be
+    deleted while any `people` row still references it (`409`).
+  - Migration verified with a real upgrade → downgrade → upgrade cycle against the
+    local PostgreSQL 16 dev instance, in addition to the integration suite running
+    `alembic upgrade head` itself.
+  - 100 backend tests passing (up from 69): 21 new unit tests (ORM mapping, schema
+    invariant validation, service-layer organisation scoping/attribution/delete
+    guard) and 9 new integration tests against real PostgreSQL (creator attribution,
+    cross-organisation `404`s for both companies and people, the invariant's `422`,
+    the contacts-delete `409`, company-contacts listing, search, and the
+    authentication requirement). All written test-first.
+  - Gates pass: `ruff format --check`, `ruff check`, `mypy --strict` (60 source
+    files), full `pytest` suite (100 tests: unit + integration).
+  - Docs updated in this slice: [API.md](API.md#people-module-milestone-1),
+    [Database.md](Database.md#companies-and-people-tables-milestone-1),
+    [docs/modules/People.md](modules/People.md) (`Status: Implemented`),
+    [DecisionLog.md](DecisionLog.md#2026-07-26-people-module-is_employeecompany_id-invariant-enforced-at-the-schema-layer-not-a-db-constraint).
 
 ## Work in progress
 
 Milestone 1 (Authentication, Organisations, People) — see
 [.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md)
-for the full scope. Backend authentication and backend user management (above) are
-done. Still to do: the authentication and user-management frontend UI, the People
-module (backend + frontend, TODO Task 13), then a full Docker Compose end-to-end
-verification and security/tenant-isolation review.
+for the full scope. All backend work (authentication, user management, People —
+above) is done. Still to do: the authentication, user-management, and People
+frontend UI, then a full Docker Compose end-to-end verification and
+security/tenant-isolation review.
 
 ## Known bugs
 
@@ -173,10 +202,11 @@ FastAPI/pytest version bump.
 
 ## Next recommended tasks
 
-Continue Milestone 1 in the commit order recorded in
+All three Milestone 1 backend slices (auth, user management, People) are done.
+Continue in the commit order recorded in
 [.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md#suggested-commit-boundaries):
-authentication UI next, then user management (backend + frontend), then the People
-module (backend + frontend), then the full Docker Compose smoke test.
+authentication UI next, then user management UI, then the People module UI, then
+the full Docker Compose smoke test.
 
 Note on local tooling: this backend was developed using a repository-local `uv`
 install and virtual environment under `.tools/` (git-ignored) because `uv` was not

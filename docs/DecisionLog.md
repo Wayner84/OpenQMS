@@ -502,3 +502,33 @@ could have a generated password logged and then rotated out of the log buffer wi
 no other way to recover it short of re-triggering bootstrap by deleting the user row
 directly in the database — acceptable for Milestone 1 given `BOOTSTRAP_ADMIN_PASSWORD`
 is always available as an explicit alternative for operators who want a known value.
+
+## 2026-07-26 — People module: `is_employee`/`company_id` invariant enforced at the schema layer, not a DB constraint
+
+**Problem:** A `people` row must be either an employee (`is_employee=true`,
+`company_id=null`) or a company contact (`is_employee=false`, `company_id` set) —
+never both, never neither. Where should this rule live?
+
+**Options considered:**
+- **A PostgreSQL `CHECK` constraint** on the `people` table — enforces the invariant
+  even against direct database writes or a future bulk-import path, but SQLite (used
+  for the fast unit test suite per [Contributing.md](Contributing.md)) has weaker
+  `CHECK` support in this SQLAlchemy version and the ORM-level unit tests
+  (`backend/tests/unit/test_people_models.py`) intentionally construct both employee
+  and contact rows directly to test the mapping, independent of the invariant.
+- **A Pydantic `model_validator` on `PersonWriteRequest`** (chosen) — rejects a
+  contradictory request with `422` before it reaches the service or database layer.
+
+**Chosen:** schema-level validation only
+(`backend/app/modules/people/schemas.py::PersonWriteRequest._check_employee_company_invariant`).
+
+**Reason:** Every write path in Milestone 1 goes through the API (no bulk import, no
+direct-database admin tooling yet), so schema-level enforcement covers every real
+write today while keeping the ORM model free to represent either state for testing
+and any future service-layer code (e.g. a bulk import) that needs to construct rows
+before validating them as a batch.
+
+**Trade-off, revisit when relevant:** this does not protect against a future
+direct-database write or bulk import bypassing the API layer. If/when Task 30-style
+bulk import work begins, reconsider adding a `CHECK` constraint (PostgreSQL-only,
+via a targeted migration) at that point rather than deferring indefinitely.

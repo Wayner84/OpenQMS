@@ -249,18 +249,18 @@ working, tested unit, per [Contributing.md](../../docs/Contributing.md).
 
 ## Acceptance criteria
 
-- [ ] `users`, `companies`, `people` tables exist via reviewed Alembic migrations,
+- [x] `users`, `companies`, `people` tables exist via reviewed Alembic migrations,
       each verified with a real upgrade → downgrade → upgrade cycle against
       PostgreSQL.
-- [ ] Bootstrap admin mechanism creates exactly one admin user on first startup with
+- [x] Bootstrap admin mechanism creates exactly one admin user on first startup with
       no committed credential, is idempotent on restart, and is covered by a test.
-- [ ] Login, logout (token revocation via `token_version`), and `GET /me` work
+- [x] Login, logout (token revocation via `token_version`), and `GET /me` work
       end-to-end against real PostgreSQL, with passing tests for success, wrong
       password, inactive user, and expired/invalid/revoked tokens.
-- [ ] User management (`/api/v1/users`) supports create/list/deactivate, is
+- [x] User management (`/api/v1/users`) supports create/list/deactivate, is
       admin-only, enforces the self-deactivation and last-admin guards, and is
       organisation-scoped (`404` cross-org), all covered by tests.
-- [ ] People module (`/api/v1/people`, `/api/v1/companies`) implements the schema and
+- [x] People module (`/api/v1/people`, `/api/v1/companies`) implements the schema and
       endpoints in [docs/modules/People.md](../../docs/modules/People.md), enforces
       the `is_employee`/`company_id` invariant and the companies-with-contacts delete
       guard, is organisation-scoped (`404` cross-org), and attributes

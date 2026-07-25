@@ -1,8 +1,9 @@
 # People
 
-**Status: Planned.** Not yet implemented — targeted for
-[Milestone 1](../Roadmap.md#m1-authentication-organisations-people). No code exists
-for this module yet; see [docs/CurrentStatus.md](../CurrentStatus.md).
+**Status: Implemented** (Milestone 1). See
+[.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md](../../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md#3-people-module)
+for the implementation plan and [docs/CurrentStatus.md](../CurrentStatus.md) for
+current verification status.
 
 ## Purpose
 
@@ -11,33 +12,58 @@ the system instead of each module keeping its own contact records. Stores phone,
 email, role, department and notes, and supports multiple contacts per customer and
 supplier per [ProductSpecification.md](../ProductSpecification.md#people).
 
-## Planned database tables
+## Database tables
 
-All tables carry `organisation_id` per [Database.md](../Database.md#multi-tenancy-baseline).
+Implemented by
+`backend/alembic/versions/f151a2c68c12_add_companies_and_people_tables.py`. Both
+tables carry `organisation_id` per
+[Database.md](../Database.md#multi-tenancy-baseline).
 
-- **`companies`** — `id`, `organisation_id`, `name`, `type` (`customer` / `supplier` /
-  `other`), `address`, `phone`, `general_email`, `notes`, `created_at`, `updated_at`.
-  A lightweight external-organisation record; the [Suppliers](Suppliers.md) module
-  attaches supplier-specific fields to a `companies` row rather than duplicating
-  name/address/contact data.
+- **`companies`** (`backend/app/modules/people/models.py`) — `id`, `organisation_id`,
+  `name`, `type` (native PostgreSQL ENUM `customer` / `supplier` / `other`),
+  `address`, `phone`, `general_email`, `notes`, `created_by_id`/`updated_by_id` (FK →
+  `users.id`, nullable), `created_at`, `updated_at`. A lightweight
+  external-organisation record; the [Suppliers](Suppliers.md) module (not yet built)
+  is expected to attach supplier-specific fields to a `companies` row rather than
+  duplicating name/address/contact data.
 - **`people`** — `id`, `organisation_id`, `company_id` (nullable FK →
-  `companies.id`), `first_name`, `last_name`, `email`, `phone`, `role`, `department`,
-  `notes`, `is_employee` (bool), `created_at`, `updated_at`. A null `company_id`
-  represents an internal employee; a populated one represents a contact at a customer
-  or supplier company — this is how "multiple contacts per customer and supplier" is
-  satisfied (many `people` rows referencing one `companies` row).
+  `companies.id`), `first_name`, `last_name`, `email` (nullable), `phone`, `role`,
+  `department`, `notes`, `is_employee` (bool), `created_by_id`/`updated_by_id`,
+  `created_at`, `updated_at`. A null `company_id` represents an internal employee; a
+  populated one represents a contact at a customer or supplier company — this is how
+  "multiple contacts per customer and supplier" is satisfied (many `people` rows
+  referencing one `companies` row). **Invariant**: `is_employee` is `true` if and
+  only if `company_id` is `null` — enforced by a Pydantic validator
+  (`backend/app/modules/people/schemas.py`) that rejects a contradictory combination
+  with `422`, before it reaches the service layer.
 
-## Planned APIs
+No soft delete: per
+[Database.md](../Database.md#soft-delete-and-audit-trail)'s "purely operational/
+lookup tables may hard-delete" carve-out, `DELETE` removes the row. A `companies`
+row cannot be deleted while any `people` row still references it (`409`) — an
+operator must reassign or delete those contacts first.
 
-Under `/api/v1/people` per [API.md](../API.md#module-endpoint-prefixes-reserved-not-yet-implemented):
+## APIs
+
+Implemented under `/api/v1/people` and `/api/v1/companies`
+(`backend/app/modules/people/router.py`), per [API.md](../API.md). Every endpoint
+requires authentication (any active user in the organisation — People is a shared
+directory, not an admin-only function) and is scoped to the caller's own
+organisation; a cross-organisation id returns `404`, never revealing whether it
+exists elsewhere.
 
 - `GET/POST /api/v1/people`, `GET/PATCH/DELETE /api/v1/people/{id}` — standard CRUD,
-  paginated and filterable by `company_id`, `is_employee`, `department`.
+  paginated (`?limit=&offset=`) and filterable by `company_id`, `is_employee`,
+  `department`.
 - `GET/POST /api/v1/companies`, `GET/PATCH/DELETE /api/v1/companies/{id}` — CRUD for
   the company directory.
-- `GET /api/v1/companies/{id}/people` — list contacts for one company.
-- `GET /api/v1/people?search=` — name/email/role search, feeding the app-wide search
-  goal in [Architecture.md](../Architecture.md).
+- `GET /api/v1/companies/{id}/people` — paginated list of contacts for one company.
+- `GET /api/v1/people?search=` — case-insensitive substring search across
+  `first_name`/`last_name`/`email`/`role`, feeding the app-wide search goal in
+  [Architecture.md](../Architecture.md).
+
+Creator/updater attribution: `created_by_id` is set from the authenticated caller on
+create; `updated_by_id` is set on every update.
 
 ## Workflow
 
@@ -48,13 +74,14 @@ Maintenance request's `assigned_to_id`, a Supplier's linked `company_id`.
 
 ## Relationships to other modules
 
-- [Suppliers](Suppliers.md) — a `suppliers` row links to a `companies` row for
-  identity/contact data; supplier contacts are `people` rows with that `company_id`.
-- Every module with an owner, assignee, approver, or reporter field (NCR, Maintenance,
-  Calibration, the Health and Safety modules) references `people.id` rather than
-  storing name/contact details inline.
-- [Document Management](DocumentManagement.md) — approvers and acknowledging staff
-  are `people`.
+- [Suppliers](Suppliers.md) (not yet built) — a `suppliers` row will link to a
+  `companies` row for identity/contact data; supplier contacts are `people` rows
+  with that `company_id`.
+- Every future module with an owner, assignee, approver, or reporter field (NCR,
+  Maintenance, Calibration, the Health and Safety modules) is expected to reference
+  `people.id` rather than storing name/contact details inline.
+- [Document Management](DocumentManagement.md) (not yet built) — approvers and
+  acknowledging staff are expected to be `people`.
 
 ## Future improvements
 
@@ -65,13 +92,17 @@ Maintenance request's `assigned_to_id`, a Supplier's linked `company_id`.
 
 ## Known issues / status
 
-Planned only; no schema, API, or UI exists yet. Depends on
-[authentication](../Roadmap.md#m1-authentication-organisations-people) landing in
-the same milestone, since `people` rows are expected to be attributable to acting
-users once auth exists.
+Backend (schema, migration, service layer, API) is implemented and tested — unit
+tests for models/schemas/service (`backend/tests/unit/test_people_*.py`) and
+integration tests against real PostgreSQL covering organisation isolation, the
+`is_employee`/`company_id` invariant, and the companies-with-contacts delete guard
+(`backend/tests/integration/test_people.py`). Frontend screens are tracked
+separately in [docs/CurrentStatus.md](../CurrentStatus.md) — see that document for
+exactly what is and isn't done as of the current session.
 
 ## Related documents
 
 - [Roadmap.md](../Roadmap.md#m1-authentication-organisations-people)
 - [Database.md](../Database.md)
+- [API.md](../API.md)
 - [Suppliers.md](Suppliers.md)

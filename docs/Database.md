@@ -136,6 +136,45 @@ credential data is ever seeded by a migration — the bootstrap admin is created
 application code at startup (`backend/app/core/bootstrap.py`) instead, per
 [DecisionLog.md](DecisionLog.md).
 
+### `companies` and `people` tables (Milestone 1)
+
+Implements the People module ([docs/modules/People.md](modules/People.md)) — a
+shared directory of employees, customers, suppliers, and contacts. Implemented by
+`backend/alembic/versions/f151a2c68c12_add_companies_and_people_tables.py`.
+
+`companies`:
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID, PK | |
+| `organisation_id` | UUID, FK → `organisations.id`, not null | |
+| `name` | text, not null | |
+| `type` | native PostgreSQL ENUM (`customer`, `supplier`, `other`) | Fixed by domain, default `other` |
+| `address` / `phone` / `general_email` / `notes` | nullable | |
+| `created_by_id` / `updated_by_id` | UUID, FK → `users.id`, nullable | Attribution — set from the authenticated caller |
+| `created_at` / `updated_at` | timestamptz | |
+
+`people`:
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID, PK | |
+| `organisation_id` | UUID, FK → `organisations.id`, not null | |
+| `company_id` | UUID, FK → `companies.id`, nullable | Null = employee; populated = contact at that company |
+| `first_name` / `last_name` | text, not null | |
+| `email` / `phone` / `role` / `department` / `notes` | nullable | |
+| `is_employee` | boolean, not null, default `false` | Must agree with `company_id` — see invariant below |
+| `created_by_id` / `updated_by_id` | UUID, FK → `users.id`, nullable | |
+| `created_at` / `updated_at` | timestamptz | |
+
+**Invariant**: `is_employee` is `true` if and only if `company_id` is `null`.
+Enforced by a Pydantic validator (`backend/app/modules/people/schemas.py`), not a DB
+constraint — the model layer permits both fields to vary independently so unit tests
+can exercise ORM behaviour directly, but every write through the API is rejected
+with `422` if the two disagree. A `companies` row cannot be deleted while any
+`people` row still references it (`409`); per
+[the carve-out below](#soft-delete-and-audit-trail), both tables hard-delete.
+
 ## Soft delete and audit trail
 
 Not implemented in Milestone 0. Planned approach (documented now so later modules are

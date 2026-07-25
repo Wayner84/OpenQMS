@@ -163,6 +163,59 @@ organisation with zero active admins — see the Milestone 1 plan's
 [user management section](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md#2-user-management)
 for why these guards exist.
 
+## People module (Milestone 1)
+
+Under `/api/v1/people` and `/api/v1/companies`, both requiring
+`Authorization: Bearer <token>` for any **active user** in the organisation — People
+is a shared directory, not an admin-only function (unlike user management above).
+Full design in
+[the Milestone 1 plan](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md#3-people-module)
+and [docs/modules/People.md](modules/People.md).
+
+### `POST /api/v1/companies` / `PATCH /api/v1/companies/{id}`
+
+Request: `{ "name": "...", "type": "customer"|"supplier"|"other", "address": "...",
+"phone": "...", "general_email": "...", "notes": "..." }` (`type` defaults to
+`"other"`; only `name` is required). Response `201`/`200` with the company, including
+`created_by_id`/`updated_by_id` set from the authenticated caller.
+
+### `GET /api/v1/companies` / `GET /api/v1/companies/{id}`
+
+Paginated list (per [pagination](#pagination)) or single fetch, scoped to the
+caller's own organisation. `404` for another organisation's `id`.
+
+### `DELETE /api/v1/companies/{id}`
+
+`204` on success. `404` if not in the caller's organisation. `409` if any `people`
+row still references it — the caller must reassign or delete those contacts first.
+
+### `GET /api/v1/companies/{id}/people`
+
+Paginated list of contacts (`people` rows) for one company. `404` if the company
+isn't in the caller's own organisation.
+
+### `POST /api/v1/people` / `PATCH /api/v1/people/{id}`
+
+Request: `{ "company_id": "..."|null, "first_name": "...", "last_name": "...",
+"email": "...", "phone": "...", "role": "...", "department": "...", "notes": "...",
+"is_employee": true|false }`. `422` if `is_employee` and `company_id` are
+contradictory (an employee cannot have a `company_id`; a contact must have one).
+`404` if `company_id` is set but doesn't exist in the caller's own organisation.
+Response includes `created_by_id`/`updated_by_id`.
+
+### `GET /api/v1/people` / `GET /api/v1/people/{id}`
+
+Paginated list or single fetch, scoped to the caller's own organisation. `404` for
+another organisation's `id`. List supports `?company_id=`, `?is_employee=`,
+`?department=` exact filters and `?search=` (case-insensitive substring match across
+`first_name`/`last_name`/`email`/`role`).
+
+### `DELETE /api/v1/people/{id}`
+
+`204` on success (hard delete — see
+[Database.md](Database.md#soft-delete-and-audit-trail)). `404` if not in the caller's
+own organisation.
+
 ## Health and readiness endpoints (Milestone 0)
 
 These are the only endpoints Milestone 0 implements:
@@ -193,17 +246,17 @@ Response `503` (database unreachable):
 
 ## Module endpoint prefixes
 
-`/api/v1/auth` and `/api/v1/users` are implemented (see "Authentication" and "User
-management" above). The rest are reserved prefixes for future modules, so routing
-collisions are avoided as modules land per the [Roadmap](Roadmap.md). Each will get
-full documentation in its `docs/modules/<Module>.md` "Planned APIs" section as it is
-implemented:
+`/api/v1/auth`, `/api/v1/users`, `/api/v1/people`, and `/api/v1/companies` are
+implemented (see "Authentication", "User management", and "People module" above).
+The rest are reserved prefixes for future modules, so routing collisions are avoided
+as modules land per the [Roadmap](Roadmap.md). Each will get full documentation in
+its `docs/modules/<Module>.md` "Planned APIs" section as it is implemented:
 
 | Prefix | Module |
 |---|---|
 | `/api/v1/auth` | Authentication (Milestone 1) — implemented |
 | `/api/v1/users` | User management (Milestone 1) — implemented |
-| `/api/v1/people` | People |
+| `/api/v1/people`, `/api/v1/companies` | People (Milestone 1) — implemented |
 | `/api/v1/documents` | Document Management |
 | `/api/v1/products` | Products |
 | `/api/v1/suppliers` | Suppliers |
