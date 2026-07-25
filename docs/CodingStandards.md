@@ -74,9 +74,16 @@ test-first) around writing code.
   client function set (`modules/<name>/api.ts`) built on one shared `fetch` wrapper in
   `shared/api/client.ts` that attaches the base URL, JSON headers, and (once auth
   exists) the bearer token. Components never call `fetch` directly.
-- **Styling**: a single consistent approach is chosen and documented once selected in
-  Milestone 0/1 implementation (component library + CSS approach); light and dark
-  mode are supported via a theme, not per-component overrides.
+- **Styling**: plain CSS with custom properties (CSS variables), no component library
+  or CSS-in-JS — chosen in Milestone 0 for a dependency-light, framework-agnostic
+  baseline (see [DecisionLog.md](DecisionLog.md#2026-07-25-frontend-styling-approach)).
+  Theme colours are defined once as CSS custom properties on `:root` and overridden
+  under `[data-theme='dark']`; components style against the variables, never
+  hard-coded colours. Light/dark mode is applied via a `data-theme` attribute on
+  `<html>`, driven by `shared/theme/ThemeProvider.tsx`, which resolves the OS
+  `prefers-color-scheme` by default and persists an explicit user toggle
+  (`shared/theme/ThemeToggle.tsx`) to `localStorage`. This keeps theming centralised
+  and not a per-component concern.
 - **Linting/formatting: ESLint** (TypeScript + React + accessibility plugins) and
   **Prettier**, run via `npm run lint`.
 - **Type checking**: `tsc --noEmit` via `npm run typecheck`, must pass with zero

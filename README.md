@@ -12,12 +12,11 @@ Full product vision: [docs/ProductSpecification.md](docs/ProductSpecification.md
 
 ## Project status
 
-**Planning complete for Milestone 0; no application code has been written yet.** This
-repository currently contains the documentation-first architecture and implementation
-plan for the platform foundation. See [docs/CurrentStatus.md](docs/CurrentStatus.md)
-for the truthful, up-to-date state and
+**Milestone 0 in progress.** The backend platform, PostgreSQL database baseline, and
+frontend shell are implemented and verified; the Docker Compose stack is next. See
+[docs/CurrentStatus.md](docs/CurrentStatus.md) for the truthful, up-to-date state and
 [.hermes/plans/2026-07-25-milestone-0-foundation.md](.hermes/plans/2026-07-25-milestone-0-foundation.md)
-for exactly what the next batch of work will implement.
+for exactly what remains.
 
 ## Stack
 

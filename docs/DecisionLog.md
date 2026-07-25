@@ -364,3 +364,43 @@ of guessing one.
 **Cons:** no user-visible product feature ships in Milestone 0 — acceptable, since
 [CurrentStatus.md](CurrentStatus.md) and [Roadmap.md](Roadmap.md) make this explicit
 and the next batch (Milestone 0 implementation) is scoped to be small and fast.
+
+---
+
+## 2026-07-25 — Frontend styling approach
+
+**Problem:** [CodingStandards.md](CodingStandards.md) commits to picking one styling
+approach and documenting it once Milestone 0 builds the frontend shell, rather than
+letting each component invent its own. Needed something that supports accessible
+light/dark theming with minimal dependency weight for a health-check-only screen.
+
+**Options considered:**
+- **Plain CSS with custom properties (CSS variables) + a `data-theme` attribute** —
+  zero extra dependencies, themes are a flat set of variables swapped by one
+  attribute, works with any future component approach.
+- **A component library (e.g. MUI, Chakra, Mantine)** — batteries-included
+  components and theming, but a heavy dependency and an opinionated design system to
+  commit to before any real product screen exists to justify the choice.
+- **CSS-in-JS (styled-components, Emotion)** — colocates styles with components, but
+  adds a runtime dependency and build-time complexity Milestone 0's single screen
+  does not need.
+- **Utility-first CSS (Tailwind)** — fast to write once learned, but adds a build
+  pipeline dependency and a class-naming convention across every future module before
+  there is a real design system to validate it against.
+
+**Chosen:** Plain CSS with custom properties, themed via a `data-theme` attribute on
+`<html>` set by `shared/theme/ThemeProvider.tsx`.
+
+**Reason:** Milestone 0 has exactly one screen; committing to a component
+library or CSS-in-JS runtime now would be a speculative bet ahead of any real product
+UI. CSS variables give light/dark theming (respecting `prefers-color-scheme`, with a
+user-toggle override persisted to `localStorage`) with no added dependency, and don't
+foreclose adopting a component library later once real product modules (data tables,
+forms) make that trade-off worthwhile.
+
+**Pros:** zero extra dependencies; themes fully expressed as a small set of CSS
+variables; no build-time cost; trivially inspectable in devtools.
+
+**Cons:** no pre-built component primitives (buttons, tables, dialogs) — acceptable
+since Milestone 0 has no such components yet; revisit when a module needs a data grid
+or complex form library.

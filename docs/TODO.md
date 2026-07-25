@@ -30,15 +30,15 @@ Full scope and acceptance criteria:
    config/health logic, integration test for `/health/ready` against real
    PostgreSQL, written test-first. Dependencies: Tasks 1–3. Complexity: **M**.
    Status: Done.
-5. **Frontend project skeleton** — Vite + React + TypeScript scaffold, routing/layout
-   shell, theme provider (light/dark), per [Architecture.md](Architecture.md).
-   Dependencies: none. Complexity: **M**. Status: Not Started.
+5. **Frontend project skeleton** — Vite + React + TypeScript scaffold, layout shell,
+   theme provider (light/dark), per [Architecture.md](Architecture.md). Dependencies:
+   none. Complexity: **M**. Status: Done.
 6. **Frontend API health display** — typed `shared/api/client.ts` wrapper, one
    screen that calls `/api/v1/health` (and `/health/ready`) and displays live status.
-   Dependencies: Tasks 2, 5. Complexity: **S**. Status: Not Started.
+   Dependencies: Tasks 2, 5. Complexity: **S**. Status: Done.
 7. **Frontend tooling and tests** — ESLint, Prettier, Vitest + React Testing Library;
    at least one component test for the health display, written test-first.
-   Dependencies: Tasks 5–6. Complexity: **S**. Status: Not Started.
+   Dependencies: Tasks 5–6. Complexity: **S**. Status: Done.
 8. **Docker Compose stack** — `backend/Dockerfile`, `frontend/Dockerfile`,
    `docker-compose.yml`, `.env.example`, named volumes, health checks, per
    [Docker.md](Docker.md). Dependencies: Tasks 1–7. Complexity: **M**.

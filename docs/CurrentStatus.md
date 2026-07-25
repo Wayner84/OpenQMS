@@ -13,9 +13,9 @@ in-progress or planned work as complete.
 for the exact scope and acceptance criteria, and [Roadmap.md](Roadmap.md) for how it
 fits the overall delivery order.
 
-**Phase: implementation in progress.** The backend platform and PostgreSQL database
-baseline are implemented and verified. The frontend shell and complete Docker Compose
-stack remain.
+**Phase: implementation in progress.** The backend platform, PostgreSQL database
+baseline, and frontend shell are implemented and verified. The complete Docker
+Compose stack remains.
 
 ## Completed work
 
@@ -53,26 +53,45 @@ stack remain.
 - Technology stack chosen and recorded with reasoning: FastAPI + SQLAlchemy 2.0 +
   Alembic + PostgreSQL (backend), React + TypeScript + Vite (frontend), Docker
   Compose for orchestration. Full reasoning in [DecisionLog.md](DecisionLog.md).
+- Frontend Vite + React + TypeScript (strict) shell (`frontend/`): app shell
+  (`src/app/App.tsx`, `Layout.tsx`), a typed shared API client
+  (`src/shared/api/client.ts`) built on `fetch` and `VITE_API_BASE_URL`, typed health
+  client functions (`src/shared/api/health.ts`), and the one Milestone 0 screen
+  (`src/app/HealthStatus.tsx`) that calls `GET /api/v1/health` and
+  `GET /api/v1/health/ready` live and shows loading/success/error states. Accessible
+  light/dark theming (`src/shared/theme/ThemeProvider.tsx`, `ThemeToggle.tsx`) follows
+  `prefers-color-scheme` by default with a persisted user override; styling approach
+  (plain CSS custom properties, no component library) recorded in
+  [DecisionLog.md](DecisionLog.md#2026-07-25-frontend-styling-approach) and
+  [CodingStandards.md](CodingStandards.md#frontend-react-typescript).
+- Frontend tooling: ESLint (flat config, typescript-eslint strict type-checked +
+  react/react-hooks/jsx-a11y), Prettier, `tsc --noEmit` (strict), Vitest + React
+  Testing Library. `npm run lint`, `format:check`, `typecheck`, `test`, `build` all
+  pass; 5 tests across 2 files (`client.test.ts`, `HealthStatus.test.tsx`), written
+  test-first (RED confirmed against the missing modules, then GREEN).
 
 ## Work in progress
 
-Milestone 0 frontend and containerisation slice (see
+Milestone 0 containerisation slice (see
 [.hermes/plans/2026-07-25-milestone-0-foundation.md](../.hermes/plans/2026-07-25-milestone-0-foundation.md)):
-the React shell, frontend health display/tooling, Dockerfiles, Docker Compose stack,
-persistent-volume test and full-stack smoke test have not yet been implemented.
+Dockerfiles, the Docker Compose stack, persistent-volume test, and full-stack smoke
+test have not yet been implemented.
 
 ## Known bugs
 
-None known in the code written so far.
+None known in the code written so far. `npm audit` (frontend) reports 12
+vulnerabilities, all in dev-only tooling transitive dependencies (ESLint's
+`minimatch`/`brace-expansion`, Vite's dev-time `esbuild`), none in shipped runtime
+code; each documented fix requires an unproven major-version jump (ESLint 9→10,
+Vite 5→8) and is deferred rather than forced. Revisit when those majors are mature.
 
 ## Next recommended tasks
 
 Continue Milestone 0 as scoped in
 [.hermes/plans/2026-07-25-milestone-0-foundation.md](../.hermes/plans/2026-07-25-milestone-0-foundation.md):
-the frontend shell, live health display, frontend lint/type/test tooling, and Docker
-Compose stack (Tasks 5-9). Full
-task breakdown with dependencies and complexity in [TODO.md](TODO.md) under "High
-Priority."
+the Docker Compose stack (Tasks 8-9) and Milestone 0 documentation close-out
+(Task 10). Full task breakdown with dependencies and complexity in
+[TODO.md](TODO.md) under "High Priority."
 
 Note on local tooling: this backend was developed using a repository-local `uv`
 install and virtual environment under `.tools/` (git-ignored) because `uv` was not
