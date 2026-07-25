@@ -53,17 +53,20 @@ Full scope and acceptance criteria:
 
 ## Medium Priority — Milestone 1 (Auth, Organisations, People)
 
+Full scope and acceptance criteria:
+[.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md).
+
 11. **Authentication (JWT)** — user model, password hashing (Argon2id), login
     endpoint, `Depends()`-based current-user resolution, scoped to one organisation
     per user. Dependencies: Milestone 0 complete. Complexity: **L**.
-    Status: Not Started.
+    Status: In Progress.
 12. **User management** — create/list/deactivate users within the seeded
     organisation; roles/permissions model (at least a basic admin/member
-    distinction). Dependencies: Task 11. Complexity: **M**. Status: Not Started.
+    distinction). Dependencies: Task 11. Complexity: **M**. Status: In Progress.
 13. **People module** — shared employees/customers/suppliers/contacts records per
     [docs/modules/People.md](modules/People.md); multiple contacts per
     customer/supplier. Dependencies: Task 11 (owner/creator attribution),
-    Milestone 0's `organisation_id` pattern. Complexity: **L**. Status: Not Started.
+    Milestone 0's `organisation_id` pattern. Complexity: **L**. Status: In Progress.
 
 ## Low Priority — Later modules (Milestones 2–9)
 

@@ -8,16 +8,15 @@ in-progress or planned work as complete.
 
 ## Current milestone
 
-**M0 — Platform Foundation.** See
-[.hermes/plans/2026-07-25-milestone-0-foundation.md](../.hermes/plans/2026-07-25-milestone-0-foundation.md)
+**M1 — Authentication, Organisations, People.** See
+[.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md)
 for the exact scope and acceptance criteria, and [Roadmap.md](Roadmap.md) for how it
 fits the overall delivery order.
 
-**Phase: implementation complete, verified against every acceptance criterion in the
-plan.** The backend platform, PostgreSQL database baseline, frontend shell, and full
-Docker Compose stack are implemented and verified end-to-end. Milestone 1
-(Authentication, Organisations, People) is next — see
-[Roadmap.md](Roadmap.md#m1-authentication-organisations-people).
+**Phase: implementation starting.** M0 (Platform Foundation) is complete and
+verified — see the "Completed work" section below. The M1 plan has been written and
+recorded; JWT authentication, user management, and the People module implementation
+is beginning this session. This section will be updated as each slice lands.
 
 ## Completed work
 
@@ -93,7 +92,10 @@ Docker Compose stack are implemented and verified end-to-end. Milestone 1
 
 ## Work in progress
 
-None. Milestone 0 is complete; see [TODO.md](TODO.md) for Milestone 1's tasks.
+Milestone 1 (Authentication, Organisations, People) — see
+[.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md)
+for the full scope. Plan written and committed; implementation of TODO Tasks 11–13
+(JWT auth, user management, People module) is in progress this session.
 
 ## Known bugs
 
@@ -105,10 +107,10 @@ Vite 5→8) and is deferred rather than forced. Revisit when those majors are ma
 
 ## Next recommended tasks
 
-Begin Milestone 1 — Authentication (JWT), user management, and the People module
-(Tasks 11–13 in [TODO.md](TODO.md) under "Medium Priority"). See
-[Roadmap.md](Roadmap.md#m1-authentication-organisations-people) for the milestone
-narrative.
+Implement Milestone 1 in the commit order recorded in
+[.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md#suggested-commit-boundaries):
+JWT auth first, then user management, then the People module, backend before
+frontend for each slice.
 
 Note on local tooling: this backend was developed using a repository-local `uv`
 install and virtual environment under `.tools/` (git-ignored) because `uv` was not
