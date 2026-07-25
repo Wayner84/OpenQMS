@@ -1,8 +1,8 @@
 # Database
 
 This document defines the database engine, migration workflow, and schema
-conventions for openQMS. It is written before any schema exists; it is the contract
-the Milestone 0 implementation and every later module must follow. See
+conventions for openQMS. Milestone 0 implements the baseline described here; every
+later module must continue to follow this contract. See
 [DecisionLog.md](DecisionLog.md) for why these choices were made.
 
 ## Engines
@@ -56,8 +56,8 @@ the Milestone 0 implementation and every later module must follow. See
   calls for configurability (e.g. document/NCR numbering prefixes, risk matrices —
   see "Business configuration" below). When in doubt, prefer the configurable lookup
   table, per the spec's cross-cutting data-driven-configuration requirement.
-- Migration file names: Alembic's default revision ID prefix plus a short slug, e.g.
-  `2026_08_01_1200_add_organisations_table.py`.
+- Migration file names: Alembic's default revision hash prefix plus a short slug, e.g.
+  `592fe625cdd5_add_organisations_table.py`.
 
 ## Primary key strategy
 
@@ -81,7 +81,7 @@ foreign key to `organisations.id`. Milestone 0 introduces:
 | `slug` | text, unique, not null | URL/identifier-safe short name |
 | `created_at` / `updated_at` | timestamptz | |
 
-Milestone 0 seeds exactly one row (via an Alembic data migration) representing the
+Milestone 0 seeds exactly one row (via the initial Alembic migration) representing the
 self-hosted instance's own organisation. No UI or API for creating additional
 organisations exists yet — that is deferred until hosted/SaaS work is scheduled (see
 [FutureIdeas.md](FutureIdeas.md)); the table exists now purely so every later
@@ -104,6 +104,14 @@ numbering) to attach it to:
 Unique constraint on (`organisation_id`, `key`). Later modules add their own typed
 configuration (e.g. an NCR module's `ncr_numbering_scheme` row) using this same
 pattern rather than hard-coding prefixes, intervals, or thresholds in code.
+
+### Implemented migration and verification
+
+The baseline is implemented by
+`backend/alembic/versions/592fe625cdd5_create_organisations_and_configuration_.py`.
+`backend/tests/integration/test_database_baseline.py` verifies it against real
+PostgreSQL, including exact-one-row seeding after repeated upgrades, JSONB storage,
+and the readiness endpoint. SQLite unit tests cover portable ORM constraints only.
 
 ## Soft delete and audit trail
 

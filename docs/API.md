@@ -1,7 +1,7 @@
 # API
 
-REST conventions for the openQMS backend. Written before any endpoint exists; it is
-the contract Milestone 0 and every later module must follow. See
+REST conventions for the openQMS backend. Milestone 0 implements the health and
+readiness endpoints; this is the contract every later module must follow. See
 [Architecture.md](Architecture.md) for how the API fits the layered backend and
 [DecisionLog.md](DecisionLog.md) for why URL path versioning was chosen.
 
@@ -86,7 +86,7 @@ simple and typed.
 
 Not implemented in Milestone 0 (see
 [the Milestone 0 plan](../.hermes/plans/2026-07-25-milestone-0-foundation.md)).
-Planned for Milestone 1: JWT bearer tokens (`Authorization: Bearer <token>`), issued
+Planned for Milestone 1: JWT bearer tokens (`Authorization: Bearer <token>`) issued
 on login, validated per-request via a FastAPI dependency that resolves the current
 user and their organisation. Designed from the start to support a user belonging to
 one organisation per token (see the multi-tenancy decision in

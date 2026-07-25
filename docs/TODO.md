@@ -25,11 +25,11 @@ Full scope and acceptance criteria:
 3. **Alembic setup + organisations/configuration baseline** — initialise Alembic,
    write the migration creating `organisations` and `configuration` tables plus a
    data migration seeding one organisation row, per [Database.md](Database.md).
-   Dependencies: Task 1. Complexity: **M**. Status: Not Started.
+   Dependencies: Task 1. Complexity: **M**. Status: Done.
 4. **Backend tooling and tests** — ruff, mypy, pytest configuration; unit tests for
    config/health logic, integration test for `/health/ready` against real
    PostgreSQL, written test-first. Dependencies: Tasks 1–3. Complexity: **M**.
-   Status: Not Started.
+   Status: Done.
 5. **Frontend project skeleton** — Vite + React + TypeScript scaffold, routing/layout
    shell, theme provider (light/dark), per [Architecture.md](Architecture.md).
    Dependencies: none. Complexity: **M**. Status: Not Started.

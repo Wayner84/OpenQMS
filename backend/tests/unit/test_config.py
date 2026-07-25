@@ -1,11 +1,14 @@
 """Unit tests for the typed application Settings object."""
 
 import pytest
+from pydantic import ValidationError
 
 
 def test_settings_reads_required_fields_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """Settings must load DATABASE_URL, CORS origins, environment, and log level from env vars."""
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://openqms:changeme@localhost:5432/openqms")
+    monkeypatch.setenv(
+        "DATABASE_URL", "postgresql+asyncpg://openqms:changeme@localhost:5432/openqms"
+    )
     monkeypatch.setenv("BACKEND_CORS_ORIGINS", "http://localhost:5173,http://localhost:3000")
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("LOG_LEVEL", "INFO")
@@ -30,5 +33,5 @@ def test_settings_rejects_missing_database_url(monkeypatch: pytest.MonkeyPatch) 
 
     from app.core.config import Settings
 
-    with pytest.raises(Exception):
-        Settings(_env_file=None)  # type: ignore[call-arg]
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)

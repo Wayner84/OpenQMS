@@ -6,7 +6,10 @@
 $ErrorActionPreference = "Stop"
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $mdFiles = Get-ChildItem -Path $root -Recurse -Filter *.md -File |
-    Where-Object { $_.FullName -notmatch '\\\.git\\' }
+    Where-Object {
+        $_.FullName -notlike '*\.git\*' -and
+        $_.FullName -notlike '*\.tools\*'
+    }
 
 function ConvertTo-Slug($heading) {
     $slug = $heading.ToLower()

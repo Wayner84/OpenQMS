@@ -14,6 +14,10 @@ def test_create_app_configures_cors_allow_list(monkeypatch) -> None:  # type: ig
     get_settings.cache_clear()
     app = create_app()
 
-    cors_middlewares = [m for m in app.user_middleware if m.cls is CORSMiddleware]
+    cors_middlewares = [
+        m
+        for m in app.user_middleware
+        if m.cls is CORSMiddleware  # type: ignore[comparison-overlap]
+    ]
     assert len(cors_middlewares) == 1
     assert cors_middlewares[0].kwargs["allow_origins"] == ["http://localhost:5173"]

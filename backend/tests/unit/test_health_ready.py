@@ -6,11 +6,12 @@ separately by the integration test.
 """
 
 import pytest
+from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 
 @pytest.fixture
-def app(monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
+def app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
     monkeypatch.setenv("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
     monkeypatch.setenv("BACKEND_CORS_ORIGINS", "http://localhost:5173")
 
@@ -23,7 +24,7 @@ def app(monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
     return create_app()
 
 
-async def test_health_ready_returns_ready_when_database_reachable(app) -> None:  # type: ignore[no-untyped-def]
+async def test_health_ready_returns_ready_when_database_reachable(app: FastAPI) -> None:
     """GET /api/v1/health/ready returns 200 {"status": "ready", "database": "ok"}."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -33,9 +34,7 @@ async def test_health_ready_returns_ready_when_database_reachable(app) -> None: 
     assert response.json() == {"status": "ready", "database": "ok"}
 
 
-async def test_health_ready_returns_503_when_database_unreachable(
-    app, monkeypatch: pytest.MonkeyPatch  # type: ignore[no-untyped-def]
-) -> None:
+async def test_health_ready_returns_503_when_database_unreachable(app: FastAPI) -> None:
     """GET /api/v1/health/ready returns 503 when the DB query raises."""
     from app.api.v1 import health as health_module
 

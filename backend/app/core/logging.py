@@ -17,7 +17,7 @@ class JsonFormatter(logging.Formatter):
         """Return the record as a JSON string with timestamp, level, logger, and message."""
         payload = {
             "timestamp": datetime.datetime.fromtimestamp(
-                record.created, tz=datetime.timezone.utc
+                record.created, tz=datetime.UTC
             ).isoformat(),
             "level": record.levelname,
             "logger": record.name,

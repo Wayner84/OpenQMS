@@ -13,9 +13,9 @@ in-progress or planned work as complete.
 for the exact scope and acceptance criteria, and [Roadmap.md](Roadmap.md) for how it
 fits the overall delivery order.
 
-**Phase: implementation in progress.** Backend platform foundation (app skeleton,
-health/readiness endpoints) is implemented and tested; the database baseline
-(organisations/configuration via Alembic) and full tooling gates are next.
+**Phase: implementation in progress.** The backend platform and PostgreSQL database
+baseline are implemented and verified. The frontend shell and complete Docker Compose
+stack remain.
 
 ## Completed work
 
@@ -27,9 +27,14 @@ health/readiness endpoints) is implemented and tested; the database baseline
 - `GET /api/v1/health` (liveness) and `GET /api/v1/health/ready` (readiness, executes
   a real DB query) implemented per [API.md](API.md), in
   `backend/app/api/v1/health.py`.
-- 8 backend unit tests (SQLite-backed where a database is needed), written test-first
-  (RED confirmed before each implementation), all passing:
-  `backend/tests/unit/{test_config,test_db,test_logging,test_main,test_health,test_health_ready}.py`.
+- SQLAlchemy 2.0 `organisations` and `configuration` models plus the initial Alembic
+  migration. The migration creates both tables and idempotently seeds exactly one
+  default organisation.
+- 14 backend tests passing: 10 unit tests (SQLite where appropriate) and 4 integration
+  tests against PostgreSQL 17. The integration suite verifies migration application,
+  seed idempotency, JSONB round-tripping, and live readiness.
+- Backend quality gates pass: Ruff formatting/linting and strict mypy across 28 source
+  files.
 - Product specification received and read in full
   ([docs/ProductSpecification.md](ProductSpecification.md)).
 - Full documentation-first architecture and implementation plan for Milestone 0
@@ -51,11 +56,10 @@ health/readiness endpoints) is implemented and tested; the database baseline
 
 ## Work in progress
 
-Milestone 0 backend/database slice (see
+Milestone 0 frontend and containerisation slice (see
 [.hermes/plans/2026-07-25-milestone-0-foundation.md](../.hermes/plans/2026-07-25-milestone-0-foundation.md)):
-`organisations`/`configuration` SQLAlchemy models and the Alembic migration/seed are
-not yet implemented; `ruff`/`mypy` gates and the real-PostgreSQL integration test have
-not yet been run. Frontend and Docker Compose work has not started.
+the React shell, frontend health display/tooling, Dockerfiles, Docker Compose stack,
+persistent-volume test and full-stack smoke test have not yet been implemented.
 
 ## Known bugs
 
@@ -65,9 +69,8 @@ None known in the code written so far.
 
 Continue Milestone 0 as scoped in
 [.hermes/plans/2026-07-25-milestone-0-foundation.md](../.hermes/plans/2026-07-25-milestone-0-foundation.md):
-the `organisations`/`configuration` database baseline via Alembic (Task 3), backend
-tooling/test gates including a real-PostgreSQL integration test (Task 4), then the
-frontend shell, lint/type/test tooling, and Docker Compose stack (Tasks 5-9). Full
+the frontend shell, live health display, frontend lint/type/test tooling, and Docker
+Compose stack (Tasks 5-9). Full
 task breakdown with dependencies and complexity in [TODO.md](TODO.md) under "High
 Priority."
 
