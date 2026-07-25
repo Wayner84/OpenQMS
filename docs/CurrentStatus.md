@@ -129,15 +129,31 @@ work" below. This section will be updated as each remaining slice lands.
     [DecisionLog.md](DecisionLog.md#2026-07-25-authentication-password-hashing-and-token-revocation-strategy),
     [DecisionLog.md](DecisionLog.md#2026-07-25-bootstrap-admin-mechanism),
     `.env.example`, `docker-compose.yml`.
+- **Milestone 1 — backend user management** (TODO Task 12, backend portion):
+  - Users module (`backend/app/modules/users/`): `POST /api/v1/users`,
+    `GET /api/v1/users` (paginated), `PATCH /api/v1/users/{id}`, all admin-only, per
+    [API.md](API.md#user-management-milestone-1).
+  - Safety guards (`backend/app/modules/users/service.py`): an admin cannot
+    deactivate or demote themselves via this endpoint; the last active admin in an
+    organisation cannot be deactivated or demoted; duplicate email within an
+    organisation is rejected (`409`); a user id outside the caller's organisation
+    returns `404`, never revealing whether it exists elsewhere.
+  - 69 backend tests passing (up from 50): unit tests for the service layer
+    (creation, pagination/scoping, both guards, cross-org lookup) and integration
+    tests for the full HTTP flow against real PostgreSQL, including admin-vs-member
+    authorization (`403`) and cross-organisation isolation. All written test-first.
+  - Gates pass: `ruff format --check`, `ruff check`, `mypy --strict` (50 source
+    files), full `pytest` suite (unit + integration).
+  - Docs updated in this slice: [API.md](API.md#user-management-milestone-1).
 
 ## Work in progress
 
 Milestone 1 (Authentication, Organisations, People) — see
 [.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md)
-for the full scope. Backend authentication (above) is done. Still to do: the
-authentication frontend UI, organisation-scoped user management (backend + frontend,
-TODO Task 12), the People module (backend + frontend, TODO Task 13), then a full
-Docker Compose end-to-end verification and security/tenant-isolation review.
+for the full scope. Backend authentication and backend user management (above) are
+done. Still to do: the authentication and user-management frontend UI, the People
+module (backend + frontend, TODO Task 13), then a full Docker Compose end-to-end
+verification and security/tenant-isolation review.
 
 ## Known bugs
 

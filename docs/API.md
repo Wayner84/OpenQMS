@@ -134,6 +134,35 @@ Requires `Authorization: Bearer <token>`. Returns the authenticated user's own
 profile (same shape as the `user` object in the login response). `401` if the token
 is missing, invalid, expired, revoked, or the user is inactive.
 
+## User management (Milestone 1)
+
+Under `/api/v1/users`, all requiring `Authorization: Bearer <token>` for an **admin**
+role — every operation here is admin-only, including listing. Non-admin callers get
+`403`. Full design in
+[the Milestone 1 plan](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md#2-user-management).
+
+### `POST /api/v1/users`
+
+Create a user in the admin's own organisation.
+
+Request: `{ "email": "...", "full_name": "...", "password": "...", "role": "member" }`
+(`role` defaults to `"member"`). Response `201` with the same user shape as
+`GET /api/v1/auth/me`. `409` if the email already exists in this organisation.
+
+### `GET /api/v1/users`
+
+Paginated list (`?limit=&offset=`, per [pagination](#pagination)) of users in the
+admin's own organisation only — never another organisation's users.
+
+### `PATCH /api/v1/users/{id}`
+
+Partial update: any of `full_name`, `role`, `is_active`. `404` if `id` doesn't exist
+in the admin's own organisation (never reveals whether it exists elsewhere). `409` if
+the update would let an admin deactivate or demote themselves, or would leave the
+organisation with zero active admins — see the Milestone 1 plan's
+[user management section](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md#2-user-management)
+for why these guards exist.
+
 ## Health and readiness endpoints (Milestone 0)
 
 These are the only endpoints Milestone 0 implements:
@@ -164,14 +193,16 @@ Response `503` (database unreachable):
 
 ## Module endpoint prefixes
 
-`/api/v1/auth` is implemented (see "Authentication" above). The rest are reserved
-prefixes for future modules, so routing collisions are avoided as modules land per
-the [Roadmap](Roadmap.md). Each will get full documentation in its
-`docs/modules/<Module>.md` "Planned APIs" section as it is implemented:
+`/api/v1/auth` and `/api/v1/users` are implemented (see "Authentication" and "User
+management" above). The rest are reserved prefixes for future modules, so routing
+collisions are avoided as modules land per the [Roadmap](Roadmap.md). Each will get
+full documentation in its `docs/modules/<Module>.md` "Planned APIs" section as it is
+implemented:
 
 | Prefix | Module |
 |---|---|
 | `/api/v1/auth` | Authentication (Milestone 1) — implemented |
+| `/api/v1/users` | User management (Milestone 1) — implemented |
 | `/api/v1/people` | People |
 | `/api/v1/documents` | Document Management |
 | `/api/v1/products` | Products |
