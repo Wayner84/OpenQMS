@@ -1,0 +1,78 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { fetchCurrentUser, logout } from '../modules/auth/api';
+import { AuthProvider } from '../modules/auth/AuthContext';
+import { ProtectedRoute } from '../modules/auth/ProtectedRoute';
+import type { User } from '../modules/auth/types';
+import { clearToken, setToken } from '../shared/auth/tokenStore';
+import { ThemeProvider } from '../shared/theme/ThemeProvider';
+import { Layout } from './Layout';
+
+vi.mock('../modules/auth/api');
+
+const mockedFetchCurrentUser = vi.mocked(fetchCurrentUser);
+const mockedLogout = vi.mocked(logout);
+
+const user: User = {
+  id: 'u1',
+  organisation_id: 'o1',
+  email: 'ada@example.com',
+  full_name: 'Ada Lovelace',
+  role: 'member',
+  is_active: true,
+};
+
+describe('Layout', () => {
+  beforeEach(() => {
+    // jsdom (this project's Vitest test environment) doesn't implement
+    // matchMedia; ThemeProvider (rendered here because Layout uses ThemeToggle)
+    // needs it to resolve the OS light/dark preference.
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn().mockReturnValue({
+        matches: false,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }),
+    );
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
+    vi.unstubAllGlobals();
+    clearToken();
+  });
+
+  it("shows the authenticated user's name and logs out on click", async () => {
+    setToken('a.jwt.token');
+    mockedFetchCurrentUser.mockResolvedValue(user);
+    mockedLogout.mockResolvedValue(undefined);
+
+    render(
+      <ThemeProvider>
+        <MemoryRouter initialEntries={['/']}>
+          <AuthProvider>
+            <Routes>
+              <Route path="/login" element={<p>Login page</p>} />
+              <Route element={<ProtectedRoute />}>
+                <Route element={<Layout />}>
+                  <Route path="/" element={<p>Home</p>} />
+                </Route>
+              </Route>
+            </Routes>
+          </AuthProvider>
+        </MemoryRouter>
+      </ThemeProvider>,
+    );
+
+    const logoutButton = await screen.findByRole('button', { name: /log out.*ada lovelace/i });
+    fireEvent.click(logoutButton);
+
+    await waitFor(() => {
+      expect(screen.getByText('Login page')).toBeInTheDocument();
+    });
+    expect(mockedLogout).toHaveBeenCalledOnce();
+  });
+});

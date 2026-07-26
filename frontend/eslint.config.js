@@ -39,7 +39,7 @@ export default tseslint.config(
       ...jsxA11y.configs.recommended.rules,
       'react-refresh/only-export-components': [
         'warn',
-        { allowConstantExport: true, allowExportNames: ['useTheme'] },
+        { allowConstantExport: true, allowExportNames: ['useTheme', 'useAuth'] },
       ],
       '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true }],
     },

@@ -532,3 +532,82 @@ before validating them as a batch.
 direct-database write or bulk import bypassing the API layer. If/when Task 30-style
 bulk import work begins, reconsider adding a `CHECK` constraint (PostgreSQL-only,
 via a targeted migration) at that point rather than deferring indefinitely.
+
+## 2026-07-26 — Frontend token storage and mid-session 401 handling
+
+**Problem:** Where should the frontend hold the JWT access token issued by
+`POST /api/v1/auth/login`, and how should the app react when a token that was valid
+at page load stops working partway through a session (natural 60-minute expiry per
+[DecisionLog.md](DecisionLog.md#2026-07-25-authentication-password-hashing-and-token-revocation-strategy),
+a `POST /auth/logout` from another tab, or an admin deactivating the account)?
+
+**Options considered:**
+- **`localStorage`** — survives tab/browser close, but keeps a live bearer token
+  around indefinitely with no corresponding server-side session to revoke it early
+  (Milestone 1 has no refresh tokens or session table by design), which is more
+  standing exposure than the access-token-only design intends.
+- **An in-memory-only token (React state, no storage)** — least persistent, but loses
+  the session on every full page reload, forcing a re-login far more often than a
+  60-minute-expiry token justifies.
+- **`sessionStorage`** (chosen) — cleared automatically when the tab/browser closes,
+  matching the "don't keep more standing exposure than necessary" posture of the
+  backend's short-lived, non-refreshable token design, while surviving an in-tab
+  reload.
+
+**Chosen:** `sessionStorage`, wrapped by `frontend/src/shared/auth/tokenStore.ts` so
+no other module touches Web Storage directly.
+
+**Reason:** Matches the backend's access-token-only trade-off (see the linked entry
+above) instead of fighting it with a longer-lived client-side cache.
+
+A separate but related problem: `AuthContext`'s mount-time check
+(`GET /api/v1/auth/me`) only catches a bad token at page load. Once Users and People
+API calls exist beyond this slice, any of them can get back a `401` mid-session. A
+tiny pub/sub, `frontend/src/shared/auth/sessionEvents.ts`, lets the shared API client
+(`shared/api/client.ts`, which has no React dependency) notify `AuthContext` when a
+request that carried a token comes back `401`; `AuthContext` resets to logged-out,
+and `ProtectedRoute` redirects to `/login`. The 401-with-no-token case (e.g. a wrong
+password on the login form itself) is deliberately excluded from this notification —
+`shared/api/client.ts`'s `skipAuth` option keeps `POST /auth/login` from ever sending
+an existing token, so a stale-but-still-valid session can never be misread as an
+invalid-credentials response and cleared by mistake.
+
+**Trade-off:** this is all-sessions-only feedback (matching the backend's
+`token_version` revocation granularity — see the linked entry) and client-side only;
+every action it gates is still re-enforced by the backend regardless of what the UI
+shows.
+
+## 2026-07-26 — `react-router-dom` upgraded to v7 for moderate open-redirect advisories; residual high-severity RSC advisory accepted as not applicable
+
+**Problem:** `react-router-dom@6.30.4` (the version this slice's `npm install` first
+pulled in, and the latest available `6.x` release — no patched `6.x` exists) carries
+two moderate advisories reachable by this app's actual usage: an open-redirect-to-XSS
+issue in `<Link>`/`useNavigate` path resolution (GHSA-jjmj-jmhj-qwj2) and a related
+backslash-path bypass (GHSA-wrjc-x8rr-h8h6) — both relevant here because
+`LoginPage.tsx` and `ProtectedRoute.tsx` build `<Navigate>` targets from
+router-supplied `location` values.
+
+**Options considered:**
+- **Stay on `6.30.4` and defer**, per the existing posture for the dev-only ESLint/
+  Vite `npm audit` findings recorded in [CurrentStatus.md](CurrentStatus.md) — rejected
+  here because those findings are dev-tooling-only, while this is a runtime dependency
+  in the exact code path (login/protected-route redirects) this slice just built.
+- **Upgrade to `react-router-dom@7.18.1`** (chosen) — fixes both advisories above
+  (`>=7.18.0`); requires removing the now-unnecessary `future` flags from
+  `BrowserRouter` (v7 defaults to that behaviour) and one `await` on `navigate()` in
+  `LoginPage.tsx` (its return type changed to `Promise<void>`).
+
+**Chosen:** `react-router-dom@7.18.1`.
+
+**Reason:** Fixes both advisories this app's declarative-mode usage
+(`BrowserRouter`/`Routes`/`Route`/`Navigate`/`Outlet`/`useNavigate`/`useLocation`) can
+actually reach, for a two-line code change plus a `package.json` bump.
+
+**Residual finding, accepted:** `npm audit` still reports one high-severity advisory
+against `react-router` (GHSA-qwww-vcr4-c8h2, "RSC Mode CSRF Bypass") for the range
+`>=7.12.0 <8.3.0`, with no released fix as of this entry. It describes a bypass in
+React Router's RSC (React Server Components) / data-router server-action mode. This
+app uses none of that: no `RouterProvider`/data router, no `<Form>` actions, no
+server loaders/actions, only the plain declarative components listed above. Tracked
+here rather than silently ignored; revisit if a future milestone adopts data-router
+or RSC mode, or when an upstream fix ships.

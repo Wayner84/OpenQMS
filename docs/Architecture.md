@@ -215,6 +215,15 @@ the following baseline applies from the first commit onward:
   personal data.
 - Production deployment assumes TLS termination at a reverse proxy (see
   [Deployment.md](Deployment.md)); the application itself does not terminate TLS.
+- **Frontend session handling** (Milestone 1): the JWT access token is held in
+  `sessionStorage` only (never `localStorage`, never a cookie), attached to every
+  authenticated request by `shared/api/client.ts`. A request that carried a token
+  and is rejected `401` (expired, revoked by logout elsewhere, or the user was
+  deactivated) fires a shared notification (`shared/auth/sessionEvents.ts`) that
+  `AuthContext` uses to reset to a logged-out state and redirect, so a session going
+  bad mid-use — not just at initial page load — is always handled. Reasoning and
+  trade-offs in
+  [DecisionLog.md](DecisionLog.md#2026-07-26-frontend-token-storage-and-mid-session-401-handling).
 
 ## Observability baseline
 

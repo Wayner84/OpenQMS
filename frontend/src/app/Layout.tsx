@@ -1,16 +1,38 @@
-import type { ReactElement, ReactNode } from 'react';
+import type { ReactElement } from 'react';
+import { NavLink, Outlet } from 'react-router-dom';
 
+import { useAuth } from '../modules/auth/AuthContext';
 import { ThemeToggle } from '../shared/theme/ThemeToggle';
 
-/** The Milestone 0 application shell: a header and one main content area. */
-export function Layout({ children }: { children: ReactNode }): ReactElement {
+/** The authenticated application shell: header (nav, theme toggle, logout) plus routed content. */
+export function Layout(): ReactElement {
+  const { user, logout } = useAuth();
+
   return (
     <div className="app-shell">
       <header className="app-header">
         <h1>openQMS</h1>
-        <ThemeToggle />
+        <nav className="app-nav" aria-label="Main navigation">
+          <NavLink to="/">Dashboard</NavLink>
+        </nav>
+        <div className="app-header__actions">
+          <ThemeToggle />
+          {user && (
+            <button
+              type="button"
+              className="logout-button"
+              onClick={() => {
+                void logout();
+              }}
+            >
+              Log out ({user.full_name})
+            </button>
+          )}
+        </div>
       </header>
-      <main className="app-main">{children}</main>
+      <main className="app-main">
+        <Outlet />
+      </main>
     </div>
   );
 }

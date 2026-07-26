@@ -58,8 +58,8 @@ Full scope and acceptance criteria:
 
 11. **Authentication (JWT)** — user model, password hashing (Argon2id), login
     endpoint, `Depends()`-based current-user resolution, scoped to one organisation
-    per user. Dependencies: Milestone 0 complete. Complexity: **L**.
-    Status: In Progress (backend done; frontend not started).
+    per user. Dependencies: Milestone 0 complete. Complexity: **L**. Status: Done
+    (backend and frontend both implemented and tested).
 12. **User management** — create/list/deactivate users within the seeded
     organisation; roles/permissions model (at least a basic admin/member
     distinction). Dependencies: Task 11. Complexity: **M**. Status: In Progress

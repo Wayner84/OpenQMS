@@ -174,23 +174,72 @@ frontend slice lands.
     [Database.md](Database.md#companies-and-people-tables-milestone-1),
     [docs/modules/People.md](modules/People.md) (`Status: Implemented`),
     [DecisionLog.md](DecisionLog.md#2026-07-26-people-module-is_employeecompany_id-invariant-enforced-at-the-schema-layer-not-a-db-constraint).
+- **Milestone 1 — authentication frontend** (TODO Task 11, frontend portion):
+  - `frontend/src/modules/auth/`: typed API client (`api.ts`, `types.ts`), an
+    `AuthContext`/`AuthProvider` (`AuthContext.tsx`) that resolves the session from a
+    stored token on mount by re-validating it against `GET /api/v1/auth/me` (a stored
+    token may have expired or been revoked since the last visit), a `LoginPage.tsx`
+    (accessible form, inline `role="alert"` error, loading state, redirects to the
+    originally-requested route on success), and a `ProtectedRoute.tsx` (redirects
+    unauthenticated users to `/login` remembering where they were headed; an optional
+    `requireAdmin` gate — client-side only, always re-enforced by the backend).
+  - `frontend/src/shared/auth/tokenStore.ts`: the JWT is held in `sessionStorage`
+    only (never `localStorage`), so it clears when the tab/browser closes rather than
+    persisting indefinitely, matching the backend's short-lived, non-refreshable
+    access-token design. `frontend/src/shared/auth/sessionEvents.ts`: a small pub/sub
+    so the shared API client can notify `AuthContext` when a request that carried a
+    token comes back `401` mid-session (expiry, logout-elsewhere revocation, or
+    deactivation) — not just at initial page load — resetting to logged-out and
+    redirecting via `ProtectedRoute`. Full reasoning in
+    [DecisionLog.md](DecisionLog.md#2026-07-26-frontend-token-storage-and-mid-session-401-handling).
+  - `frontend/src/shared/api/client.ts`: attaches the bearer token to every request
+    by default, with an explicit `skipAuth` option used only by the login call (so a
+    stale-but-valid token can never make a plain "wrong password" `401` look like a
+    revoked session).
+  - `frontend/src/app/App.tsx`/`Layout.tsx`: routing wired through `AuthProvider` and
+    `ProtectedRoute`; the authenticated shell shows the current user's name and a
+    working logout button.
+  - `react-router-dom` upgraded `6.30.4` → `7.18.1` to fix two moderate open-redirect
+    advisories reachable by this app's `Navigate`/`useNavigate` usage; one residual
+    high-severity advisory in the dependency tree is accepted as inapplicable (this
+    app uses no RSC/data-router mode). Full reasoning in
+    [DecisionLog.md](DecisionLog.md#2026-07-26-react-router-dom-upgraded-to-v7-for-moderate-open-redirect-advisories-residual-high-severity-rsc-advisory-accepted-as-not-applicable).
+  - 31 frontend tests passing (up from 5 at the end of Milestone 0), across 8 test
+    files, all written test-first (RED confirmed, then GREEN), following the existing
+    `HealthStatus.test.tsx` pattern of mocking the typed API client rather than
+    `fetch` directly.
+  - Gates pass: `npm run lint`, `format:check`, `typecheck` (strict), `test`,
+    `build`. Independently reviewed (a fresh agent with no prior context, focused on
+    security/correctness/accessibility) before this commit; the one substantive
+    finding (a stale token attached to the login request could misfire the new
+    session-invalidated handling) was fixed as part of this slice, not deferred.
+  - Docs updated in this slice: this file,
+    [Architecture.md](Architecture.md#security-baseline),
+    [DecisionLog.md](DecisionLog.md#2026-07-26-frontend-token-storage-and-mid-session-401-handling),
+    [DecisionLog.md](DecisionLog.md#2026-07-26-react-router-dom-upgraded-to-v7-for-moderate-open-redirect-advisories-residual-high-severity-rsc-advisory-accepted-as-not-applicable),
+    [TODO.md](TODO.md).
 
 ## Work in progress
 
 Milestone 1 (Authentication, Organisations, People) — see
 [.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md)
-for the full scope. All backend work (authentication, user management, People —
-above) is done. Still to do: the authentication, user-management, and People
-frontend UI, then a full Docker Compose end-to-end verification and
+for the full scope. Backend work (authentication, user management, People) and the
+authentication frontend (above) are done. Still to do: the user-management and
+People frontend UI, then a full Docker Compose end-to-end verification and
 security/tenant-isolation review.
 
 ## Known bugs
 
-None known in the code written so far. `npm audit` (frontend) reports 12
-vulnerabilities, all in dev-only tooling transitive dependencies (ESLint's
-`minimatch`/`brace-expansion`, Vite's dev-time `esbuild`), none in shipped runtime
-code; each documented fix requires an unproven major-version jump (ESLint 9→10,
-Vite 5→8) and is deferred rather than forced. Revisit when those majors are mature.
+None known in the code written so far. `npm audit` (frontend) reports 14
+vulnerabilities: 13 in dev-only tooling transitive dependencies (ESLint's
+`minimatch`/`brace-expansion`, Vite's dev-time `esbuild`, Vitest's `vite-node`/
+`@vitest/mocker`), none in shipped runtime code; each documented fix requires an
+unproven major-version jump (ESLint 9→10, Vite 5→8) and is deferred rather than
+forced — revisit when those majors are mature. The 14th, in `react-router` (a
+runtime dependency), is accepted as inapplicable: it describes an RSC/data-router
+server-action bypass, and this app uses neither. Full reasoning for both the
+`react-router-dom` v7 upgrade and the accepted residual finding in
+[DecisionLog.md](DecisionLog.md#2026-07-26-react-router-dom-upgraded-to-v7-for-moderate-open-redirect-advisories-residual-high-severity-rsc-advisory-accepted-as-not-applicable).
 
 `pip-audit` (backend) reports pre-existing advisories in `starlette` (0.46.2,
 pulled in transitively by the Milestone-0-pinned `fastapi>=0.115,<0.116`) and
@@ -202,11 +251,11 @@ FastAPI/pytest version bump.
 
 ## Next recommended tasks
 
-All three Milestone 1 backend slices (auth, user management, People) are done.
-Continue in the commit order recorded in
+All three Milestone 1 backend slices (auth, user management, People) and the
+authentication frontend are done. Continue in the commit order recorded in
 [.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md#suggested-commit-boundaries):
-authentication UI next, then user management UI, then the People module UI, then
-the full Docker Compose smoke test.
+user management UI next, then the People module UI, then the full Docker Compose
+smoke test.
 
 Note on local tooling: this backend was developed using a repository-local `uv`
 install and virtual environment under `.tools/` (git-ignored) because `uv` was not
