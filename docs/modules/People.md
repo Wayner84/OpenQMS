@@ -96,9 +96,13 @@ Backend (schema, migration, service layer, API) is implemented and tested — un
 tests for models/schemas/service (`backend/tests/unit/test_people_*.py`) and
 integration tests against real PostgreSQL covering organisation isolation, the
 `is_employee`/`company_id` invariant, and the companies-with-contacts delete guard
-(`backend/tests/integration/test_people.py`). Frontend screens are tracked
-separately in [docs/CurrentStatus.md](../CurrentStatus.md) — see that document for
-exactly what is and isn't done as of the current session.
+(`backend/tests/integration/test_people.py`). Frontend (`frontend/src/modules/people/`
+— `CompaniesPage.tsx`, `PeoplePage.tsx`) is implemented and tested: company
+create/list/edit/delete with the delete-with-contacts guard surfaced inline; person
+create/list/edit/delete for both employees and per-company contacts, with search and
+a company→contacts navigation/pre-filter (`CompaniesPage`'s "View contacts" link to
+`PeoplePage`'s `?company=` query param). See [docs/CurrentStatus.md](../CurrentStatus.md)
+for full detail and current verification status.
 
 ## Related documents
 

@@ -13,12 +13,12 @@ in-progress or planned work as complete.
 for the exact scope and acceptance criteria, and [Roadmap.md](Roadmap.md) for how it
 fits the overall delivery order.
 
-**Phase: all three backend vertical slices (auth, user management, People) are
-implemented and verified; the authentication and user-management frontends are also
-done. Only the People frontend UI and the final Docker Compose end-to-end
-verification remain.** M0 (Platform Foundation) is complete and verified. The M1 plan
-has been written and recorded — see "Completed work" below. This section will be
-updated as the remaining frontend slice lands.
+**Phase: all three backend vertical slices (auth, user management, People) and all
+three frontend slices (authentication, user management, People) are implemented and
+verified. Only the final Docker Compose end-to-end verification and
+security/tenant-isolation review remain before the milestone can be closed out.** M0
+(Platform Foundation) is complete and verified. The M1 plan has been written and
+recorded — see "Completed work" below.
 
 ## Completed work
 
@@ -257,15 +257,55 @@ updated as the remaining frontend slice lands.
     equivalent `mountedRef` guard here; the new table had no responsive
     horizontal-scroll handling — added `.data-table-wrapper`).
   - Docs updated in this slice: this file, [TODO.md](TODO.md).
+- **Milestone 1 — People frontend** (TODO Task 13, frontend portion):
+  - `frontend/src/modules/people/`: typed API client (`api.ts`, `types.ts` — matching
+    [API.md](API.md#people-module-milestone-1)) covering both `companies` and
+    `people` endpoints, `CompaniesPage.tsx` (create/list/edit/delete companies, with
+    the backend's `409` "still has contacts" delete guard surfaced verbatim via
+    `getErrorDetail`), and `PeoplePage.tsx` (create/list/edit/delete employees and
+    per-company contacts, with a search box and pagination). Every operation requires
+    only authentication, not admin privilege, matching the backend's "shared
+    directory" design — `/companies` and `/people` are mounted in
+    `frontend/src/app/App.tsx` outside the `requireAdmin` route wrapper, and
+    `frontend/src/app/Layout.tsx` shows both nav links to every authenticated user.
+  - Company/contact relationship UX: rather than a third page duplicating the same
+    edit/delete UI, `CompaniesPage` links "View contacts for {company}" to
+    `/people?company={id}`; `PeoplePage` reads that query param (`useSearchParams`)
+    to pre-filter the list, show a "Showing contacts for {company}" banner with a
+    "Show everyone" link back to `/people`, and preselect that company on the create
+    form. The `is_employee`/`company_id` invariant the backend enforces with a `422`
+    (employee ⇒ no company; contact ⇒ must have one) is guided client-side by
+    showing/hiding the company `<select>` based on an "Is an employee" checkbox — a
+    UX nicety, not a substitute for the server's own validation, which is still
+    independently checked and surfaced via `getErrorDetail` on rejection (e.g. a
+    company deleted concurrently by another user).
+  - 32 new frontend tests (83 total, up from 50), across 3 new test files, written
+    test-first. Coverage includes company create/list/edit/delete, the delete-with-
+    contacts `409` shown inline, person create for both an employee and a
+    company-linked contact, editing (including switching an existing contact to an
+    employee mid-edit, which clears its `company_id`), delete, search, the
+    `?company=` pre-filter and banner, an empty-company-list guard, and pagination at
+    the exact page boundary for both pages.
+  - Gates pass: `npm run lint`, `format:check`, `typecheck` (strict), `test`,
+    `build`. Independently reviewed before this commit; the one substantive finding —
+    `CompaniesPage` sent a blank "General email" field as a literal empty string,
+    which the backend's `EmailStr` validator rejects with an unlabelled `422` (empty
+    string is an invalid address, not "no value") — was fixed by omitting blank
+    optional fields from the request, matching the pattern `PeoplePage` already used
+    for its own optional fields. A minor stale-state finding (the create-person
+    form's preselected company didn't clear after following "Show everyone") was also
+    fixed, with both fixes covered by new regression tests.
+  - Docs updated in this slice: this file, [TODO.md](TODO.md),
+    [docs/modules/People.md](modules/People.md).
 
 ## Work in progress
 
 Milestone 1 (Authentication, Organisations, People) — see
 [.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md)
-for the full scope. Backend work (authentication, user management, People), the
-authentication frontend, and the user-management frontend (all above) are done.
-Still to do: the People frontend UI, then a full Docker Compose end-to-end
-verification and security/tenant-isolation review.
+for the full scope. All backend work and all three Milestone 1 frontend slices
+(authentication, user management, People) are done. Still to do: a full Docker
+Compose end-to-end verification and security/tenant-isolation review, then closing
+out the milestone's documentation.
 
 ## Known bugs
 
@@ -290,11 +330,12 @@ FastAPI/pytest version bump.
 
 ## Next recommended tasks
 
-All three Milestone 1 backend slices (auth, user management, People), the
-authentication frontend, and the user-management frontend are done. Continue in the
+All three Milestone 1 backend slices (auth, user management, People) and all three
+frontend slices (authentication, user management, People) are done. Continue in the
 commit order recorded in
 [.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md#suggested-commit-boundaries):
-the People module UI next, then the full Docker Compose smoke test.
+the full Docker Compose smoke test next, then close out the milestone's
+documentation.
 
 Note on local tooling: this backend was developed using a repository-local `uv`
 install and virtual environment under `.tools/` (git-ignored) because `uv` was not

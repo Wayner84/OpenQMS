@@ -67,8 +67,8 @@ Full scope and acceptance criteria:
 13. **People module** — shared employees/customers/suppliers/contacts records per
     [docs/modules/People.md](modules/People.md); multiple contacts per
     customer/supplier. Dependencies: Task 11 (owner/creator attribution),
-    Milestone 0's `organisation_id` pattern. Complexity: **L**. Status: In Progress
-    (backend done; frontend not started).
+    Milestone 0's `organisation_id` pattern. Complexity: **L**. Status: Done
+    (backend and frontend both implemented and tested).
 
 ## Low Priority — Later modules (Milestones 2–9)
 

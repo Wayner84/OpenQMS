@@ -102,6 +102,30 @@ describe('Layout', () => {
     expect(screen.queryByRole('link', { name: /users/i })).not.toBeInTheDocument();
   });
 
+  it('shows the Companies and People nav links to a non-admin', async () => {
+    setToken('a.jwt.token');
+    mockedFetchCurrentUser.mockResolvedValue(user);
+
+    render(
+      <ThemeProvider>
+        <MemoryRouter initialEntries={['/']}>
+          <AuthProvider>
+            <Routes>
+              <Route element={<ProtectedRoute />}>
+                <Route element={<Layout />}>
+                  <Route path="/" element={<p>Home</p>} />
+                </Route>
+              </Route>
+            </Routes>
+          </AuthProvider>
+        </MemoryRouter>
+      </ThemeProvider>,
+    );
+
+    expect(await screen.findByRole('link', { name: /^companies$/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /^people$/i })).toBeInTheDocument();
+  });
+
   it('shows the Users nav link to an admin', async () => {
     setToken('a.jwt.token');
     mockedFetchCurrentUser.mockResolvedValue(admin);
