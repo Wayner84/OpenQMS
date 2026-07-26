@@ -1,6 +1,6 @@
 # Current Status
 
-_Last updated: 2026-07-25_
+_Last updated: 2026-07-26_
 
 This document is kept truthful and current in the same commit as any work that
 changes it, per [Contributing.md](Contributing.md). It must never describe
@@ -13,12 +13,12 @@ in-progress or planned work as complete.
 for the exact scope and acceptance criteria, and [Roadmap.md](Roadmap.md) for how it
 fits the overall delivery order.
 
-**Phase: backend authentication, user management, and the People module are all
-implemented and verified; all frontend work remains.** M0 (Platform Foundation) is
-complete and verified. The M1 plan has been written and recorded. All three backend
-vertical slices (auth, user management, People) are implemented, tested, and
-gated — see "Completed work" below. This section will be updated as each remaining
-frontend slice lands.
+**Phase: all three backend vertical slices (auth, user management, People) are
+implemented and verified; the authentication and user-management frontends are also
+done. Only the People frontend UI and the final Docker Compose end-to-end
+verification remain.** M0 (Platform Foundation) is complete and verified. The M1 plan
+has been written and recorded — see "Completed work" below. This section will be
+updated as the remaining frontend slice lands.
 
 ## Completed work
 
@@ -218,15 +218,54 @@ frontend slice lands.
     [DecisionLog.md](DecisionLog.md#2026-07-26-frontend-token-storage-and-mid-session-401-handling),
     [DecisionLog.md](DecisionLog.md#2026-07-26-react-router-dom-upgraded-to-v7-for-moderate-open-redirect-advisories-residual-high-severity-rsc-advisory-accepted-as-not-applicable),
     [TODO.md](TODO.md).
+- **Milestone 1 — user management frontend** (TODO Task 12, frontend portion):
+  - `frontend/src/modules/users/`: typed API client (`api.ts`, `types.ts` — matching
+    [API.md](API.md#user-management-milestone-1)) and `UsersPage.tsx`, an admin-only
+    screen that creates, paginates/lists, deactivates/reactivates, and re-roles users
+    in the caller's own organisation, calling the real backend endpoints through the
+    typed client.
+  - `frontend/src/app/App.tsx` mounts `/users` behind a second, nested
+    `ProtectedRoute requireAdmin`; `frontend/src/app/Layout.tsx` shows the "Users" nav
+    link only when the current user's role is `admin`. Both are client-side UX only —
+    every guard (self-deactivation, last-active-admin, duplicate email,
+    cross-organisation `404`) is enforced server-side and re-checked on every request
+    regardless of what the client renders or hides, per
+    `frontend/src/modules/auth/ProtectedRoute.tsx`'s existing documented contract.
+  - `frontend/src/shared/api/client.ts`: added `getErrorDetail()`, extracting the
+    backend's `detail` message from a caught `ApiError` so guard rejections (e.g. "An
+    admin cannot deactivate or demote themselves") are shown to the operator verbatim
+    instead of a generic message; a new class of errors (409 guard conflicts) that
+    didn't exist before this slice needed surfacing.
+  - `frontend/src/shared/theme/theme.css`: added a `.visually-hidden` utility (for the
+    per-row role `<select>`'s screen-reader-only label) and a `.data-table-wrapper`
+    (`overflow-x: auto`) so the five-column users table degrades to horizontal scroll
+    rather than overflowing on narrow viewports — this is the first data table in the
+    app, so both are new, reusable additions rather than one-off styling.
+  - 50 frontend tests passing (up from 31), across 10 test files. Written test-first
+    following the established pattern (mock the typed API client, not `fetch`).
+    Coverage includes: loading/list display, create (success, refresh, duplicate-email
+    409 shown inline), deactivate, reactivate, role change, a generic-message fallback
+    for a non-`ApiError` failure, the self-deactivation 409 guard message shown
+    inline, and pagination at the exact page boundary.
+  - Gates pass: `npm run lint`, `format:check`, `typecheck` (strict), `test`,
+    `build`. Independently reviewed (a fresh agent with no prior context, focused on
+    correctness/security/accessibility/consistency) before this commit; findings
+    addressed in this slice rather than deferred: two test gaps (role-change and a
+    network-level, non-`ApiError` failure on update were both untested) and two
+    consistency gaps (the mount-triggered async handlers had no unmount-safety guard,
+    unlike the existing `HealthStatus.tsx` `AbortController` pattern — added an
+    equivalent `mountedRef` guard here; the new table had no responsive
+    horizontal-scroll handling — added `.data-table-wrapper`).
+  - Docs updated in this slice: this file, [TODO.md](TODO.md).
 
 ## Work in progress
 
 Milestone 1 (Authentication, Organisations, People) — see
 [.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md)
-for the full scope. Backend work (authentication, user management, People) and the
-authentication frontend (above) are done. Still to do: the user-management and
-People frontend UI, then a full Docker Compose end-to-end verification and
-security/tenant-isolation review.
+for the full scope. Backend work (authentication, user management, People), the
+authentication frontend, and the user-management frontend (all above) are done.
+Still to do: the People frontend UI, then a full Docker Compose end-to-end
+verification and security/tenant-isolation review.
 
 ## Known bugs
 
@@ -251,11 +290,11 @@ FastAPI/pytest version bump.
 
 ## Next recommended tasks
 
-All three Milestone 1 backend slices (auth, user management, People) and the
-authentication frontend are done. Continue in the commit order recorded in
+All three Milestone 1 backend slices (auth, user management, People), the
+authentication frontend, and the user-management frontend are done. Continue in the
+commit order recorded in
 [.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md#suggested-commit-boundaries):
-user management UI next, then the People module UI, then the full Docker Compose
-smoke test.
+the People module UI next, then the full Docker Compose smoke test.
 
 Note on local tooling: this backend was developed using a repository-local `uv`
 install and virtual environment under `.tools/` (git-ignored) because `uv` was not

@@ -14,6 +14,7 @@ export function Layout(): ReactElement {
         <h1>openQMS</h1>
         <nav className="app-nav" aria-label="Main navigation">
           <NavLink to="/">Dashboard</NavLink>
+          {user?.role === 'admin' && <NavLink to="/users">Users</NavLink>}
         </nav>
         <div className="app-header__actions">
           <ThemeToggle />

@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from '../modules/auth/AuthContext';
 import { LoginPage } from '../modules/auth/LoginPage';
 import { ProtectedRoute } from '../modules/auth/ProtectedRoute';
+import { UsersPage } from '../modules/users/UsersPage';
 import { ThemeProvider } from '../shared/theme/ThemeProvider';
 import { HealthStatus } from './HealthStatus';
 import { Layout } from './Layout';
@@ -19,6 +20,9 @@ export function App(): ReactElement {
             <Route element={<ProtectedRoute />}>
               <Route element={<Layout />}>
                 <Route path="/" element={<HealthStatus />} />
+                <Route element={<ProtectedRoute requireAdmin />}>
+                  <Route path="/users" element={<UsersPage />} />
+                </Route>
               </Route>
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />

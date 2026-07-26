@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { onUnauthorized } from '../auth/sessionEvents';
 import { clearToken, setToken } from '../auth/tokenStore';
-import { apiDelete, apiGet, apiPatch, apiPost } from './client';
+import { ApiError, apiDelete, apiGet, apiPatch, apiPost, getErrorDetail } from './client';
 
 describe('api client', () => {
   beforeEach(() => {
@@ -137,6 +137,23 @@ describe('api client', () => {
       const [, options] = vi.mocked(fetch).mock.calls[0] ?? [];
       expect(options?.method).toBe('DELETE');
       expect(options?.body).toBeUndefined();
+    });
+  });
+
+  describe('getErrorDetail', () => {
+    it('returns the server-provided detail message from an ApiError', () => {
+      const error = new ApiError('failed', 409, { detail: 'Cannot deactivate the last admin' });
+
+      expect(getErrorDetail(error)).toBe('Cannot deactivate the last admin');
+    });
+
+    it('returns null when the error is not an ApiError', () => {
+      expect(getErrorDetail(new Error('network error'))).toBeNull();
+    });
+
+    it('returns null when the ApiError body has no string detail field', () => {
+      expect(getErrorDetail(new ApiError('failed', 500, undefined))).toBeNull();
+      expect(getErrorDetail(new ApiError('failed', 500, { detail: 42 }))).toBeNull();
     });
   });
 });

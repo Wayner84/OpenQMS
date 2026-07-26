@@ -62,8 +62,8 @@ Full scope and acceptance criteria:
     (backend and frontend both implemented and tested).
 12. **User management** — create/list/deactivate users within the seeded
     organisation; roles/permissions model (at least a basic admin/member
-    distinction). Dependencies: Task 11. Complexity: **M**. Status: In Progress
-    (backend done; frontend not started).
+    distinction). Dependencies: Task 11. Complexity: **M**. Status: Done
+    (backend and frontend both implemented and tested).
 13. **People module** — shared employees/customers/suppliers/contacts records per
     [docs/modules/People.md](modules/People.md); multiple contacts per
     customer/supplier. Dependencies: Task 11 (owner/creator attribution),

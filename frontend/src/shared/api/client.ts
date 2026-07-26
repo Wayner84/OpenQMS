@@ -112,3 +112,17 @@ export function apiPatch<T>(path: string, body?: unknown): Promise<T> {
 export function apiDelete<T = void>(path: string): Promise<T> {
   return request<T>(path, 'DELETE');
 }
+
+/**
+ * Extracts the server's human-readable `detail` message (per
+ * docs/API.md#error-format) from a caught error, or `null` if `error` isn't an
+ * {@link ApiError} with a string `detail` in its body. Lets callers show the
+ * server's own explanation (e.g. a 409 guard message) instead of re-deriving it.
+ */
+export function getErrorDetail(error: unknown): string | null {
+  if (!(error instanceof ApiError) || typeof error.body !== 'object' || error.body === null) {
+    return null;
+  }
+  const detail = (error.body as Record<string, unknown>).detail;
+  return typeof detail === 'string' ? detail : null;
+}

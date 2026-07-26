@@ -24,6 +24,8 @@ const user: User = {
   is_active: true,
 };
 
+const admin: User = { ...user, id: 'u2', role: 'admin' };
+
 describe('Layout', () => {
   beforeEach(() => {
     // jsdom (this project's Vitest test environment) doesn't implement
@@ -74,5 +76,52 @@ describe('Layout', () => {
       expect(screen.getByText('Login page')).toBeInTheDocument();
     });
     expect(mockedLogout).toHaveBeenCalledOnce();
+  });
+
+  it('hides the Users nav link from a non-admin', async () => {
+    setToken('a.jwt.token');
+    mockedFetchCurrentUser.mockResolvedValue(user);
+
+    render(
+      <ThemeProvider>
+        <MemoryRouter initialEntries={['/']}>
+          <AuthProvider>
+            <Routes>
+              <Route element={<ProtectedRoute />}>
+                <Route element={<Layout />}>
+                  <Route path="/" element={<p>Home</p>} />
+                </Route>
+              </Route>
+            </Routes>
+          </AuthProvider>
+        </MemoryRouter>
+      </ThemeProvider>,
+    );
+
+    await screen.findByText(/log out/i);
+    expect(screen.queryByRole('link', { name: /users/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the Users nav link to an admin', async () => {
+    setToken('a.jwt.token');
+    mockedFetchCurrentUser.mockResolvedValue(admin);
+
+    render(
+      <ThemeProvider>
+        <MemoryRouter initialEntries={['/']}>
+          <AuthProvider>
+            <Routes>
+              <Route element={<ProtectedRoute />}>
+                <Route element={<Layout />}>
+                  <Route path="/" element={<p>Home</p>} />
+                </Route>
+              </Route>
+            </Routes>
+          </AuthProvider>
+        </MemoryRouter>
+      </ThemeProvider>,
+    );
+
+    expect(await screen.findByRole('link', { name: /users/i })).toBeInTheDocument();
   });
 });
