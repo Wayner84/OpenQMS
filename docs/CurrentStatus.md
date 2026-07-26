@@ -303,9 +303,10 @@ tenant-isolation review. M0 (Platform Foundation) is complete and verified. See
     integration against real PostgreSQL 16).
   - Frontend gates re-verified: `npm run lint`, `format:check`, `typecheck` (strict),
     `test` (86 tests across 13 files), `build`.
-  - A real upgrade → downgrade → upgrade cycle for all three Milestone 1 migrations
-    run against a disposable database on the local PostgreSQL instance (not the
-    shared dev database used by the integration suite), confirming every
+  - A real upgrade → downgrade → upgrade cycle for the complete three-revision
+    repository chain (the Milestone 0 baseline plus both Milestone 1 migrations) run
+    against a disposable database on the local PostgreSQL instance (not the shared
+    dev database used by the integration suite), confirming every
     `downgrade()` is correct, not just theoretically present.
   - Backend (`pip-audit`) and frontend (`npm audit`) dependency audits re-run: no new
     findings beyond the pre-existing, already-documented deferrals in "Known bugs"

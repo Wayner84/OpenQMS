@@ -195,8 +195,9 @@ not just implied by the design:
 
 ## Migration and rollback strategy
 
-- Three forward-only Alembic migrations (one per slice, matching the commit
-  boundaries below): `users` table; `companies` + `people` tables. Each is reviewed by
+- Two Milestone 1 Alembic migrations: the `users` table, then the `companies` +
+  `people` tables. User management reuses the authentication slice's `users` table
+  and therefore requires no separate schema migration. Each migration is reviewed by
   hand after autogeneration (per [Database.md](../../docs/Database.md#orm-and-migrations)),
   each implements a best-effort `downgrade()` (`drop_table`, in reverse FK order).
 - Verified locally with a real upgrade → downgrade → upgrade cycle against PostgreSQL
