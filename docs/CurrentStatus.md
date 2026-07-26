@@ -1,6 +1,6 @@
 # Current Status
 
-_Last updated: 2026-07-26_
+_Last updated: 2026-07-26 (Milestone 2 plan committed)_
 
 This document is kept truthful and current in the same commit as any work that
 changes it, per [Contributing.md](Contributing.md). It must never describe
@@ -8,17 +8,15 @@ in-progress or planned work as complete.
 
 ## Current milestone
 
-**M1 — Authentication, Organisations, People.** See
-[.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md)
-for the exact scope and acceptance criteria, and [Roadmap.md](Roadmap.md) for how it
-fits the overall delivery order.
+**M2 — Document Management.** See
+[.hermes/plans/2026-07-26-milestone-2-document-management.md](../.hermes/plans/2026-07-26-milestone-2-document-management.md)
+for the exact scope, schema/API/permissions/storage decisions, and acceptance
+criteria, and [Roadmap.md](Roadmap.md) for how it fits the overall delivery order.
 
-**Milestone 1 is complete.** All three backend vertical slices (auth, user
-management, People) and all three frontend slices (authentication, user management,
-People) are implemented, tested, and verified end-to-end, including a real
-Docker Compose browser-driven smoke test and an independent security/
-tenant-isolation review. M0 (Platform Foundation) is complete and verified. See
-"Completed work" below for the final closeout slice and its findings.
+**Milestone 2 is in progress.** The implementation plan is written and committed;
+no application code for Document Management exists yet. M0 (Platform Foundation) and
+M1 (Authentication, Organisations, People) are both complete and verified — see
+"Completed work" below for their closeout slices and findings.
 
 ## Completed work
 
@@ -369,10 +367,13 @@ tenant-isolation review. M0 (Platform Foundation) is complete and verified. See
 
 ## Work in progress
 
-None. Milestone 1 (Authentication, Organisations, People) is complete and verified —
-see [.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md)
-for the closed-out acceptance criteria. Next up is Milestone 2 (Document Management),
-per [Roadmap.md](Roadmap.md#m2-document-management); no Milestone 2 work has started.
+Milestone 2 (Document Management): the implementation plan
+([.hermes/plans/2026-07-26-milestone-2-document-management.md](../.hermes/plans/2026-07-26-milestone-2-document-management.md))
+is written and committed. No schema, API, or UI code exists yet — implementation
+starts with the plan's suggested commit boundaries (categories/tags/documents/
+versions with configurable numbering, then upload/download/preview, then the
+approval workflow, then acknowledgements, then search/filtering and version
+comparison, then the frontend, then Docker verification and closeout).
 
 ## Known bugs
 
@@ -409,12 +410,10 @@ FastAPI/pytest version bump.
 
 ## Next recommended tasks
 
-Milestone 1 is complete. Begin Milestone 2 (Document Management) per
-[Roadmap.md](Roadmap.md#m2-document-management) and
-[docs/modules/DocumentManagement.md](modules/DocumentManagement.md) — write its
-implementation plan under [.hermes/plans/](../.hermes/plans/) first, following the
-same documentation-first process used for Milestones 0 and 1, before writing any
-Milestone 2 code.
+Begin implementing Milestone 2 per its committed plan
+([.hermes/plans/2026-07-26-milestone-2-document-management.md](../.hermes/plans/2026-07-26-milestone-2-document-management.md)),
+starting with the first backend vertical slice (document categories, tags, documents,
+and immutable versions, with configuration-driven numbering).
 
 Note on local tooling: this backend was developed using a repository-local `uv`
 install and virtual environment under `.tools/` (git-ignored) because `uv` was not

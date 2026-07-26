@@ -79,11 +79,20 @@ Milestone 1 data-table pages). See [CurrentStatus.md](CurrentStatus.md) and
 [DecisionLog.md](DecisionLog.md#2026-07-26-milestone-1-closeout-login-timing-side-channel-and-a-react-strictmode-mountedref-bug)
 for full detail. Next: Milestone 2 (Document Management) — see below.
 
-## Low Priority — Later modules (Milestones 2–9)
+## Medium Priority — Milestone 2 (Document Management) — IN PROGRESS
+
+Full scope and acceptance criteria:
+[.hermes/plans/2026-07-26-milestone-2-document-management.md](../.hermes/plans/2026-07-26-milestone-2-document-management.md).
 
 14. **Document Management module** — see
-    [docs/modules/DocumentManagement.md](modules/DocumentManagement.md).
-    Dependencies: Milestone 1. Complexity: **XL**. Status: Not Started.
+    [docs/modules/DocumentManagement.md](modules/DocumentManagement.md). Categories,
+    tags, documents, immutable versions, configurable numbering, approval/rejection
+    workflow, acknowledgements, search/filtering, permissions, secure upload/download/
+    preview, version comparison; backend and frontend. Dependencies: Milestone 1.
+    Complexity: **XL**. Status: In Progress (plan committed, implementation not yet
+    started).
+
+## Low Priority — Later modules (Milestones 3–9)
 15. **Products module** — see [docs/modules/Products.md](modules/Products.md).
     Dependencies: Milestone 1, Task 14 (document links). Complexity: **L**.
     Status: Not Started.
