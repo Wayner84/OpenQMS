@@ -1,6 +1,6 @@
 # Current Status
 
-_Last updated: 2026-07-26 (Milestone 2: secure document upload/download/preview slice)_
+_Last updated: 2026-07-26 (Milestone 2: document approval/rejection workflow slice)_
 
 This document is kept truthful and current in the same commit as any work that
 changes it, per [Contributing.md](Contributing.md). It must never describe
@@ -470,16 +470,58 @@ for details and findings.
     [docs/modules/DocumentManagement.md](modules/DocumentManagement.md),
     [DecisionLog.md](DecisionLog.md#2026-07-26-document-upload-request-body-size-cap-version-number-locking-and-upload-policy-extension-validation),
     `.env.example`, `docker-compose.yml` (`UPLOADS_DIR`).
+- **Milestone 2 — document approval and rejection workflow** (backend slice):
+  - `document_approvals` table
+    (`backend/alembic/versions/ea4516740593_add_document_approvals.py`) and four
+    new endpoints — `POST .../submit-for-approval` (any active user),
+    `POST .../approve`/`.../reject` (admin only), `POST /documents/{id}/obsolete`
+    (admin only, whole-document retirement) — per
+    [API.md](API.md#document-management-milestone-2-in-progress). Migration
+    verified with a real upgrade → downgrade → upgrade cycle.
+  - State machine: `draft` → `in_review` → `approved` (supersedes the previous
+    current version → `obsolete`) or `rejected` (terminal for that version);
+    `documents.status` is a service-maintained cache that becomes and stays
+    `approved` once any version has ever been approved, per
+    [docs/modules/DocumentManagement.md](modules/DocumentManagement.md#workflow).
+  - **Independent security/tenant-isolation review** (a fresh agent with no prior
+    session context) found and fixed two issues before this slice was committed:
+    1. A non-admin action (submit-for-approval or reject) could silently un-retire
+       an admin-retired document, since neither checked the document's current
+       status before writing to it. Fixed by skipping that write when the document
+       is already `obsolete`; approve (itself admin-only) deliberately keeps the
+       ability to revive a retired document as a legitimate admin decision.
+    2. A TOCTOU race in approve/reject (unlike the row-locking already used for
+       document numbering and version-number allocation) could let two concurrent
+       transactions on the same document both pass their state-machine guard,
+       producing two simultaneously-"approved" versions or duplicate approval
+       records. Fixed with a shared `_lock_document` helper (`SELECT ... FOR
+       UPDATE`, deduplicating a copy of the same lock already used for version-
+       number allocation) acquired before reading any version's state.
+    Full reasoning in
+    [DecisionLog.md](DecisionLog.md#2026-07-26-document-approval-workflow-a-status-cache-integrity-bug-and-a-toctou-race).
+  - 188 backend tests passing (up from 170): 13 new unit tests (state transitions,
+    the immutable approval record, supersession, the retire-status regression
+    tests added after the review) and 5 new integration tests (the full
+    approve/supersede flow through the real HTTP API, admin-only guards, the
+    required-comment `422`, an `in_review`-state `409`, cross-org `404`s for all
+    four workflow endpoints).
+  - Gates pass: `ruff format --check`, `ruff check`, `mypy --strict` (79 source
+    files), full `pytest` suite (188 tests: unit + integration against real
+    PostgreSQL 16).
+  - Docs updated in this slice: [API.md](API.md#document-management-milestone-2-in-progress),
+    [Database.md](Database.md#documents-and-related-tables-milestone-2),
+    [docs/modules/DocumentManagement.md](modules/DocumentManagement.md),
+    [DecisionLog.md](DecisionLog.md#2026-07-26-document-approval-workflow-a-status-cache-integrity-bug-and-a-toctou-race).
 
 ## Work in progress
 
 Milestone 2 (Document Management): plan committed; categories/tags/documents core
-schema with configurable numbering, and secure version upload/download/preview, are
-both implemented and tested — see "Completed work" above. Remaining, per
+schema with configurable numbering, secure version upload/download/preview, and the
+approval/rejection workflow are all implemented and tested — see "Completed work"
+above. Remaining, per
 [the plan](../.hermes/plans/2026-07-26-milestone-2-document-management.md#suggested-commit-boundaries):
-the approval workflow, acknowledgements, search/filtering and version comparison,
-the frontend, and Docker/security verification and closeout. No frontend code
-exists yet.
+acknowledgements, search/filtering and version comparison, the frontend, and
+Docker/security verification and closeout. No frontend code exists yet.
 
 ## Known bugs
 

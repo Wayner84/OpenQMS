@@ -112,3 +112,16 @@ class DocumentVersionListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class ApprovalDecisionRequest(BaseModel):
+    """Body for POST .../approve. Comments are optional on approval."""
+
+    comments: str | None = None
+
+
+class RejectionRequest(BaseModel):
+    """Body for POST .../reject. `comments` is required at both this schema layer
+    and (defensively) the service layer -- a rejection must always explain why."""
+
+    comments: str

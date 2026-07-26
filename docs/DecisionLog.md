@@ -797,3 +797,70 @@ happy/error paths. Consistent with the Milestone 1 closeout finding
 ([DecisionLog.md](DecisionLog.md#2026-07-26-milestone-1-closeout-login-timing-side-channel-and-a-react-strictmode-mountedref-bug)),
 this is the reason an independent security review stays a mandatory gate for every
 milestone, not an optional nice-to-have.
+
+## 2026-07-26 — Document approval workflow: a status-cache integrity bug and a TOCTOU race
+
+**Problem:** An independent security/tenant-isolation review of the document
+approval/rejection workflow slice (a fresh reviewer with no prior session context)
+found two logic/concurrency defects before this slice was committed — neither an
+access-control bypass, but both real state-machine integrity bugs.
+
+**Finding 1 (High) — a non-admin action could silently un-retire a document.**
+`submit_document_version_for_approval` and `reject_document_version` both updated
+`documents.status` whenever `document.current_version_id` was still `None`
+(i.e. no version had ever been approved), without checking whether the document's
+*current* status was `obsolete`. Reproduction: an admin retires a document that
+has never had an approved version (`retire_document` sets `status = obsolete`
+directly; `current_version_id` stays `None`). Any active member — upload and
+submit-for-approval are both any-active-user actions — can then upload a new
+version and submit it, which flips `documents.status` straight from `obsolete` to
+`in_review` with no admin involvement at all, reversing the admin's retire
+decision. This contradicted the plan's own stated semantics: retire is meant to be
+independent of version state and reversible only by a deliberate admin action.
+
+**Fix:** `submit_document_version_for_approval` and `reject_document_version` now
+also check `document.status != DocumentStatus.OBSOLETE` before touching it, so a
+retired document's cached status is never changed by these any-active-user
+actions. `approve_document_version` deliberately keeps its unconditional
+`status = approved` write — approving is itself an admin-only action, so an admin
+approving a new version of a retired document is treated as a legitimate,
+deliberate decision to revive it, at the same trust level as the retire that
+preceded it. Regression tests added for all three cases (submit and reject leave
+`obsolete` unchanged; approve can still revive it).
+
+**Finding 2 (Medium) — a TOCTOU race in approve/reject, unlike the row-locking
+already used elsewhere in this module.** `_next_version_number` (added in the
+previous upload slice) locks the parent `documents` row with
+`SELECT ... FOR UPDATE` before allocating a version number, but
+`approve_document_version`/`reject_document_version` read `document.current_version_id`
+and the target version's `status` with plain, unlocked `SELECT`s. Two admins
+concurrently approving two different `in_review` versions of the same document
+could both read the same stale `current_version_id`, both pass their version's
+`in_review` guard, and both commit — producing two simultaneously-`approved`
+versions of one document (the "supersede the previous version" write never sees
+the other transaction's change). The same gap would also let two concurrent
+`approve` calls on the *same* version both succeed, writing two
+`document_approvals` rows for one decision.
+
+**Fix:** a new shared `_lock_document` helper (`app/modules/documents/service.py`)
+locks the `documents` row with `SELECT ... FOR UPDATE` (a no-op on SQLite,
+matching every other locking use in this module) and refreshes the ORM object's
+attributes from the now-locked row. `submit_document_version_for_approval`,
+`approve_document_version`, `reject_document_version`, and
+`create_document_version` (which previously had its own inline copy of this same
+lock, now deduplicated into the shared helper) all acquire this lock — and, for
+the workflow functions, only fetch the target version's status *after* the lock
+is held, so two concurrent transactions on the same document are fully
+serialised: the second one's version-status read reflects the first transaction's
+committed outcome, correctly failing its `InvalidVersionStateError` guard instead
+of racing past it.
+
+**Residual gap, accepted:** as with the upload-slice's version-numbering race
+(see the linked entry above), no test reproduces genuine concurrent transactions
+against real PostgreSQL for this fix — doing so reliably requires holding one
+transaction open while a second one blocks on the lock, which the current
+integration test harness (one request per `AsyncClient` call, no manual
+transaction control) isn't set up to simulate deterministically. The fix is
+verified by code review and by the existing sequential-workflow tests still
+passing; a dedicated concurrency test is deferred as a known gap, consistent with
+the same acceptance already recorded for the numbering-lock pattern.

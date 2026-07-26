@@ -320,6 +320,36 @@ the validated upload extension — never the client's declared `Content-Type`). 
 for any other content type, with a message pointing at `download` instead. Same
 `404` scoping as download.
 
+### `POST /api/v1/documents/{id}/versions/{version_id}/submit-for-approval`
+
+Any active user. `draft` → `in_review`. `404` if the document/version doesn't
+exist in the caller's own organisation. `409` if the version isn't currently
+`draft`.
+
+### `POST /api/v1/documents/{id}/versions/{version_id}/approve` — **admin only**
+
+Request: `{ "comments": "..."|null }`. `in_review` → `approved`; supersedes the
+document's previous current version (→ `obsolete`);
+`documents.current_version_id`/`status` updated; records a `document_approvals`
+row (`approver_id` from the authenticated caller, never client-supplied). `404` if
+the document/version doesn't exist in the caller's own organisation. `409` if the
+version isn't currently `in_review`. Approving a version of a previously-retired
+(`obsolete`) document is allowed — treated as a deliberate admin decision to
+revive it.
+
+### `POST /api/v1/documents/{id}/versions/{version_id}/reject` — **admin only**
+
+Request: `{ "comments": "..." }` (required — `422` if blank). `in_review` →
+`rejected` (terminal for that version; a new version must be created to try
+again); records a `document_approvals` row. Same `404`/`409` scoping as approve.
+Never changes a retired document's status back to `draft`/`in_review`.
+
+### `POST /api/v1/documents/{id}/obsolete` — **admin only**
+
+Retires the whole document (`documents.status` → `obsolete`), independent of its
+versions' own statuses. `404` if the document doesn't exist in the caller's own
+organisation.
+
 ## Health and readiness endpoints (Milestone 0)
 
 These are the only endpoints Milestone 0 implements:

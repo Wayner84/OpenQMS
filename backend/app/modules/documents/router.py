@@ -23,6 +23,7 @@ from app.core.db import get_session
 from app.core.deps import CurrentAdmin, CurrentUser
 from app.modules.documents.models import Document, DocumentStatus
 from app.modules.documents.schemas import (
+    ApprovalDecisionRequest,
     CategoryListResponse,
     CategoryRead,
     CategoryWriteRequest,
@@ -31,6 +32,7 @@ from app.modules.documents.schemas import (
     DocumentVersionListResponse,
     DocumentVersionRead,
     DocumentWriteRequest,
+    RejectionRequest,
     TagCreateRequest,
     TagListResponse,
     TagRead,
@@ -41,9 +43,12 @@ from app.modules.documents.service import (
     CategoryNotFoundError,
     DocumentNotFoundError,
     DocumentVersionNotFoundError,
+    InvalidVersionStateError,
     OwnerNotFoundError,
+    RejectionCommentRequiredError,
     TagAlreadyExistsError,
     TagNotFoundError,
+    approve_document_version,
     create_category,
     create_document,
     create_document_version,
@@ -59,6 +64,9 @@ from app.modules.documents.service import (
     list_document_versions,
     list_documents,
     list_tags,
+    reject_document_version,
+    retire_document,
+    submit_document_version_for_approval,
     update_category,
     update_document,
 )
@@ -483,3 +491,105 @@ async def preview_document_version_endpoint(
         content_disposition_type="inline",
         headers={"X-Content-Type-Options": "nosniff"},
     )
+
+
+@documents_router.post("/{document_id}/versions/{version_id}/submit-for-approval")
+async def submit_document_version_for_approval_endpoint(
+    document_id: uuid.UUID,
+    version_id: uuid.UUID,
+    current_user: CurrentUser,
+    session: SessionDependency,
+) -> DocumentVersionRead:
+    """`draft` -> `in_review`. Any active user may submit -- the approve/reject
+    endpoints below, not this one, are the actual QMS control gate."""
+    try:
+        version = await submit_document_version_for_approval(
+            session,
+            organisation_id=current_user.organisation_id,
+            document_id=document_id,
+            version_id=version_id,
+        )
+    except (DocumentNotFoundError, DocumentVersionNotFoundError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document version not found"
+        ) from exc
+    except InvalidVersionStateError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return DocumentVersionRead.model_validate(version)
+
+
+@documents_router.post("/{document_id}/versions/{version_id}/approve")
+async def approve_document_version_endpoint(
+    document_id: uuid.UUID,
+    version_id: uuid.UUID,
+    payload: ApprovalDecisionRequest,
+    current_user: CurrentAdmin,
+    session: SessionDependency,
+) -> DocumentVersionRead:
+    """`in_review` -> `approved`; supersedes the document's previous current
+    version. **Admin only** -- the trust boundary this milestone's two-role model
+    gates approval behind (see the plan's permissions summary)."""
+    try:
+        version = await approve_document_version(
+            session,
+            organisation_id=current_user.organisation_id,
+            document_id=document_id,
+            version_id=version_id,
+            approver_id=current_user.id,
+            comments=payload.comments,
+        )
+    except (DocumentNotFoundError, DocumentVersionNotFoundError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document version not found"
+        ) from exc
+    except InvalidVersionStateError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return DocumentVersionRead.model_validate(version)
+
+
+@documents_router.post("/{document_id}/versions/{version_id}/reject")
+async def reject_document_version_endpoint(
+    document_id: uuid.UUID,
+    version_id: uuid.UUID,
+    payload: RejectionRequest,
+    current_user: CurrentAdmin,
+    session: SessionDependency,
+) -> DocumentVersionRead:
+    """`in_review` -> `rejected` (terminal for this version). **Admin only**."""
+    try:
+        version = await reject_document_version(
+            session,
+            organisation_id=current_user.organisation_id,
+            document_id=document_id,
+            version_id=version_id,
+            approver_id=current_user.id,
+            comments=payload.comments,
+        )
+    except (DocumentNotFoundError, DocumentVersionNotFoundError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document version not found"
+        ) from exc
+    except InvalidVersionStateError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except RejectionCommentRequiredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    return DocumentVersionRead.model_validate(version)
+
+
+@documents_router.post("/{document_id}/obsolete")
+async def retire_document_endpoint(
+    document_id: uuid.UUID, current_user: CurrentAdmin, session: SessionDependency
+) -> DocumentRead:
+    """Retire a whole document (`documents.status` -> `obsolete`), independent of
+    its versions' own statuses. **Admin only**."""
+    try:
+        document = await retire_document(
+            session, organisation_id=current_user.organisation_id, document_id=document_id
+        )
+    except DocumentNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
+        ) from exc
+    return await _document_read(session, document)

@@ -17,7 +17,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.documents.models import (
+    ApprovalDecision,
     Document,
+    DocumentApproval,
     DocumentCategory,
     DocumentStatus,
     DocumentTag,
@@ -78,6 +80,17 @@ class OwnerNotFoundError(Exception):
 class DocumentVersionNotFoundError(Exception):
     """Raised when a version id doesn't exist for the given document (which is
     itself already scoped to the caller's organisation)."""
+
+
+class InvalidVersionStateError(Exception):
+    """Raised when a workflow transition is requested for a version that isn't in
+    the state that transition requires (e.g. approving a version that's still a
+    `draft`, or submitting one that's already `approved`)."""
+
+
+class RejectionCommentRequiredError(Exception):
+    """Raised when rejecting a version without explaining why -- required by the
+    service layer (not the database) so the reason is always recorded."""
 
 
 # --- Categories --------------------------------------------------------------
@@ -465,18 +478,10 @@ async def get_document_version(
 
 
 async def _next_version_number(session: AsyncSession, *, document_id: uuid.UUID) -> int:
-    """Lock the parent `documents` row with `SELECT ... FOR UPDATE` (a no-op on
-    SQLite, which has no row-level locking and is single-writer for the unit tests
-    that use it) before computing the next version number, so two concurrent
-    uploads to the same document under real PostgreSQL serialise instead of racing
-    to the same number -- mirrors the same pattern already used for document
-    numbering in numbering.py::generate_document_number."""
-    lock_statement = select(Document.id).where(Document.id == document_id)
-    bind = session.bind
-    if bind is not None and bind.dialect.name != "sqlite":
-        lock_statement = lock_statement.with_for_update()
-    await session.execute(lock_statement)
-
+    """Compute the next version number for `document_id`. Callers must already hold
+    the document row lock (see `_lock_document` below) -- this function does not
+    lock anything itself, so two concurrent uploads to the same document only
+    serialise correctly if both went through `_lock_document` first."""
     current_max = (
         await session.execute(
             select(func.max(DocumentVersion.version_number)).where(
@@ -514,6 +519,7 @@ async def create_document_version(
     extension = extension_for_filename(upload.filename or "")
     validate_extension(extension, policy.allowed_extensions)
 
+    await _lock_document(session, document)
     version_number = await _next_version_number(session, document_id=document.id)
     storage_key = build_storage_key(
         organisation_id=organisation_id, document_id=document.id, extension=extension
@@ -551,3 +557,187 @@ async def create_document_version(
         raise
     await session.refresh(version)
     return version
+
+
+# --- Approval workflow -------------------------------------------------------
+#
+# Per the Milestone 2 plan's "Workflow (state machine)" section: a version moves
+# draft -> in_review -> approved (or rejected, terminal for that version -- a new
+# version must be created to try again); a later version's approval automatically
+# supersedes (-> obsolete) whichever version was previously current. `documents.status`
+# is a service-maintained cache, not an independent machine: it becomes (and stays)
+# `approved` the moment any version is ever approved -- even while a later revision
+# is separately being drafted/reviewed -- and only `in_review`/`draft` before that
+# first approval ever happens.
+
+
+async def _lock_document(session: AsyncSession, document: Document) -> None:
+    """Lock `document`'s row with `SELECT ... FOR UPDATE` (a no-op on SQLite, which
+    has no row-level locking and is single-writer for the unit tests that use it),
+    then refresh its attributes from the now-locked row -- mirrors the same
+    concurrency-safety pattern already used for document numbering
+    (numbering.py::generate_document_number) and version-number allocation
+    (`_next_version_number` below).
+
+    Callers must acquire this lock *before* reading or mutating `document`'s own
+    fields (`status`, `current_version_id`) or any `document_versions` row that
+    belongs to it, and must fetch/re-check that version's `status` only after the
+    lock is held -- otherwise two concurrent workflow transitions on the same
+    document (e.g. two admins approving two different `in_review` versions, or
+    the same version being approved twice) can both read stale state and both
+    succeed, producing two simultaneously-"current" versions or duplicate
+    `document_approvals` rows. An independent security review of this workflow
+    slice found exactly that race before this helper existed; see
+    docs/DecisionLog.md#2026-07-26-document-approval-workflow-a-status-cache-integrity-bug-and-a-toctou-race.
+    """
+    bind = session.bind
+    if bind is not None and bind.dialect.name != "sqlite":
+        await session.execute(
+            select(Document.id).where(Document.id == document.id).with_for_update()
+        )
+    await session.refresh(document)
+
+
+async def submit_document_version_for_approval(
+    session: AsyncSession,
+    *,
+    organisation_id: uuid.UUID,
+    document_id: uuid.UUID,
+    version_id: uuid.UUID,
+) -> DocumentVersion:
+    """`draft` -> `in_review`. Raises `InvalidVersionStateError` if the version
+    isn't currently `draft`."""
+    document = await get_document(session, organisation_id=organisation_id, document_id=document_id)
+    await _lock_document(session, document)
+    version = await get_document_version(
+        session, organisation_id=organisation_id, document_id=document_id, version_id=version_id
+    )
+    if version.status != DocumentVersionStatus.DRAFT:
+        raise InvalidVersionStateError(
+            f"Version {version_id} is {version.status.value}, not draft"
+            " -- cannot submit for approval"
+        )
+
+    version.status = DocumentVersionStatus.IN_REVIEW
+    # Never touch a retired (obsolete) document's cached status from this
+    # any-active-user action -- only the admin-only retire/approve actions may
+    # change it, so a member can't silently undo an admin's retire by uploading
+    # and submitting a new draft.
+    if document.current_version_id is None and document.status != DocumentStatus.OBSOLETE:
+        document.status = DocumentStatus.IN_REVIEW
+
+    await session.commit()
+    await session.refresh(version)
+    return version
+
+
+async def approve_document_version(
+    session: AsyncSession,
+    *,
+    organisation_id: uuid.UUID,
+    document_id: uuid.UUID,
+    version_id: uuid.UUID,
+    approver_id: uuid.UUID,
+    comments: str | None,
+) -> DocumentVersion:
+    """`in_review` -> `approved`; supersedes the document's previous current
+    version (-> `obsolete`); records a `document_approvals` row. Raises
+    `InvalidVersionStateError` if the version isn't currently `in_review`."""
+    document = await get_document(session, organisation_id=organisation_id, document_id=document_id)
+    await _lock_document(session, document)
+    version = await get_document_version(
+        session, organisation_id=organisation_id, document_id=document_id, version_id=version_id
+    )
+    if version.status != DocumentVersionStatus.IN_REVIEW:
+        raise InvalidVersionStateError(
+            f"Version {version_id} is {version.status.value}, not in_review -- cannot approve"
+        )
+
+    previous_current_version_id = document.current_version_id
+    if previous_current_version_id is not None and previous_current_version_id != version.id:
+        previous_version = (
+            await session.execute(
+                select(DocumentVersion).where(DocumentVersion.id == previous_current_version_id)
+            )
+        ).scalar_one_or_none()
+        if previous_version is not None:
+            previous_version.status = DocumentVersionStatus.OBSOLETE
+
+    version.status = DocumentVersionStatus.APPROVED
+    document.current_version_id = version.id
+    # An approval is itself an admin action, so (unlike submit/reject above) it is
+    # allowed to revive a previously-retired document -- that is a deliberate
+    # admin decision, at the same trust level as retiring it in the first place.
+    document.status = DocumentStatus.APPROVED
+
+    session.add(
+        DocumentApproval(
+            document_version_id=version.id,
+            approver_id=approver_id,
+            decision=ApprovalDecision.APPROVED,
+            comments=comments,
+        )
+    )
+
+    await session.commit()
+    await session.refresh(version)
+    return version
+
+
+async def reject_document_version(
+    session: AsyncSession,
+    *,
+    organisation_id: uuid.UUID,
+    document_id: uuid.UUID,
+    version_id: uuid.UUID,
+    approver_id: uuid.UUID,
+    comments: str,
+) -> DocumentVersion:
+    """`in_review` -> `rejected` (terminal for this version -- a new version must be
+    created to try again); records a `document_approvals` row. `comments` is
+    required so the reason is always captured. Raises `RejectionCommentRequiredError`
+    if blank, or `InvalidVersionStateError` if the version isn't `in_review`."""
+    if not comments or not comments.strip():
+        raise RejectionCommentRequiredError("A comment explaining the rejection is required")
+
+    document = await get_document(session, organisation_id=organisation_id, document_id=document_id)
+    await _lock_document(session, document)
+    version = await get_document_version(
+        session, organisation_id=organisation_id, document_id=document_id, version_id=version_id
+    )
+    if version.status != DocumentVersionStatus.IN_REVIEW:
+        raise InvalidVersionStateError(
+            f"Version {version_id} is {version.status.value}, not in_review -- cannot reject"
+        )
+
+    version.status = DocumentVersionStatus.REJECTED
+    # Same reasoning as submit above: never un-retire a document from this
+    # any-active-user-reachable action.
+    if document.current_version_id is None and document.status != DocumentStatus.OBSOLETE:
+        document.status = DocumentStatus.DRAFT
+
+    session.add(
+        DocumentApproval(
+            document_version_id=version.id,
+            approver_id=approver_id,
+            decision=ApprovalDecision.REJECTED,
+            comments=comments,
+        )
+    )
+
+    await session.commit()
+    await session.refresh(version)
+    return version
+
+
+async def retire_document(
+    session: AsyncSession, *, organisation_id: uuid.UUID, document_id: uuid.UUID
+) -> Document:
+    """Retire a whole document (`documents.status` -> `obsolete`), independent of
+    its versions' own statuses -- the whole-document equivalent of a version being
+    superseded, for a document that is no longer in use at all."""
+    document = await get_document(session, organisation_id=organisation_id, document_id=document_id)
+    document.status = DocumentStatus.OBSOLETE
+    await session.commit()
+    await session.refresh(document)
+    return document

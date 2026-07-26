@@ -181,14 +181,17 @@ Implements the core schema of the Document Management module
 ([docs/modules/DocumentManagement.md](modules/DocumentManagement.md)) — see
 [.hermes/plans/2026-07-26-milestone-2-document-management.md](../.hermes/plans/2026-07-26-milestone-2-document-management.md)
 for full reasoning. Implemented by
-`backend/alembic/versions/8dc9425047ca_add_document_categories_tags_documents_.py`.
-The approval workflow (`document_approvals`) and acknowledgements
-(`document_acknowledgements`) are not implemented yet — later Milestone 2 commits.
-Version file upload/download/preview **is** implemented — see
+`backend/alembic/versions/8dc9425047ca_add_document_categories_tags_documents_.py`
+(categories/tags/documents/versions) and
+`backend/alembic/versions/ea4516740593_add_document_approvals.py`
+(`document_approvals`). Acknowledgements (`document_acknowledgements`) are not
+implemented yet — a later Milestone 2 commit. Version file upload/download/preview
+and the approval/rejection workflow **are** implemented — see
 [API.md](API.md#document-management-milestone-2-in-progress) and
-[DecisionLog.md](DecisionLog.md#2026-07-26-document-upload-request-body-size-cap-version-number-locking-and-upload-policy-extension-validation)
+[DecisionLog.md](DecisionLog.md#2026-07-26-document-upload-request-body-size-cap-version-number-locking-and-upload-policy-extension-validation) /
+[DecisionLog.md](DecisionLog.md#2026-07-26-document-approval-workflow-a-status-cache-integrity-bug-and-a-toctou-race)
 for the storage security posture and the fixes an independent review required
-before this slice was committed.
+before each of these two slices was committed.
 
 `document_categories`:
 
@@ -234,8 +237,21 @@ server-side from the validated extension, never the client's declared
 `Content-Type`), `size_bytes`, `checksum_sha256`, `change_summary` (nullable),
 `status` (native ENUM `draft`/`in_review`/`approved`/`rejected`/`obsolete`),
 `created_by_id` (FK → `users.id`, nullable), `created_at`. Immutable after creation
-except `status`; no `updated_at`. `documents.current_version_id` is not yet set by
-any code path — that lands with the approval workflow.
+except `status`; no `updated_at`.
+
+`document_approvals`: `id`, `document_version_id` (FK → `document_versions.id`,
+not null), `approver_id` (FK → `users.id`, not null — see decision 1 above),
+`decision` (native ENUM `approved`/`rejected`), `comments` (nullable at the DB
+layer; required by the service layer when `decision=rejected`), `decided_at`
+(timestamptz, not null). Immutable after creation — no update/delete path exists.
+Every mutation of `documents.status`/`current_version_id` or a
+`document_versions.status` outside of upload/soft-delete now goes through a
+shared `_lock_document` helper (`SELECT ... FOR UPDATE` on the parent `documents`
+row, a no-op on SQLite) acquired *before* reading the target version's state, so
+two concurrent workflow transitions on the same document serialise correctly —
+see
+[DecisionLog.md](DecisionLog.md#2026-07-26-document-approval-workflow-a-status-cache-integrity-bug-and-a-toctou-race)
+for the race this closes.
 
 #### Upload policy
 

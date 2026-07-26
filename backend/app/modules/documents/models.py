@@ -56,6 +56,13 @@ class DocumentVersionStatus(str, enum.Enum):
     OBSOLETE = "obsolete"
 
 
+class ApprovalDecision(str, enum.Enum):
+    """A single recorded approval decision for a version."""
+
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
 def _native_enum(enum_cls: type[enum.Enum], name: str) -> Enum:
     return Enum(
         enum_cls,
@@ -187,5 +194,30 @@ class DocumentVersion(Base):
     )
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class DocumentApproval(Base):
+    """An immutable record of one approve/reject decision on a version. Never
+    updated or deleted after creation -- this table, alongside `document_versions`,
+    is the QMS audit trail for who approved/rejected what and when (see
+    docs/Database.md#soft-delete-and-audit-trail on why a separate generic
+    audit_log table was not built for this). `approver_id` references `users.id`,
+    not `people.id` -- see
+    docs/DecisionLog.md#2026-07-26-document-management-schema-numbering-and-the-deferred-audit_log-table."""
+
+    __tablename__ = "document_approvals"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    document_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("document_versions.id"), nullable=False
+    )
+    approver_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    decision: Mapped[ApprovalDecision] = mapped_column(
+        _native_enum(ApprovalDecision, "document_approval_decision"), nullable=False
+    )
+    comments: Mapped[str | None] = mapped_column(Text, nullable=True)
+    decided_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

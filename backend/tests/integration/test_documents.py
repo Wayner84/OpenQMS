@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 pytestmark = pytest.mark.integration
@@ -88,6 +88,7 @@ async def context(
     from app.models.user import User, UserRole
     from app.modules.documents.models import (
         Document,
+        DocumentApproval,
         DocumentCategory,
         DocumentTag,
         DocumentTagLink,
@@ -124,6 +125,24 @@ async def context(
                     select(Document.id).where(Document.organisation_id == org_a.id)
                 )
             )
+        )
+        await session.execute(
+            delete(DocumentApproval).where(
+                DocumentApproval.document_version_id.in_(
+                    select(DocumentVersion.id).where(
+                        DocumentVersion.document_id.in_(
+                            select(Document.id).where(Document.organisation_id == org_a.id)
+                        )
+                    )
+                )
+            )
+        )
+        # documents.current_version_id references document_versions.id -- null it
+        # out first so the version rows below can actually be deleted.
+        await session.execute(
+            update(Document)
+            .where(Document.organisation_id == org_a.id)
+            .values(current_version_id=None)
         )
         await session.execute(
             delete(DocumentVersion).where(
@@ -220,6 +239,22 @@ async def context(
                         select(Document.id).where(Document.organisation_id == org_b.id)
                     )
                 )
+            )
+            await cleanup_session.execute(
+                delete(DocumentApproval).where(
+                    DocumentApproval.document_version_id.in_(
+                        select(DocumentVersion.id).where(
+                            DocumentVersion.document_id.in_(
+                                select(Document.id).where(Document.organisation_id == org_b.id)
+                            )
+                        )
+                    )
+                )
+            )
+            await cleanup_session.execute(
+                update(Document)
+                .where(Document.organisation_id == org_b.id)
+                .values(current_version_id=None)
             )
             await cleanup_session.execute(
                 delete(DocumentVersion).where(
@@ -702,3 +737,197 @@ async def test_documents_and_categories_require_authentication(context: Context)
     assert documents_response.status_code == 401
     assert categories_response.status_code == 401
     assert tags_response.status_code == 401
+
+
+async def _upload_and_submit(client: AsyncClient, headers: dict[str, str], document_id: str) -> str:
+    upload_response = await client.post(
+        f"/api/v1/documents/{document_id}/versions",
+        headers=headers,
+        files={"file": ("report.pdf", b"%PDF-1.7\nhello", "application/pdf")},
+    )
+    version_id = upload_response.json()["id"]
+    submit_response = await client.post(
+        f"/api/v1/documents/{document_id}/versions/{version_id}/submit-for-approval",
+        headers=headers,
+    )
+    assert submit_response.status_code == 200, submit_response.text
+    return str(version_id)
+
+
+async def test_full_approval_workflow_supersedes_the_previous_version(context: Context) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        create_response = await client.post(
+            "/api/v1/documents", headers=context.org_a_headers, json={"title": "SOP 1"}
+        )
+        document_id = create_response.json()["id"]
+
+        first_version_id = await _upload_and_submit(client, context.org_a_headers, document_id)
+        approve_response = await client.post(
+            f"/api/v1/documents/{document_id}/versions/{first_version_id}/approve",
+            headers=context.org_a_headers,
+            json={"comments": "Looks good"},
+        )
+        assert approve_response.status_code == 200, approve_response.text
+        assert approve_response.json()["status"] == "approved"
+
+        document_after_first_approval = await client.get(
+            f"/api/v1/documents/{document_id}", headers=context.org_a_headers
+        )
+        assert document_after_first_approval.json()["status"] == "approved"
+        assert document_after_first_approval.json()["current_version_id"] == first_version_id
+
+        second_version_id = await _upload_and_submit(client, context.org_a_headers, document_id)
+        second_approve_response = await client.post(
+            f"/api/v1/documents/{document_id}/versions/{second_version_id}/approve",
+            headers=context.org_a_headers,
+            json={},
+        )
+        assert second_approve_response.status_code == 200, second_approve_response.text
+
+        first_version_after = await client.get(
+            f"/api/v1/documents/{document_id}/versions", headers=context.org_a_headers
+        )
+        by_id = {item["id"]: item for item in first_version_after.json()["items"]}
+        document_final = await client.get(
+            f"/api/v1/documents/{document_id}", headers=context.org_a_headers
+        )
+
+    assert by_id[first_version_id]["status"] == "obsolete"
+    assert by_id[second_version_id]["status"] == "approved"
+    assert document_final.json()["current_version_id"] == second_version_id
+
+
+async def test_reject_requires_admin_and_a_comment(context: Context) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        member_response = await client.post(
+            "/api/v1/users",
+            headers=context.org_a_headers,
+            json={
+                "email": "member-reject@example.com",
+                "full_name": "Member",
+                "password": "member-password",
+                "role": "member",
+            },
+        )
+        assert member_response.status_code == 201, member_response.text
+        member_headers = await _login(context.app, "member-reject@example.com", "member-password")
+
+        create_response = await client.post(
+            "/api/v1/documents", headers=context.org_a_headers, json={"title": "SOP 1"}
+        )
+        document_id = create_response.json()["id"]
+        version_id = await _upload_and_submit(client, member_headers, document_id)
+
+        member_reject_response = await client.post(
+            f"/api/v1/documents/{document_id}/versions/{version_id}/reject",
+            headers=member_headers,
+            json={"comments": "Not ready"},
+        )
+        no_comment_response = await client.post(
+            f"/api/v1/documents/{document_id}/versions/{version_id}/reject",
+            headers=context.org_a_headers,
+            json={"comments": ""},
+        )
+        reject_response = await client.post(
+            f"/api/v1/documents/{document_id}/versions/{version_id}/reject",
+            headers=context.org_a_headers,
+            json={"comments": "Missing a signature page"},
+        )
+
+        document_after = await client.get(
+            f"/api/v1/documents/{document_id}", headers=context.org_a_headers
+        )
+
+    assert member_reject_response.status_code == 403
+    assert no_comment_response.status_code == 422
+    assert reject_response.status_code == 200, reject_response.text
+    assert reject_response.json()["status"] == "rejected"
+    assert document_after.json()["status"] == "draft"
+
+
+async def test_approve_returns_409_for_a_version_not_in_review(context: Context) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        create_response = await client.post(
+            "/api/v1/documents", headers=context.org_a_headers, json={"title": "SOP 1"}
+        )
+        document_id = create_response.json()["id"]
+        upload_response = await client.post(
+            f"/api/v1/documents/{document_id}/versions",
+            headers=context.org_a_headers,
+            files={"file": ("report.pdf", b"%PDF-1.7\nhello", "application/pdf")},
+        )
+        version_id = upload_response.json()["id"]
+
+        response = await client.post(
+            f"/api/v1/documents/{document_id}/versions/{version_id}/approve",
+            headers=context.org_a_headers,
+            json={},
+        )
+
+    assert response.status_code == 409
+
+
+async def test_retire_document_requires_admin(context: Context) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        member_response = await client.post(
+            "/api/v1/users",
+            headers=context.org_a_headers,
+            json={
+                "email": "member-retire@example.com",
+                "full_name": "Member",
+                "password": "member-password",
+                "role": "member",
+            },
+        )
+        assert member_response.status_code == 201, member_response.text
+        member_headers = await _login(context.app, "member-retire@example.com", "member-password")
+
+        create_response = await client.post(
+            "/api/v1/documents", headers=context.org_a_headers, json={"title": "SOP 1"}
+        )
+        document_id = create_response.json()["id"]
+
+        member_response2 = await client.post(
+            f"/api/v1/documents/{document_id}/obsolete", headers=member_headers
+        )
+        admin_response = await client.post(
+            f"/api/v1/documents/{document_id}/obsolete", headers=context.org_a_headers
+        )
+
+    assert member_response2.status_code == 403
+    assert admin_response.status_code == 200, admin_response.text
+    assert admin_response.json()["status"] == "obsolete"
+
+
+async def test_workflow_endpoints_return_404_for_another_organisations_document(
+    context: Context,
+) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        create_response = await client.post(
+            "/api/v1/documents", headers=context.org_b_headers, json={"title": "Org B Doc"}
+        )
+        document_id = create_response.json()["id"]
+        version_id = await _upload_and_submit(client, context.org_b_headers, document_id)
+
+        approve_response = await client.post(
+            f"/api/v1/documents/{document_id}/versions/{version_id}/approve",
+            headers=context.org_a_headers,
+            json={},
+        )
+        reject_response = await client.post(
+            f"/api/v1/documents/{document_id}/versions/{version_id}/reject",
+            headers=context.org_a_headers,
+            json={"comments": "no"},
+        )
+        obsolete_response = await client.post(
+            f"/api/v1/documents/{document_id}/obsolete", headers=context.org_a_headers
+        )
+
+    assert approve_response.status_code == 404
+    assert reject_response.status_code == 404
+    assert obsolete_response.status_code == 404

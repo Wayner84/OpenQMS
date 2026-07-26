@@ -4,10 +4,10 @@
 underway — see [docs/CurrentStatus.md](../CurrentStatus.md) and the
 [Milestone 2 plan](../../.hermes/plans/2026-07-26-milestone-2-document-management.md)
 for exactly what is and isn't implemented yet. Implemented so far: categories, tags,
-documents (metadata CRUD, soft delete), configurable server-generated numbering, and
-secure version file upload/download/preview. Not yet implemented: the
-approval/rejection workflow, acknowledgements, search/filtering, version comparison,
-and the frontend.
+documents (metadata CRUD, soft delete), configurable server-generated numbering,
+secure version file upload/download/preview, and the approval/rejection workflow.
+Not yet implemented: acknowledgements, search/filtering, version comparison, and the
+frontend.
 
 ## Purpose
 
@@ -42,10 +42,11 @@ Full column detail: [Database.md](../Database.md#documents-and-related-tables-mi
   `created_by_id` → `users`, `created_at`, `status`. Full history retained;
   `documents.current_version_id` will point at the latest approved version once
   the approval workflow lands.
-- **`document_approvals`** — not yet implemented. Planned: `id`,
-  `document_version_id`, `approver_id` → **`users`** (not `people` — see
+- **`document_approvals`** — implemented. `id`, `document_version_id`,
+  `approver_id` → **`users`** (not `people` — see
   [DecisionLog.md](../DecisionLog.md#2026-07-26-document-management-schema-numbering-and-the-deferred-audit_log-table)),
-  `decision` (`approved` / `rejected`), `decided_at`, `comments`.
+  `decision` (`approved` / `rejected`), `decided_at`, `comments` (required by the
+  service layer when rejecting). Immutable after creation.
 - **`document_acknowledgements`** — not yet implemented. Planned: `id`,
   `document_version_id`, `acknowledged_by_id` → **`users`**, `acknowledged_at`.
 
@@ -67,12 +68,16 @@ and `/api/v1/documents` — full detail:
 - `GET /api/v1/documents/{id}/versions/{version_id}/download` /
   `.../preview` — secure file download (`attachment`) / inline preview
   (PDF/PNG/JPEG only, `415` otherwise). Both any active user.
+- `POST /api/v1/documents/{id}/versions/{version_id}/submit-for-approval` — any
+  active user, `draft` → `in_review`.
+- `POST .../approve` / `POST .../reject` — **admin only**; `in_review` →
+  `approved`/`rejected`; reject requires a non-blank `comments` field.
+- `POST /api/v1/documents/{id}/obsolete` — **admin only**; retires the whole
+  document regardless of version state.
 
 Not yet implemented (planned, per the
 [Milestone 2 plan](../../.hermes/plans/2026-07-26-milestone-2-document-management.md)):
 
-- `POST /api/v1/documents/{id}/versions/{version_id}/submit-for-approval`,
-  `POST .../approve`, `POST .../reject` — approval workflow transitions.
 - `GET /api/v1/documents/{id}/versions/{a}/compare/{b}` — version comparison.
 - `POST /api/v1/documents/{id}/versions/{version_id}/acknowledge` — record an
   acknowledgement for the current user.
@@ -84,6 +89,16 @@ Draft → In Review → Approved (published, becomes `current_version_id`) → O
 (superseded when a later version is approved). A document cannot be published without
 at least one recorded approval; change history and prior versions are retained, never
 overwritten, matching the spec's "revision history" and "change history" requirements.
+`documents.status` is a service-maintained cache: it becomes and *stays* `approved`
+the moment any version is ever approved, even while a later revision is separately
+drafted/reviewed/rejected; `in_review`/`draft` only apply before that first approval
+ever happens. Retiring a whole document (`obsolete`) is independent of version state
+and, once set, is never silently reversed by an ordinary submit/reject action — only
+a deliberate admin approval can revive a retired document. Every workflow mutation is
+serialised per-document via a row lock, so two concurrent transitions on the same
+document can't race into an inconsistent state — see
+[DecisionLog.md](../DecisionLog.md#2026-07-26-document-approval-workflow-a-status-cache-integrity-bug-and-a-toctou-race)
+for the bugs an independent review found and fixed here.
 
 ## Relationships to other modules
 
@@ -98,9 +113,9 @@ referenced **from** other modules rather than referencing them:
 - [FAIR](FAIR.md) — imported drawings and generated AS9102 forms.
 - [Health and Safety: Audits](HealthAndSafetyAudits.md) — audit photos.
 - A document's `owner_id` references [People](People.md) (an organisational
-  assignment). Approvers and acknowledging staff (once the approval workflow lands)
-  instead reference `users` directly — they are actions performed by an
-  authenticated caller, not a `people` assignment; see
+  assignment). Approvers reference `users` directly (acknowledging staff will too,
+  once acknowledgements land) — they are actions performed by an authenticated
+  caller, not a `people` assignment; see
   [DecisionLog.md](../DecisionLog.md#2026-07-26-document-management-schema-numbering-and-the-deferred-audit_log-table).
 
 ## Future improvements
@@ -112,15 +127,19 @@ referenced **from** other modules rather than referencing them:
 
 ## Known issues / status
 
-In progress. Categories, tags, documents (metadata), configurable numbering, and
-secure version upload/download/preview are implemented and tested (unit +
-integration against real PostgreSQL). An independent security/tenant-isolation
-review of the upload slice found and fixed three issues before it was committed
-(a request-body size cap, a version-numbering race, and upload-policy extension
-validation) — see
-[DecisionLog.md](../DecisionLog.md#2026-07-26-document-upload-request-body-size-cap-version-number-locking-and-upload-policy-extension-validation).
-No UI exists yet. The approval/rejection workflow, acknowledgements, search, and
-version comparison are not implemented — see the
+In progress. Categories, tags, documents (metadata), configurable numbering, secure
+version upload/download/preview, and the approval/rejection workflow are all
+implemented and tested (unit + integration against real PostgreSQL). Independent
+security/tenant-isolation reviews of both the upload slice and the workflow slice
+each found and fixed real issues before being committed — a request-body size cap, a
+version-numbering race, and upload-policy extension validation for the former; a
+status-cache integrity bug (a non-admin action could silently un-retire a document)
+and a second, related TOCTOU race for the latter. See
+[DecisionLog.md](../DecisionLog.md#2026-07-26-document-upload-request-body-size-cap-version-number-locking-and-upload-policy-extension-validation)
+and
+[DecisionLog.md](../DecisionLog.md#2026-07-26-document-approval-workflow-a-status-cache-integrity-bug-and-a-toctou-race).
+No UI exists yet. Acknowledgements, search, and version comparison are not
+implemented — see the
 [Milestone 2 plan](../../.hermes/plans/2026-07-26-milestone-2-document-management.md)
 for the remaining slices.
 

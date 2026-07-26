@@ -90,9 +90,9 @@ Full scope and acceptance criteria:
     workflow, acknowledgements, search/filtering, permissions, secure upload/download/
     preview, version comparison; backend and frontend. Dependencies: Milestone 1.
     Complexity: **XL**. Status: In Progress (categories/tags/documents core schema,
-    configurable numbering, and secure version upload/download/preview implemented
-    and tested; workflow, acknowledgements, search, version comparison, and the
-    frontend remain).
+    configurable numbering, secure version upload/download/preview, and the
+    approval/rejection workflow implemented and tested; acknowledgements, search,
+    version comparison, and the frontend remain).
 
 ## Low Priority — Later modules (Milestones 3–9)
 15. **Products module** — see [docs/modules/Products.md](modules/Products.md).
