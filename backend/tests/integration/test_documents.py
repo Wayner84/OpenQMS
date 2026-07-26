@@ -13,6 +13,7 @@ import sys
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
@@ -59,6 +60,8 @@ class Context:
     org_a_headers: dict[str, str]
     org_b_headers: dict[str, str]
     org_a_user_id: uuid.UUID
+    org_a_id: uuid.UUID
+    database_url: str
 
 
 async def _login(app: FastAPI, email: str, password: str) -> dict[str, str]:
@@ -73,7 +76,9 @@ async def _login(app: FastAPI, email: str, password: str) -> dict[str, str]:
 
 
 @pytest.fixture
-async def context(database_url: str, monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[Context]:
+async def context(
+    database_url: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> AsyncIterator[Context]:
     import app.core.config as config_module
     import app.core.db as db_module
     from app.core.security import hash_password
@@ -86,12 +91,19 @@ async def context(database_url: str, monkeypatch: pytest.MonkeyPatch) -> AsyncIt
         DocumentCategory,
         DocumentTag,
         DocumentTagLink,
+        DocumentVersion,
     )
     from app.modules.documents.numbering import NUMBERING_SCHEME_KEY
+    from app.modules.documents.upload_policy import (
+        DEFAULT_ALLOWED_EXTENSIONS,
+        DEFAULT_MAX_SIZE_MB,
+        UPLOAD_POLICY_KEY,
+    )
 
     monkeypatch.setenv("DATABASE_URL", database_url)
     monkeypatch.setenv("BACKEND_CORS_ORIGINS", "http://localhost:5173")
     monkeypatch.setenv("JWT_SECRET_KEY", "integration-test-secret-key")
+    monkeypatch.setenv("UPLOADS_DIR", str(tmp_path))
     config_module.get_settings.cache_clear()
     db_module.get_session_factory.cache_clear()
 
@@ -113,6 +125,13 @@ async def context(database_url: str, monkeypatch: pytest.MonkeyPatch) -> AsyncIt
                 )
             )
         )
+        await session.execute(
+            delete(DocumentVersion).where(
+                DocumentVersion.document_id.in_(
+                    select(Document.id).where(Document.organisation_id == org_a.id)
+                )
+            )
+        )
         await session.execute(delete(Document).where(Document.organisation_id == org_a.id))
         await session.execute(delete(DocumentTag).where(DocumentTag.organisation_id == org_a.id))
         await session.execute(
@@ -129,6 +148,24 @@ async def context(database_url: str, monkeypatch: pytest.MonkeyPatch) -> AsyncIt
                 organisation_id=org_a.id,
                 key=NUMBERING_SCHEME_KEY,
                 value={"prefix": "DOC", "separator": "-", "padding": 4, "next_sequence": 1},
+            )
+        )
+        # Also reset the upload policy to its default -- a test may seed a
+        # restrictive override (see test_upload_rejects_oversized_file_...) and this
+        # is a shared, persistent dev database, not a per-test-run disposable one.
+        await session.execute(
+            delete(Configuration).where(
+                Configuration.organisation_id == org_a.id, Configuration.key == UPLOAD_POLICY_KEY
+            )
+        )
+        session.add(
+            Configuration(
+                organisation_id=org_a.id,
+                key=UPLOAD_POLICY_KEY,
+                value={
+                    "allowed_extensions": sorted(DEFAULT_ALLOWED_EXTENSIONS),
+                    "max_size_mb": DEFAULT_MAX_SIZE_MB,
+                },
             )
         )
         await session.commit()
@@ -168,6 +205,8 @@ async def context(database_url: str, monkeypatch: pytest.MonkeyPatch) -> AsyncIt
             org_a_headers=org_a_headers,
             org_b_headers=org_b_headers,
             org_a_user_id=org_a_user.id,
+            org_a_id=org_a.id,
+            database_url=database_url,
         )
     finally:
         await db_module.get_session_factory().engine.dispose()
@@ -178,6 +217,13 @@ async def context(database_url: str, monkeypatch: pytest.MonkeyPatch) -> AsyncIt
             await cleanup_session.execute(
                 delete(DocumentTagLink).where(
                     DocumentTagLink.document_id.in_(
+                        select(Document.id).where(Document.organisation_id == org_b.id)
+                    )
+                )
+            )
+            await cleanup_session.execute(
+                delete(DocumentVersion).where(
+                    DocumentVersion.document_id.in_(
                         select(Document.id).where(Document.organisation_id == org_b.id)
                     )
                 )
@@ -406,6 +452,244 @@ async def test_list_document_versions_is_empty_for_a_new_document(context: Conte
     assert response.status_code == 200
     assert response.json()["items"] == []
     assert response.json()["total"] == 0
+
+
+async def test_upload_download_roundtrip_returns_correct_bytes_and_headers(
+    context: Context,
+) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        create_response = await client.post(
+            "/api/v1/documents", headers=context.org_a_headers, json={"title": "SOP 1"}
+        )
+        document_id = create_response.json()["id"]
+
+        upload_response = await client.post(
+            f"/api/v1/documents/{document_id}/versions",
+            headers=context.org_a_headers,
+            files={"file": ("report.pdf", b"%PDF-1.7\nhello world", "application/pdf")},
+            data={"change_summary": "Initial draft"},
+        )
+        assert upload_response.status_code == 201, upload_response.text
+        version_body = upload_response.json()
+        assert version_body["version_number"] == 1
+        assert version_body["content_type"] == "application/pdf"
+        assert version_body["original_filename"] == "report.pdf"
+        assert "storage_key" not in version_body
+        version_id = version_body["id"]
+
+        download_response = await client.get(
+            f"/api/v1/documents/{document_id}/versions/{version_id}/download",
+            headers=context.org_a_headers,
+        )
+
+    assert download_response.status_code == 200
+    assert download_response.content == b"%PDF-1.7\nhello world"
+    assert download_response.headers["content-type"] == "application/pdf"
+    assert "attachment" in download_response.headers["content-disposition"]
+    assert "report.pdf" in download_response.headers["content-disposition"]
+    assert download_response.headers["x-content-type-options"] == "nosniff"
+
+
+async def test_non_admin_member_can_upload_and_download_a_version(context: Context) -> None:
+    """Per the plan's permissions summary, upload/download is any-active-user, not
+    admin-only -- only approve/reject/retire/delete are admin-gated."""
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        member_response = await client.post(
+            "/api/v1/users",
+            headers=context.org_a_headers,
+            json={
+                "email": "member-upload@example.com",
+                "full_name": "Member",
+                "password": "member-password",
+                "role": "member",
+            },
+        )
+        assert member_response.status_code == 201, member_response.text
+        member_headers = await _login(context.app, "member-upload@example.com", "member-password")
+
+        create_response = await client.post(
+            "/api/v1/documents", headers=member_headers, json={"title": "SOP 1"}
+        )
+        assert create_response.status_code == 201, create_response.text
+        document_id = create_response.json()["id"]
+
+        upload_response = await client.post(
+            f"/api/v1/documents/{document_id}/versions",
+            headers=member_headers,
+            files={"file": ("report.pdf", b"%PDF-1.7\nhello", "application/pdf")},
+        )
+        assert upload_response.status_code == 201, upload_response.text
+        version_id = upload_response.json()["id"]
+
+        download_response = await client.get(
+            f"/api/v1/documents/{document_id}/versions/{version_id}/download",
+            headers=member_headers,
+        )
+
+    assert download_response.status_code == 200
+    assert download_response.content == b"%PDF-1.7\nhello"
+
+
+async def test_preview_returns_inline_for_pdf_and_415_for_non_previewable_type(
+    context: Context,
+) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        create_response = await client.post(
+            "/api/v1/documents", headers=context.org_a_headers, json={"title": "SOP 1"}
+        )
+        document_id = create_response.json()["id"]
+
+        pdf_upload = await client.post(
+            f"/api/v1/documents/{document_id}/versions",
+            headers=context.org_a_headers,
+            files={"file": ("report.pdf", b"%PDF-1.7\nhello", "application/pdf")},
+        )
+        pdf_version_id = pdf_upload.json()["id"]
+
+        txt_upload = await client.post(
+            f"/api/v1/documents/{document_id}/versions",
+            headers=context.org_a_headers,
+            files={"file": ("notes.txt", b"plain text notes", "text/plain")},
+        )
+        txt_version_id = txt_upload.json()["id"]
+
+        pdf_preview = await client.get(
+            f"/api/v1/documents/{document_id}/versions/{pdf_version_id}/preview",
+            headers=context.org_a_headers,
+        )
+        txt_preview = await client.get(
+            f"/api/v1/documents/{document_id}/versions/{txt_version_id}/preview",
+            headers=context.org_a_headers,
+        )
+
+    assert pdf_preview.status_code == 200
+    assert "inline" in pdf_preview.headers["content-disposition"]
+    assert txt_preview.status_code == 415
+
+
+async def test_download_returns_404_for_another_organisations_document_version(
+    context: Context,
+) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        create_response = await client.post(
+            "/api/v1/documents", headers=context.org_b_headers, json={"title": "Org B Doc"}
+        )
+        document_id = create_response.json()["id"]
+        upload_response = await client.post(
+            f"/api/v1/documents/{document_id}/versions",
+            headers=context.org_b_headers,
+            files={"file": ("report.pdf", b"%PDF-1.7\nhello", "application/pdf")},
+        )
+        version_id = upload_response.json()["id"]
+
+        response = await client.get(
+            f"/api/v1/documents/{document_id}/versions/{version_id}/download",
+            headers=context.org_a_headers,
+        )
+
+    assert response.status_code == 404
+
+
+async def test_upload_rejects_disallowed_extension(context: Context) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        create_response = await client.post(
+            "/api/v1/documents", headers=context.org_a_headers, json={"title": "SOP 1"}
+        )
+        document_id = create_response.json()["id"]
+
+        response = await client.post(
+            f"/api/v1/documents/{document_id}/versions",
+            headers=context.org_a_headers,
+            files={"file": ("malware.exe", b"MZ\x90\x00", "application/octet-stream")},
+        )
+
+    assert response.status_code == 422
+
+
+async def test_upload_rejects_content_that_does_not_match_its_extension(context: Context) -> None:
+    """A file relabelled with a .pdf extension but containing an .exe's real
+    signature must be rejected -- the backend checks the file's own bytes, never
+    just the client-declared extension/Content-Type."""
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        create_response = await client.post(
+            "/api/v1/documents", headers=context.org_a_headers, json={"title": "SOP 1"}
+        )
+        document_id = create_response.json()["id"]
+
+        response = await client.post(
+            f"/api/v1/documents/{document_id}/versions",
+            headers=context.org_a_headers,
+            files={"file": ("fake.pdf", b"MZ\x90\x00\x03\x00\x00\x00", "application/pdf")},
+        )
+
+    assert response.status_code == 422
+
+
+async def test_upload_rejects_oversized_file_per_a_seeded_small_policy(context: Context) -> None:
+    """Seeds a tiny max_size_mb policy for org A so the test doesn't need to send a
+    real 50 MB payload to exercise the default limit."""
+    from app.models.configuration import Configuration
+    from app.modules.documents.upload_policy import UPLOAD_POLICY_KEY
+
+    engine = create_async_engine(context.database_url)
+    session_maker = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_maker() as session:
+        await session.execute(
+            delete(Configuration).where(
+                Configuration.organisation_id == context.org_a_id,
+                Configuration.key == UPLOAD_POLICY_KEY,
+            )
+        )
+        session.add(
+            Configuration(
+                organisation_id=context.org_a_id,
+                key=UPLOAD_POLICY_KEY,
+                value={"allowed_extensions": [".txt"], "max_size_mb": 1},
+            )
+        )
+        await session.commit()
+    await engine.dispose()
+
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        create_response = await client.post(
+            "/api/v1/documents", headers=context.org_a_headers, json={"title": "SOP 1"}
+        )
+        document_id = create_response.json()["id"]
+
+        response = await client.post(
+            f"/api/v1/documents/{document_id}/versions",
+            headers=context.org_a_headers,
+            files={"file": ("big.txt", b"x" * (2 * 1024 * 1024), "text/plain")},
+        )
+
+    assert response.status_code == 413
+
+
+async def test_upload_sanitises_a_path_traversal_filename(context: Context) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        create_response = await client.post(
+            "/api/v1/documents", headers=context.org_a_headers, json={"title": "SOP 1"}
+        )
+        document_id = create_response.json()["id"]
+
+        response = await client.post(
+            f"/api/v1/documents/{document_id}/versions",
+            headers=context.org_a_headers,
+            files={"file": ("../../etc/passwd.txt", b"not actually /etc/passwd", "text/plain")},
+        )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["original_filename"] == "passwd.txt"
+    assert "/" not in response.json()["original_filename"]
+    assert ".." not in response.json()["original_filename"]
 
 
 async def test_documents_and_categories_require_authentication(context: Context) -> None:

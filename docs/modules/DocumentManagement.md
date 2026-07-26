@@ -4,9 +4,10 @@
 underway — see [docs/CurrentStatus.md](../CurrentStatus.md) and the
 [Milestone 2 plan](../../.hermes/plans/2026-07-26-milestone-2-document-management.md)
 for exactly what is and isn't implemented yet. Implemented so far: categories, tags,
-documents (metadata CRUD, soft delete), and configurable server-generated numbering.
-Not yet implemented: version file upload/download/preview, the approval/rejection
-workflow, acknowledgements, search/filtering, version comparison, and the frontend.
+documents (metadata CRUD, soft delete), configurable server-generated numbering, and
+secure version file upload/download/preview. Not yet implemented: the
+approval/rejection workflow, acknowledgements, search/filtering, version comparison,
+and the frontend.
 
 ## Purpose
 
@@ -32,12 +33,15 @@ Full column detail: [Database.md](../Database.md#documents-and-related-tables-mi
   pattern — see [Database.md](../Database.md#configuration-table)), `title`,
   `current_version_id`, `status` (`draft` / `in_review` / `approved` / `obsolete`),
   `owner_id` → `people`, `deleted_at` (soft delete), `created_at`, `updated_at`.
-- **`document_versions`** — table implemented (schema only; no upload endpoint yet).
-  `id`, `document_id`, `version_number`, `storage_key` (server-generated, never
-  exposed over the API), `original_filename`, `content_type`, `size_bytes`,
-  `checksum_sha256`, `change_summary`, `created_by_id` → `users`, `created_at`,
-  `status`. Full history retained; `documents.current_version_id` will point at the
-  latest approved version once upload/approval land.
+- **`document_versions`** — implemented, including secure upload/download/preview.
+  `id`, `document_id`, `version_number` (allocated under a row lock, safe under
+  concurrent uploads), `storage_key` (server-generated, never exposed over the
+  API), `original_filename` (sanitised at upload time), `content_type` (derived
+  server-side from the validated extension, never the client's declared
+  `Content-Type`), `size_bytes`, `checksum_sha256`, `change_summary`,
+  `created_by_id` → `users`, `created_at`, `status`. Full history retained;
+  `documents.current_version_id` will point at the latest approved version once
+  the approval workflow lands.
 - **`document_approvals`** — not yet implemented. Planned: `id`,
   `document_version_id`, `approver_id` → **`users`** (not `people` — see
   [DecisionLog.md](../DecisionLog.md#2026-07-26-document-management-schema-numbering-and-the-deferred-audit_log-table)),
@@ -58,19 +62,20 @@ and `/api/v1/documents` — full detail:
 - `GET/POST /api/v1/documents`, `GET/PATCH /api/v1/documents/{id}` (any active user),
   `DELETE /api/v1/documents/{id}` (admin-only, soft delete) — filterable by
   `category_id`, `status`, `owner_id` today; `search`/`tag` planned for a later slice.
-- `GET /api/v1/documents/{id}/versions` — always empty in this slice.
+- `GET/POST /api/v1/documents/{id}/versions` — list (any active user) / upload a new
+  version (any active user, multipart `file` + optional `change_summary`).
+- `GET /api/v1/documents/{id}/versions/{version_id}/download` /
+  `.../preview` — secure file download (`attachment`) / inline preview
+  (PDF/PNG/JPEG only, `415` otherwise). Both any active user.
 
 Not yet implemented (planned, per the
 [Milestone 2 plan](../../.hermes/plans/2026-07-26-milestone-2-document-management.md)):
 
-- `POST /api/v1/documents/{id}/versions` — upload a new version (draft).
 - `POST /api/v1/documents/{id}/versions/{version_id}/submit-for-approval`,
   `POST .../approve`, `POST .../reject` — approval workflow transitions.
 - `GET /api/v1/documents/{id}/versions/{a}/compare/{b}` — version comparison.
 - `POST /api/v1/documents/{id}/versions/{version_id}/acknowledge` — record an
   acknowledgement for the current user.
-- `GET /api/v1/documents/{id}/versions/{version_id}/download` /
-  `.../preview` — secure file download / PDF/image inline preview.
 - `GET /api/v1/documents?search=&tag=` — full search across title, number, tags.
 
 ## Workflow
@@ -92,7 +97,11 @@ referenced **from** other modules rather than referencing them:
 - [NCR](NCR.md) — attachments and exported reports.
 - [FAIR](FAIR.md) — imported drawings and generated AS9102 forms.
 - [Health and Safety: Audits](HealthAndSafetyAudits.md) — audit photos.
-- Approvers and acknowledging staff reference [People](People.md).
+- A document's `owner_id` references [People](People.md) (an organisational
+  assignment). Approvers and acknowledging staff (once the approval workflow lands)
+  instead reference `users` directly — they are actions performed by an
+  authenticated caller, not a `people` assignment; see
+  [DecisionLog.md](../DecisionLog.md#2026-07-26-document-management-schema-numbering-and-the-deferred-audit_log-table).
 
 ## Future improvements
 
@@ -103,11 +112,15 @@ referenced **from** other modules rather than referencing them:
 
 ## Known issues / status
 
-In progress. Categories, tags, documents (metadata), and configurable numbering are
-implemented and tested (unit + integration against real PostgreSQL, migration
-verified with a real upgrade → downgrade → upgrade cycle). No UI exists yet. Version
-upload/download/preview, the approval/rejection workflow, acknowledgements, search,
-and version comparison are not implemented — see the
+In progress. Categories, tags, documents (metadata), configurable numbering, and
+secure version upload/download/preview are implemented and tested (unit +
+integration against real PostgreSQL). An independent security/tenant-isolation
+review of the upload slice found and fixed three issues before it was committed
+(a request-body size cap, a version-numbering race, and upload-policy extension
+validation) — see
+[DecisionLog.md](../DecisionLog.md#2026-07-26-document-upload-request-body-size-cap-version-number-locking-and-upload-policy-extension-validation).
+No UI exists yet. The approval/rejection workflow, acknowledgements, search, and
+version comparison are not implemented — see the
 [Milestone 2 plan](../../.hermes/plans/2026-07-26-milestone-2-document-management.md)
 for the remaining slices.
 

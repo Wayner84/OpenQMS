@@ -1,6 +1,6 @@
 # Current Status
 
-_Last updated: 2026-07-26 (Milestone 2: categories/tags/documents/numbering slice)_
+_Last updated: 2026-07-26 (Milestone 2: secure document upload/download/preview slice)_
 
 This document is kept truthful and current in the same commit as any work that
 changes it, per [Contributing.md](Contributing.md). It must never describe
@@ -374,14 +374,12 @@ for details and findings.
     router mounted at `/api/v1/document-categories`, `/api/v1/document-tags`, and
     `/api/v1/documents`, per [API.md](API.md#document-management-milestone-2-in-progress)
     and [docs/modules/DocumentManagement.md](modules/DocumentManagement.md).
-    `document_versions` exists as schema only — no upload endpoint yet (a later
-    slice).
   - Server-generated, configurable document numbering
     (`backend/app/modules/documents/numbering.py`): reads/increments an
     organisation-scoped `document_numbering_scheme` configuration row
     (`SELECT ... FOR UPDATE` under real PostgreSQL for concurrency safety), seeded
-    by the same migration alongside an as-yet-unused `document_upload_policy` row
-    for a later slice. `number` is never client-supplied.
+    by the same migration alongside a `document_upload_policy` row consumed by the
+    upload slice below. `number` is never client-supplied.
   - Permissions: listing/viewing and document create/edit are open to any active
     user; category/tag mutation and document deletion require admin, per
     [the plan's permissions summary](../.hermes/plans/2026-07-26-milestone-2-document-management.md#6-permissions-summary).
@@ -417,16 +415,70 @@ for details and findings.
     [docs/modules/DocumentManagement.md](modules/DocumentManagement.md) (`Status: In
     Progress`),
     [DecisionLog.md](DecisionLog.md#2026-07-26-document-management-schema-numbering-and-the-deferred-audit_log-table).
+- **Milestone 2 — secure document version upload, download, and PDF/image preview**
+  (backend slice):
+  - `backend/app/modules/documents/storage.py`: server-generated `storage_key`
+    (never derived from client input — path traversal is structurally impossible,
+    not just filtered), extension allow-list + best-effort magic-byte signature
+    validation (not the client's declared `Content-Type`), and a streaming
+    size-bounded write with SHA-256 checksum computed in the same pass.
+    `backend/app/modules/documents/upload_policy.py`: reads the
+    `document_upload_policy` configuration row (allowed extensions, max size),
+    falling back to a conservative built-in default.
+  - Endpoints: `POST /api/v1/documents/{id}/versions` (multipart upload, any active
+    user), `GET .../download` (`attachment`), `GET .../preview` (`inline` for
+    PDF/PNG/JPEG only, `415` otherwise) — all per
+    [API.md](API.md#document-management-milestone-2-in-progress). File access is
+    always resolved via `(organisation_id, document_id, version_id)`, never a raw
+    path or `storage_key` (never present in any response body).
+  - **Independent security/tenant-isolation review** (a fresh agent with no prior
+    session context, reading the actual code and tests) found and fixed three
+    issues before this slice was committed, none of which the 30+ tests already
+    written for the slice had caught:
+    1. Starlette's multipart parser spools uploaded files to disk with no size
+       limit of its own before the app's per-organisation size check ever runs — a
+       disk-exhaustion DoS reachable by any authenticated user. Fixed with a new
+       `MaxBodySizeMiddleware` (`backend/app/core/middleware.py`) rejecting an
+       oversized request by its declared `Content-Length` before the body is read.
+    2. An unlocked version-number race could let two concurrent uploads to the same
+       document collide, leaving an orphaned file on disk after an unhandled `500`.
+       Fixed with a `SELECT ... FOR UPDATE` lock on the parent document row
+       (matching the existing numbering pattern) plus a belt-and-braces
+       `IntegrityError` handler that deletes the file before re-raising.
+    3. An operator-configured upload policy could name a file extension the
+       backend has no `Content-Type` mapping for, crashing the upload path. Fixed
+       by filtering configured extensions against the known set, dropping unknown
+       ones with a logged warning.
+    Full reasoning in
+    [DecisionLog.md](DecisionLog.md#2026-07-26-document-upload-request-body-size-cap-version-number-locking-and-upload-policy-extension-validation).
+  - New dependency: `python-multipart` (required by FastAPI for `File`/`Form`
+    parsing) — `pyproject.toml`/`uv.lock` updated.
+  - 170 backend tests passing (up from 134): 34 new unit tests (storage validation
+    incl. path-traversal/signature/oversized-file cases, upload-policy fallback and
+    extension filtering, the new middleware) and 2 new integration tests (a
+    non-admin member upload/download round trip) plus the upload/download/preview
+    HTTP-level tests already added before the review (roundtrip, preview
+    inline/415, cross-org `404`, disallowed extension, signature mismatch,
+    oversized-file `413`, path-traversal filename sanitisation).
+  - Gates pass: `ruff format --check`, `ruff check`, `mypy --strict` (77 source
+    files), full `pytest` suite (170 tests: unit + integration against real
+    PostgreSQL 16).
+  - Docs updated in this slice: [API.md](API.md#document-management-milestone-2-in-progress),
+    [Database.md](Database.md#documents-and-related-tables-milestone-2),
+    [Deployment.md](Deployment.md#backups) (uploads volume backup is now real, plus
+    reverse-proxy body-size-limit guidance),
+    [docs/modules/DocumentManagement.md](modules/DocumentManagement.md),
+    [DecisionLog.md](DecisionLog.md#2026-07-26-document-upload-request-body-size-cap-version-number-locking-and-upload-policy-extension-validation),
+    `.env.example`, `docker-compose.yml` (`UPLOADS_DIR`).
 
 ## Work in progress
 
-Milestone 2 (Document Management): plan committed, and the first backend vertical
-slice (categories, tags, documents, configurable numbering) implemented and tested —
-see "Completed work" above. Remaining, per
+Milestone 2 (Document Management): plan committed; categories/tags/documents core
+schema with configurable numbering, and secure version upload/download/preview, are
+both implemented and tested — see "Completed work" above. Remaining, per
 [the plan](../.hermes/plans/2026-07-26-milestone-2-document-management.md#suggested-commit-boundaries):
-version upload/download/preview (with hostile-input handling), the approval
-workflow, acknowledgements, search/filtering and version comparison, the frontend,
-and Docker/security verification and closeout. No frontend or file-storage code
+the approval workflow, acknowledgements, search/filtering and version comparison,
+the frontend, and Docker/security verification and closeout. No frontend code
 exists yet.
 
 ## Known bugs

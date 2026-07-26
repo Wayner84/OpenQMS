@@ -286,8 +286,39 @@ retained, never hard-deleted, per
 ### `GET /api/v1/documents/{id}/versions`
 
 Paginated list of a document's versions (any active user), newest first. `404` if the
-document doesn't exist in the caller's own organisation. Always empty in this slice —
-version upload lands in a later Milestone 2 commit.
+document doesn't exist in the caller's own organisation.
+
+### `POST /api/v1/documents/{id}/versions`
+
+Upload a new, immutable version (any active user — not admin-only; the approval
+workflow, not this endpoint, is the QMS control gate). `multipart/form-data`: `file`
+(required), `change_summary` (optional text field). `version_number` is assigned
+sequentially per document, server-side. Full security posture — server-generated
+storage names, extension + magic-byte + streamed-size validation, a request-body
+size cap ahead of any parsing — in
+[the Milestone 2 plan](../.hermes/plans/2026-07-26-milestone-2-document-management.md#4-storage-and-uploaddownloadpreview-security)
+and
+[DecisionLog.md](DecisionLog.md#2026-07-26-document-upload-request-body-size-cap-version-number-locking-and-upload-policy-extension-validation).
+`404` if the document doesn't exist in the caller's own organisation. `422` if the
+file's extension isn't in the organisation's configured allow-list, or its content
+doesn't match its extension's expected signature. `413` if it exceeds the
+organisation's configured `max_size_mb` (checked while streaming) or the global
+`MAX_REQUEST_BODY_MB` request-body cap (checked before the body is read).
+
+### `GET /api/v1/documents/{id}/versions/{version_id}/download`
+
+Streams the version's file as `Content-Disposition: attachment` (any active user).
+`404` if the document or version doesn't exist in the caller's own organisation —
+resolved only via `(document_id, version_id)` scoped to the caller's organisation,
+never a raw path or `storage_key` (never present in any response body).
+
+### `GET /api/v1/documents/{id}/versions/{version_id}/preview`
+
+Streams the version's file `inline` (any active user) for previewable content types
+only (`application/pdf`, `image/png`, `image/jpeg`, as determined server-side from
+the validated upload extension — never the client's declared `Content-Type`). `415`
+for any other content type, with a message pointing at `download` instead. Same
+`404` scoping as download.
 
 ## Health and readiness endpoints (Milestone 0)
 

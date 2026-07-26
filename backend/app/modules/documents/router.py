@@ -1,18 +1,24 @@
-"""Document Management endpoints: categories, tags, and documents (metadata only --
-version upload/download/preview land in a later Milestone 2 slice's
-app/modules/documents/storage.py).
+"""Document Management endpoints: categories, tags, documents, and (this slice)
+version upload/download/preview.
 
-Per docs/API.md and the Milestone 2 plan's "Permissions summary": listing/viewing and
-document create/edit are open to any active user; category/tag mutation is
-admin-only.
+Per docs/API.md and the Milestone 2 plan's "Permissions summary": listing/viewing,
+document create/edit, and version upload are open to any active user; category/tag
+mutation and document deletion are admin-only. Download/preview re-verify the
+caller's organisation owns the parent document on every request -- file access is
+never resolved from a raw path or `storage_key`, only via `(document_id,
+version_id)` scoped to `current_user.organisation_id` (see
+app/modules/documents/service.py::get_document_version).
 """
 
 import uuid
+from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.core.deps import CurrentAdmin, CurrentUser
 from app.modules.documents.models import Document, DocumentStatus
@@ -34,17 +40,20 @@ from app.modules.documents.service import (
     CategoryInUseError,
     CategoryNotFoundError,
     DocumentNotFoundError,
+    DocumentVersionNotFoundError,
     OwnerNotFoundError,
     TagAlreadyExistsError,
     TagNotFoundError,
     create_category,
     create_document,
+    create_document_version,
     create_tag,
     delete_category,
     delete_document,
     delete_tag,
     get_category,
     get_document,
+    get_document_version,
     list_categories,
     list_document_tags,
     list_document_versions,
@@ -53,12 +62,20 @@ from app.modules.documents.service import (
     update_category,
     update_document,
 )
+from app.modules.documents.storage import (
+    PREVIEWABLE_CONTENT_TYPES,
+    FileTooLargeError,
+    InvalidFileSignatureError,
+    UnsupportedFileTypeError,
+    resolve_path,
+)
 
 categories_router = APIRouter(prefix="/document-categories", tags=["documents"])
 tags_router = APIRouter(prefix="/document-tags", tags=["documents"])
 documents_router = APIRouter(prefix="/documents", tags=["documents"])
 
 SessionDependency = Annotated[AsyncSession, Depends(get_session)]
+SettingsDependency = Annotated[Settings, Depends(get_settings)]
 
 
 async def _document_read(session: AsyncSession, document: Document) -> DocumentRead:
@@ -358,4 +375,111 @@ async def list_document_versions_endpoint(
         total=total,
         limit=limit,
         offset=offset,
+    )
+
+
+@documents_router.post("/{document_id}/versions", status_code=status.HTTP_201_CREATED)
+async def upload_document_version_endpoint(
+    document_id: uuid.UUID,
+    current_user: CurrentUser,
+    session: SessionDependency,
+    settings: SettingsDependency,
+    file: Annotated[UploadFile, File()],
+    change_summary: Annotated[str | None, Form()] = None,
+) -> DocumentVersionRead:
+    """Upload a new, immutable version. Any active user in the organisation may
+    upload -- the approval workflow (a later Milestone 2 slice), not this endpoint,
+    is the actual QMS control gate."""
+    try:
+        version = await create_document_version(
+            session,
+            organisation_id=current_user.organisation_id,
+            document_id=document_id,
+            upload=file,
+            change_summary=change_summary,
+            created_by_id=current_user.id,
+            uploads_dir=Path(settings.uploads_dir),
+        )
+    except DocumentNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
+        ) from exc
+    except UnsupportedFileTypeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    except InvalidFileSignatureError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    except FileTooLargeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=str(exc)
+        ) from exc
+    return DocumentVersionRead.model_validate(version)
+
+
+@documents_router.get("/{document_id}/versions/{version_id}/download")
+async def download_document_version_endpoint(
+    document_id: uuid.UUID,
+    version_id: uuid.UUID,
+    current_user: CurrentUser,
+    session: SessionDependency,
+    settings: SettingsDependency,
+) -> FileResponse:
+    try:
+        version = await get_document_version(
+            session,
+            organisation_id=current_user.organisation_id,
+            document_id=document_id,
+            version_id=version_id,
+        )
+    except (DocumentNotFoundError, DocumentVersionNotFoundError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document version not found"
+        ) from exc
+
+    path = resolve_path(Path(settings.uploads_dir), version.storage_key)
+    return FileResponse(
+        path,
+        media_type=version.content_type,
+        filename=version.original_filename,
+        content_disposition_type="attachment",
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
+
+
+@documents_router.get("/{document_id}/versions/{version_id}/preview")
+async def preview_document_version_endpoint(
+    document_id: uuid.UUID,
+    version_id: uuid.UUID,
+    current_user: CurrentUser,
+    session: SessionDependency,
+    settings: SettingsDependency,
+) -> FileResponse:
+    try:
+        version = await get_document_version(
+            session,
+            organisation_id=current_user.organisation_id,
+            document_id=document_id,
+            version_id=version_id,
+        )
+    except (DocumentNotFoundError, DocumentVersionNotFoundError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document version not found"
+        ) from exc
+
+    if version.content_type not in PREVIEWABLE_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Preview is not available for this file type; use download instead",
+        )
+
+    path = resolve_path(Path(settings.uploads_dir), version.storage_key)
+    return FileResponse(
+        path,
+        media_type=version.content_type,
+        filename=version.original_filename,
+        content_disposition_type="inline",
+        headers={"X-Content-Type-Options": "nosniff"},
     )

@@ -722,3 +722,78 @@ decision 1 means a future "who is this person in the system" report can't join
 are already independently addressable and a report can join through `email` if ever
 needed; decision 2 will need revisiting if a future module's audit requirements
 outgrow per-table immutable trails.
+
+## 2026-07-26 — Document upload: request-body size cap, version-number locking, and upload-policy extension validation
+
+**Problem:** An independent security/tenant-isolation review of the document
+version upload/download/preview slice (a fresh reviewer with no prior session
+context, reading `app/modules/documents/storage.py`, `upload_policy.py`,
+`service.py`, `router.py`, and their tests) found three real issues before this
+slice was committed.
+
+**Finding 1 (High) — the per-organisation upload size limit isn't actually
+enforced "while streaming," end to end.** `storage.save_validated_upload` correctly
+streams the file to its final destination while enforcing the configured
+`max_size_bytes`. But that is the *second* copy of the bytes: FastAPI/Starlette's
+multipart parser (`starlette.formparsers.MultiPartParser`) first spools every
+uploaded file part to an OS temp file with **no size limit of its own**, before
+application code ever runs. Any authenticated user (upload is any-active-user, not
+admin-only, per the plan's permissions summary) could send an arbitrarily large
+file and have the server write it in full to disk before the organisation's
+`max_size_mb` was ever consulted — a disk-exhaustion denial-of-service, independent
+of that configured limit.
+
+**Fix:** a new `MaxBodySizeMiddleware` (`app/core/middleware.py`), added to the
+ASGI stack ahead of route/dependency handling (but inside `CORSMiddleware`, so CORS
+headers still reach a rejected request), rejects any request whose `Content-Length`
+header exceeds a new `MAX_REQUEST_BODY_MB` setting (default 200 MB — deliberately
+larger than the default 50 MB per-organisation policy, to leave headroom for
+multipart overhead without needing to move in lockstep with that configurable
+value) with `413`, before Starlette reads or spools any of the body.
+
+**Residual risk, accepted:** a client using chunked transfer encoding with no
+`Content-Length` header is not caught by this check. Fully bounding that case is a
+reverse-proxy job (e.g. nginx `client_max_body_size`), the same posture already
+taken for TLS termination in [Deployment.md](Deployment.md) — self-hosted operators
+running behind a reverse proxy should set a body-size limit there too; this
+middleware is a defense-in-depth guard for the common case (virtually all real HTTP
+clients, including browsers, send a truthful `Content-Length`), not a complete
+mitigation on its own.
+
+**Finding 2 (Medium) — an unlocked version-number race.** `_next_version_number`
+computed `MAX(version_number) + 1` with no row lock, unlike
+`numbering.py::generate_document_number`'s deliberate `SELECT ... FOR UPDATE`.
+Two concurrent uploads to the same document could compute the same next number;
+the DB unique constraint would prevent a silent duplicate, but the losing request
+got an unhandled `IntegrityError` (→ 500) *after* its file had already been written
+to disk, leaving an orphaned file with no DB row.
+
+**Fix:** `_next_version_number` now locks the parent `documents` row with
+`SELECT ... FOR UPDATE` (a no-op on SQLite, matching the existing numbering
+pattern) before computing the next number, serialising concurrent uploads to the
+same document under real PostgreSQL. `create_document_version` also now catches
+`IntegrityError` on commit, rolls back, and deletes the just-written file before
+re-raising, as a belt-and-braces guarantee against orphaned files even where real
+row locking isn't available (SQLite).
+
+**Finding 3 (Low, latent) — an operator-configured upload policy could name an
+extension the backend doesn't know how to serve.** `get_upload_policy` accepted
+any `allowed_extensions` list from the `configuration` row verbatim, with no check
+against `storage.CONTENT_TYPE_BY_EXTENSION`. Not exploitable today (no endpoint
+writes that configuration key yet), but a trap for whoever adds one later: an
+unknown extension would pass the allow-list check only to crash with a `KeyError`
+deeper in `create_document_version`.
+
+**Fix:** `get_upload_policy` now intersects the configured extensions with
+`CONTENT_TYPE_BY_EXTENSION.keys()`, silently dropping (and logging a warning for)
+anything unknown, so a misconfigured policy degrades gracefully instead of taking
+every upload down.
+
+**Why this matters beyond the three fixes:** none of these were caught by the 30+
+tests already written for this slice (which all passed throughout) — they required
+a reviewer reading the actual code paths for *how* the framework and database
+behave under adversarial/concurrent conditions, not just exercising the documented
+happy/error paths. Consistent with the Milestone 1 closeout finding
+([DecisionLog.md](DecisionLog.md#2026-07-26-milestone-1-closeout-login-timing-side-channel-and-a-react-strictmode-mountedref-bug)),
+this is the reason an independent security review stays a mandatory gate for every
+milestone, not an optional nice-to-have.

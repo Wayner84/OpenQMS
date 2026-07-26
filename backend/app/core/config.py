@@ -29,6 +29,17 @@ class Settings(BaseSettings):
     bootstrap_admin_email: str | None = None
     bootstrap_admin_password: str | None = None
 
+    # File storage (Milestone 2) -- the `openqms_uploads` Docker volume, reserved
+    # since Milestone 0, is mounted here. See
+    # docs/Database.md#documents-and-related-tables-milestone-2.
+    uploads_dir: str = "/app/uploads"
+    # Defense-in-depth request-body size cap, checked before any request body is
+    # read -- see docs/DecisionLog.md#2026-07-26-document-upload-request-body-size-cap.
+    # Deliberately larger than the default per-organisation document_upload_policy
+    # max_size_mb (50 MB) to leave headroom for multipart overhead and non-file
+    # form fields without needing to move in lockstep with that configurable value.
+    max_request_body_mb: int = 200
+
     @field_validator("backend_cors_origins", mode="before")
     @classmethod
     def _split_cors_origins(cls, value: object) -> object:

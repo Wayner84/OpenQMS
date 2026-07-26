@@ -20,7 +20,14 @@ Docker and Docker Compose.
    hostname. openQMS does not prescribe one — Caddy, Traefik, and Nginx all work; a
    minimal example reverse-proxy config is planned documentation for when the first
    production-style deployment actually happens (tracked in [TODO.md](TODO.md)), not
-   invented speculatively now.
+   invented speculatively now. Since Milestone 2 (Document Management) added real
+   file uploads, also set a request body-size limit at the reverse proxy (e.g.
+   Nginx's `client_max_body_size`) — the backend's own `MaxBodySizeMiddleware`
+   (`MAX_REQUEST_BODY_MB`, default 200) only catches clients that send a truthful
+   `Content-Length` header; a reverse-proxy-level limit is the complete mitigation
+   for chunked-transfer requests, the same posture already taken for TLS
+   termination. See
+   [DecisionLog.md](DecisionLog.md#2026-07-26-document-upload-request-body-size-cap-version-number-locking-and-upload-policy-extension-validation).
 5. Back up the `openqms_postgres_data` and `openqms_uploads` named volumes on a
    schedule appropriate to the operator (see Backups below).
 
@@ -35,10 +42,19 @@ product vision.
   Volume-level snapshots (if the host platform supports them) are a secondary option.
 - **Uploads:** the `openqms_uploads` volume should be backed up alongside the
   database, since document/certificate/photo records reference files stored there.
-- Restoring is: stop the stack, restore the volume(s) or `pg_restore` the dump,
-  restart the stack. This procedure will be expanded with exact commands once file
-  storage is implemented (Milestone 2 onward) — documented here as it becomes real
-  rather than speculatively now.
+  As of Milestone 2, this is real: document versions are stored under
+  `/app/uploads/<organisation_id>/<document_id>/<random>.<ext>` (see
+  [Database.md](Database.md#documents-and-related-tables-milestone-2)), so a
+  database-only backup is no longer sufficient — a restored database with a missing
+  uploads volume would have `document_versions` rows pointing at files that don't
+  exist. A simple approach: `docker run --rm -v openqms_uploads:/data -v
+  $(pwd):/backup alpine tar czf /backup/openqms-uploads-backup.tar.gz -C /data .`
+  (or the host platform's equivalent volume-snapshot tool), run alongside the
+  `pg_dump`.
+- Restoring is: stop the stack, restore both the database dump (`pg_restore`) *and*
+  the uploads volume (extract the tar archive back into the `openqms_uploads`
+  volume) together — restoring one without the other leaves the database and
+  uploaded files inconsistent — then restart the stack.
 
 ## Environments
 

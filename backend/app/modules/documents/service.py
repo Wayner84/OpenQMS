@@ -1,6 +1,5 @@
-"""Business logic for the Document Management module's core schema: categories,
-tags, and documents (metadata only -- version file upload is
-app/modules/documents/storage.py, added in a later Milestone 2 slice). Per
+"""Business logic for the Document Management module: categories, tags, documents,
+and (this slice) version file upload/download/preview. Per
 docs/modules/DocumentManagement.md and the Milestone 2 plan
 (.hermes/plans/2026-07-26-milestone-2-document-management.md): every operation is
 scoped to the caller's organisation; `documents.number` is always server-generated;
@@ -10,8 +9,11 @@ rule -- see docs/CodingStandards.md#backend-python), never queried directly.
 
 import datetime
 import uuid
+from pathlib import Path
+from typing import Protocol
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.documents.models import (
@@ -21,9 +23,26 @@ from app.modules.documents.models import (
     DocumentTag,
     DocumentTagLink,
     DocumentVersion,
+    DocumentVersionStatus,
 )
 from app.modules.documents.numbering import generate_document_number
+from app.modules.documents.storage import (
+    CONTENT_TYPE_BY_EXTENSION,
+    build_storage_key,
+    extension_for_filename,
+    resolve_path,
+    sanitise_filename,
+    save_validated_upload,
+    validate_extension,
+)
+from app.modules.documents.upload_policy import get_upload_policy
 from app.modules.people.service import PersonNotFoundError, get_person
+
+
+class _UploadFileLike(Protocol):
+    filename: str | None
+
+    async def read(self, size: int) -> bytes: ...
 
 
 class CategoryNotFoundError(Exception):
@@ -54,6 +73,11 @@ class DocumentNotFoundError(Exception):
 class OwnerNotFoundError(Exception):
     """Raised when a document's `owner_id` doesn't exist (as a person) in the
     caller's organisation."""
+
+
+class DocumentVersionNotFoundError(Exception):
+    """Raised when a version id doesn't exist for the given document (which is
+    itself already scoped to the caller's organisation)."""
 
 
 # --- Categories --------------------------------------------------------------
@@ -413,3 +437,117 @@ async def list_document_versions(
         .offset(offset)
     )
     return list(result.scalars().all()), total
+
+
+async def get_document_version(
+    session: AsyncSession,
+    *,
+    organisation_id: uuid.UUID,
+    document_id: uuid.UUID,
+    version_id: uuid.UUID,
+) -> DocumentVersion:
+    """Return a version, having first proven the parent document is in the caller's
+    own organisation -- file access is always resolved via `(organisation_id,
+    document_id, version_id)`, never by `version_id`/`storage_key` alone, so an
+    organisation can never reach another organisation's file even with a guessed id."""
+    await get_document(session, organisation_id=organisation_id, document_id=document_id)
+
+    version = (
+        await session.execute(
+            select(DocumentVersion).where(
+                DocumentVersion.id == version_id, DocumentVersion.document_id == document_id
+            )
+        )
+    ).scalar_one_or_none()
+    if version is None:
+        raise DocumentVersionNotFoundError(f"No version {version_id} for document {document_id}")
+    return version
+
+
+async def _next_version_number(session: AsyncSession, *, document_id: uuid.UUID) -> int:
+    """Lock the parent `documents` row with `SELECT ... FOR UPDATE` (a no-op on
+    SQLite, which has no row-level locking and is single-writer for the unit tests
+    that use it) before computing the next version number, so two concurrent
+    uploads to the same document under real PostgreSQL serialise instead of racing
+    to the same number -- mirrors the same pattern already used for document
+    numbering in numbering.py::generate_document_number."""
+    lock_statement = select(Document.id).where(Document.id == document_id)
+    bind = session.bind
+    if bind is not None and bind.dialect.name != "sqlite":
+        lock_statement = lock_statement.with_for_update()
+    await session.execute(lock_statement)
+
+    current_max = (
+        await session.execute(
+            select(func.max(DocumentVersion.version_number)).where(
+                DocumentVersion.document_id == document_id
+            )
+        )
+    ).scalar_one()
+    return (current_max or 0) + 1
+
+
+async def create_document_version(
+    session: AsyncSession,
+    *,
+    organisation_id: uuid.UUID,
+    document_id: uuid.UUID,
+    upload: _UploadFileLike,
+    change_summary: str | None,
+    created_by_id: uuid.UUID | None,
+    uploads_dir: Path,
+) -> DocumentVersion:
+    """Upload a new, immutable version of `document_id`'s file. Treats the upload as
+    hostile throughout, per the Milestone 2 plan's "Storage and upload/download/
+    preview security" section: the extension is checked against the organisation's
+    configured allow-list, the file's own bytes are checked against a magic-byte
+    signature where one exists, size is bounded while streaming, and the on-disk
+    `storage_key` is entirely server-generated -- never derived from the client's
+    filename. Raises `DocumentNotFoundError`, `storage.UnsupportedFileTypeError`,
+    `storage.InvalidFileSignatureError`, or `storage.FileTooLargeError`.
+    """
+    document = await get_document(session, organisation_id=organisation_id, document_id=document_id)
+
+    policy = await get_upload_policy(session, organisation_id=organisation_id)
+
+    original_filename = sanitise_filename(upload.filename or "upload")
+    extension = extension_for_filename(upload.filename or "")
+    validate_extension(extension, policy.allowed_extensions)
+
+    version_number = await _next_version_number(session, document_id=document.id)
+    storage_key = build_storage_key(
+        organisation_id=organisation_id, document_id=document.id, extension=extension
+    )
+    destination = resolve_path(uploads_dir, storage_key)
+
+    size_bytes, checksum = await save_validated_upload(
+        upload,
+        destination=destination,
+        max_size_bytes=policy.max_size_bytes,
+        extension=extension,
+    )
+
+    version = DocumentVersion(
+        document_id=document.id,
+        version_number=version_number,
+        storage_key=storage_key,
+        original_filename=original_filename,
+        content_type=CONTENT_TYPE_BY_EXTENSION[extension],
+        size_bytes=size_bytes,
+        checksum_sha256=checksum,
+        change_summary=change_summary,
+        status=DocumentVersionStatus.DRAFT,
+        created_by_id=created_by_id,
+    )
+    session.add(version)
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Belt-and-braces alongside the row lock above: if two uploads to the same
+        # document still raced (e.g. under SQLite, which has no real row locking),
+        # never leave an orphaned file on disk with no DB row referencing it.
+        await session.rollback()
+        destination.unlink(missing_ok=True)
+        raise
+    await session.refresh(version)
+    return version

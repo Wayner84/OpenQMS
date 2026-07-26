@@ -182,9 +182,13 @@ Implements the core schema of the Document Management module
 [.hermes/plans/2026-07-26-milestone-2-document-management.md](../.hermes/plans/2026-07-26-milestone-2-document-management.md)
 for full reasoning. Implemented by
 `backend/alembic/versions/8dc9425047ca_add_document_categories_tags_documents_.py`.
-The approval workflow (`document_approvals`), acknowledgements
-(`document_acknowledgements`), and version file upload/download/preview are not
-implemented yet — later Milestone 2 commits.
+The approval workflow (`document_approvals`) and acknowledgements
+(`document_acknowledgements`) are not implemented yet — later Milestone 2 commits.
+Version file upload/download/preview **is** implemented — see
+[API.md](API.md#document-management-milestone-2-in-progress) and
+[DecisionLog.md](DecisionLog.md#2026-07-26-document-upload-request-body-size-cap-version-number-locking-and-upload-policy-extension-validation)
+for the storage security posture and the fixes an independent review required
+before this slice was committed.
 
 `document_categories`:
 
@@ -219,15 +223,32 @@ many-to-many join table between `documents` and `document_tags`.
 | `created_at` / `updated_at` | timestamptz | |
 
 `document_versions`: `id`, `document_id` (FK, not null), `version_number` (integer,
-sequential per document, not user-supplied), `storage_key` (text, not null —
-server-generated; never exposed over the API, never derived from client input),
-`original_filename` (text, not null — display only, never used to build a
-filesystem path), `content_type`, `size_bytes`, `checksum_sha256`, `change_summary`
-(nullable), `status` (native ENUM `draft`/`in_review`/`approved`/`rejected`/
-`obsolete`), `created_by_id` (FK → `users.id`, nullable), `created_at`. Immutable
-after creation except `status`; no `updated_at`. Not yet reachable through any
-upload endpoint in this slice — the table exists so `documents.current_version_id`
-has somewhere to point once upload lands.
+sequential per document, allocated under a `SELECT ... FOR UPDATE` lock on the
+parent `documents` row so concurrent uploads to the same document can't race to the
+same number), `storage_key` (text, not null — server-generated; never exposed over
+the API, never derived from client input), `original_filename` (text, not null —
+sanitised at upload time: directory components and non-printable/quote characters
+stripped, so it's safe for both display and the download `Content-Disposition`
+header, but still never used to build a filesystem path), `content_type` (derived
+server-side from the validated extension, never the client's declared
+`Content-Type`), `size_bytes`, `checksum_sha256`, `change_summary` (nullable),
+`status` (native ENUM `draft`/`in_review`/`approved`/`rejected`/`obsolete`),
+`created_by_id` (FK → `users.id`, nullable), `created_at`. Immutable after creation
+except `status`; no `updated_at`. `documents.current_version_id` is not yet set by
+any code path — that lands with the approval workflow.
+
+#### Upload policy
+
+A second `configuration` row per organisation, key `document_upload_policy`, value
+`{"allowed_extensions": [...], "max_size_mb": 50}` — seeded by the same migration.
+Read on every upload (`app/modules/documents/upload_policy.py`); any configured
+extension the backend has no `Content-Type` mapping for is silently dropped (with a
+logged warning), so a misconfigured policy degrades gracefully rather than crashing
+uploads. Files are stored under the `openqms_uploads` Docker volume (reserved since
+Milestone 0), at
+`{organisation_id}/{document_id}/{server-generated UUID}{validated extension}` —
+see [Deployment.md](Deployment.md#backups) for why this volume must now be backed
+up alongside the database.
 
 #### Configurable document numbering
 
@@ -238,10 +259,9 @@ the same migration for the existing default organisation. `number` is generated 
 `DOC-0002`, ...), reading the row with `SELECT ... FOR UPDATE` under PostgreSQL so
 concurrent document creation can't allocate the same number twice (a no-op under
 SQLite, which has no row-level locking and is single-writer for the unit tests that
-use it). See `backend/app/modules/documents/numbering.py`. A second seeded row,
-key `document_upload_policy`
-(`{"allowed_extensions": [...], "max_size_mb": 50}`), is not consumed by any code
-yet — it is seeded now, ready for the upload slice.
+use it). See `backend/app/modules/documents/numbering.py`. The second seeded row,
+key `document_upload_policy`, is consumed by the upload endpoint — see "Upload
+policy" below.
 
 ## Soft delete and audit trail
 
