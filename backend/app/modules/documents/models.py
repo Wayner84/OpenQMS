@@ -221,3 +221,30 @@ class DocumentApproval(Base):
     decided_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class DocumentAcknowledgement(Base):
+    """An immutable "I have read and understood this document" record.
+    `acknowledged_by_id` references `users.id`, not `people.id`, for the same
+    reason as `DocumentApproval.approver_id` -- it is an action performed by an
+    authenticated caller. Unique on (`document_version_id`, `acknowledged_by_id`):
+    re-acknowledging the same version is idempotent, not an error, per the
+    Milestone 2 plan."""
+
+    __tablename__ = "document_acknowledgements"
+    __table_args__ = (
+        UniqueConstraint(
+            "document_version_id",
+            "acknowledged_by_id",
+            name="uq_document_acknowledgements_version_user",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    document_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("document_versions.id"), nullable=False
+    )
+    acknowledged_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    acknowledged_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

@@ -350,6 +350,21 @@ Retires the whole document (`documents.status` → `obsolete`), independent of i
 versions' own statuses. `404` if the document doesn't exist in the caller's own
 organisation.
 
+### `POST /api/v1/documents/{id}/versions/{version_id}/acknowledge`
+
+Any active user. Records that the caller ("I have read and understood this
+document") has acknowledged this version. `acknowledged_by_id` is always
+`current_user.id` — the request body is empty; there is no field a client could
+use to acknowledge on someone else's behalf. Idempotent: acknowledging the same
+version twice returns the original record (`200`), not an error. `404` if the
+document/version doesn't exist in the caller's own organisation.
+
+### `GET /api/v1/documents/{id}/versions/{version_id}/acknowledgements`
+
+Paginated list of who has acknowledged this version, and when (any active user —
+informational visibility, matching this module's shared-directory trust model).
+Same `404` scoping as acknowledge.
+
 ## Health and readiness endpoints (Milestone 0)
 
 These are the only endpoints Milestone 0 implements:

@@ -177,21 +177,23 @@ with `422` if the two disagree. A `companies` row cannot be deleted while any
 
 ### Documents and related tables (Milestone 2)
 
-Implements the core schema of the Document Management module
+Implements the full schema of the Document Management module built so far
 ([docs/modules/DocumentManagement.md](modules/DocumentManagement.md)) — see
 [.hermes/plans/2026-07-26-milestone-2-document-management.md](../.hermes/plans/2026-07-26-milestone-2-document-management.md)
 for full reasoning. Implemented by
 `backend/alembic/versions/8dc9425047ca_add_document_categories_tags_documents_.py`
-(categories/tags/documents/versions) and
+(categories/tags/documents/versions),
 `backend/alembic/versions/ea4516740593_add_document_approvals.py`
-(`document_approvals`). Acknowledgements (`document_acknowledgements`) are not
-implemented yet — a later Milestone 2 commit. Version file upload/download/preview
-and the approval/rejection workflow **are** implemented — see
+(`document_approvals`), and
+`backend/alembic/versions/b8a145cc3e28_add_document_acknowledgements.py`
+(`document_acknowledgements`). Version file upload/download/preview, the
+approval/rejection workflow, and acknowledgements are all implemented — see
 [API.md](API.md#document-management-milestone-2-in-progress) and
 [DecisionLog.md](DecisionLog.md#2026-07-26-document-upload-request-body-size-cap-version-number-locking-and-upload-policy-extension-validation) /
 [DecisionLog.md](DecisionLog.md#2026-07-26-document-approval-workflow-a-status-cache-integrity-bug-and-a-toctou-race)
 for the storage security posture and the fixes an independent review required
-before each of these two slices was committed.
+before the upload and workflow slices were committed (the acknowledgements slice's
+own independent review found no issues).
 
 `document_categories`:
 
@@ -252,6 +254,16 @@ two concurrent workflow transitions on the same document serialise correctly —
 see
 [DecisionLog.md](DecisionLog.md#2026-07-26-document-approval-workflow-a-status-cache-integrity-bug-and-a-toctou-race)
 for the race this closes.
+
+`document_acknowledgements`: `id`, `document_version_id` (FK →
+`document_versions.id`, not null), `acknowledged_by_id` (FK → `users.id`, not
+null — same reasoning as `document_approvals.approver_id`), `acknowledged_at`
+(timestamptz, not null). Unique on (`document_version_id`, `acknowledged_by_id`)
+— re-acknowledging is idempotent (returns the existing row), enforced both by
+this DB constraint and, defensively, by the service layer catching the resulting
+`IntegrityError` under a genuine write-write race. Immutable after creation — no
+update/delete path exists. An independent security review found no issues in
+this slice.
 
 #### Upload policy
 

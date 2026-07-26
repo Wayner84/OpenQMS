@@ -125,3 +125,19 @@ class RejectionRequest(BaseModel):
     and (defensively) the service layer -- a rejection must always explain why."""
 
     comments: str
+
+
+class DocumentAcknowledgementRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    document_version_id: uuid.UUID
+    acknowledged_by_id: uuid.UUID
+    acknowledged_at: datetime.datetime
+
+
+class DocumentAcknowledgementListResponse(BaseModel):
+    items: list[DocumentAcknowledgementRead]
+    total: int
+    limit: int
+    offset: int

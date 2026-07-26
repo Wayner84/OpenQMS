@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.documents.models import (
     ApprovalDecision,
     Document,
+    DocumentAcknowledgement,
     DocumentApproval,
     DocumentCategory,
     DocumentStatus,
@@ -741,3 +742,87 @@ async def retire_document(
     await session.commit()
     await session.refresh(document)
     return document
+
+
+# --- Acknowledgements ----------------------------------------------------------
+
+
+async def acknowledge_document_version(
+    session: AsyncSession,
+    *,
+    organisation_id: uuid.UUID,
+    document_id: uuid.UUID,
+    version_id: uuid.UUID,
+    acknowledged_by_id: uuid.UUID,
+) -> DocumentAcknowledgement:
+    """Record that `acknowledged_by_id` has read and understood this version.
+    Idempotent: re-acknowledging an already-acknowledged version returns the
+    existing row rather than raising, per the Milestone 2 plan."""
+    await get_document_version(
+        session, organisation_id=organisation_id, document_id=document_id, version_id=version_id
+    )
+
+    existing = (
+        await session.execute(
+            select(DocumentAcknowledgement).where(
+                DocumentAcknowledgement.document_version_id == version_id,
+                DocumentAcknowledgement.acknowledged_by_id == acknowledged_by_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
+
+    acknowledgement = DocumentAcknowledgement(
+        document_version_id=version_id, acknowledged_by_id=acknowledged_by_id
+    )
+    session.add(acknowledgement)
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Two concurrent acknowledge calls for the same (version, user) pair --
+        # the unique constraint caught it; treat it the same as the idempotent
+        # case above rather than surfacing a spurious error for a non-destructive
+        # action.
+        await session.rollback()
+        existing = (
+            await session.execute(
+                select(DocumentAcknowledgement).where(
+                    DocumentAcknowledgement.document_version_id == version_id,
+                    DocumentAcknowledgement.acknowledged_by_id == acknowledged_by_id,
+                )
+            )
+        ).scalar_one()
+        return existing
+    await session.refresh(acknowledgement)
+    return acknowledgement
+
+
+async def list_document_version_acknowledgements(
+    session: AsyncSession,
+    *,
+    organisation_id: uuid.UUID,
+    document_id: uuid.UUID,
+    version_id: uuid.UUID,
+    limit: int,
+    offset: int,
+) -> tuple[list[DocumentAcknowledgement], int]:
+    await get_document_version(
+        session, organisation_id=organisation_id, document_id=document_id, version_id=version_id
+    )
+
+    total = (
+        await session.execute(
+            select(func.count())
+            .select_from(DocumentAcknowledgement)
+            .where(DocumentAcknowledgement.document_version_id == version_id)
+        )
+    ).scalar_one()
+    result = await session.execute(
+        select(DocumentAcknowledgement)
+        .where(DocumentAcknowledgement.document_version_id == version_id)
+        .order_by(DocumentAcknowledgement.acknowledged_at)
+        .limit(limit)
+        .offset(offset)
+    )
+    return list(result.scalars().all()), total

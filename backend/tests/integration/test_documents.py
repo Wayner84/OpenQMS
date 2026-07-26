@@ -88,6 +88,7 @@ async def context(
     from app.models.user import User, UserRole
     from app.modules.documents.models import (
         Document,
+        DocumentAcknowledgement,
         DocumentApproval,
         DocumentCategory,
         DocumentTag,
@@ -129,6 +130,17 @@ async def context(
         await session.execute(
             delete(DocumentApproval).where(
                 DocumentApproval.document_version_id.in_(
+                    select(DocumentVersion.id).where(
+                        DocumentVersion.document_id.in_(
+                            select(Document.id).where(Document.organisation_id == org_a.id)
+                        )
+                    )
+                )
+            )
+        )
+        await session.execute(
+            delete(DocumentAcknowledgement).where(
+                DocumentAcknowledgement.document_version_id.in_(
                     select(DocumentVersion.id).where(
                         DocumentVersion.document_id.in_(
                             select(Document.id).where(Document.organisation_id == org_a.id)
@@ -243,6 +255,17 @@ async def context(
             await cleanup_session.execute(
                 delete(DocumentApproval).where(
                     DocumentApproval.document_version_id.in_(
+                        select(DocumentVersion.id).where(
+                            DocumentVersion.document_id.in_(
+                                select(Document.id).where(Document.organisation_id == org_b.id)
+                            )
+                        )
+                    )
+                )
+            )
+            await cleanup_session.execute(
+                delete(DocumentAcknowledgement).where(
+                    DocumentAcknowledgement.document_version_id.in_(
                         select(DocumentVersion.id).where(
                             DocumentVersion.document_id.in_(
                                 select(Document.id).where(Document.organisation_id == org_b.id)
@@ -931,3 +954,108 @@ async def test_workflow_endpoints_return_404_for_another_organisations_document(
     assert approve_response.status_code == 404
     assert reject_response.status_code == 404
     assert obsolete_response.status_code == 404
+
+
+async def test_acknowledge_is_idempotent_and_listable(context: Context) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        create_response = await client.post(
+            "/api/v1/documents", headers=context.org_a_headers, json={"title": "SOP 1"}
+        )
+        document_id = create_response.json()["id"]
+        upload_response = await client.post(
+            f"/api/v1/documents/{document_id}/versions",
+            headers=context.org_a_headers,
+            files={"file": ("report.pdf", b"%PDF-1.7\nhello", "application/pdf")},
+        )
+        version_id = upload_response.json()["id"]
+
+        first_ack = await client.post(
+            f"/api/v1/documents/{document_id}/versions/{version_id}/acknowledge",
+            headers=context.org_a_headers,
+        )
+        second_ack = await client.post(
+            f"/api/v1/documents/{document_id}/versions/{version_id}/acknowledge",
+            headers=context.org_a_headers,
+        )
+        list_response = await client.get(
+            f"/api/v1/documents/{document_id}/versions/{version_id}/acknowledgements",
+            headers=context.org_a_headers,
+        )
+
+    assert first_ack.status_code == 200, first_ack.text
+    assert second_ack.status_code == 200, second_ack.text
+    assert first_ack.json()["id"] == second_ack.json()["id"]
+    assert list_response.json()["total"] == 1
+    assert list_response.json()["items"][0]["acknowledged_by_id"] == str(context.org_a_user_id)
+
+
+async def test_a_member_can_acknowledge_and_a_different_member_sees_it_listed(
+    context: Context,
+) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        member_response = await client.post(
+            "/api/v1/users",
+            headers=context.org_a_headers,
+            json={
+                "email": "member-ack@example.com",
+                "full_name": "Member",
+                "password": "member-password",
+                "role": "member",
+            },
+        )
+        assert member_response.status_code == 201, member_response.text
+        member_headers = await _login(context.app, "member-ack@example.com", "member-password")
+
+        create_response = await client.post(
+            "/api/v1/documents", headers=context.org_a_headers, json={"title": "SOP 1"}
+        )
+        document_id = create_response.json()["id"]
+        upload_response = await client.post(
+            f"/api/v1/documents/{document_id}/versions",
+            headers=context.org_a_headers,
+            files={"file": ("report.pdf", b"%PDF-1.7\nhello", "application/pdf")},
+        )
+        version_id = upload_response.json()["id"]
+
+        ack_response = await client.post(
+            f"/api/v1/documents/{document_id}/versions/{version_id}/acknowledge",
+            headers=member_headers,
+        )
+        list_response = await client.get(
+            f"/api/v1/documents/{document_id}/versions/{version_id}/acknowledgements",
+            headers=context.org_a_headers,
+        )
+
+    assert ack_response.status_code == 200, ack_response.text
+    assert list_response.json()["total"] == 1
+
+
+async def test_acknowledge_returns_404_for_another_organisations_document(
+    context: Context,
+) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        create_response = await client.post(
+            "/api/v1/documents", headers=context.org_b_headers, json={"title": "Org B Doc"}
+        )
+        document_id = create_response.json()["id"]
+        upload_response = await client.post(
+            f"/api/v1/documents/{document_id}/versions",
+            headers=context.org_b_headers,
+            files={"file": ("report.pdf", b"%PDF-1.7\nhello", "application/pdf")},
+        )
+        version_id = upload_response.json()["id"]
+
+        ack_response = await client.post(
+            f"/api/v1/documents/{document_id}/versions/{version_id}/acknowledge",
+            headers=context.org_a_headers,
+        )
+        list_response = await client.get(
+            f"/api/v1/documents/{document_id}/versions/{version_id}/acknowledgements",
+            headers=context.org_a_headers,
+        )
+
+    assert ack_response.status_code == 404
+    assert list_response.status_code == 404

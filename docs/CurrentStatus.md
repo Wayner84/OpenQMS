@@ -1,6 +1,6 @@
 # Current Status
 
-_Last updated: 2026-07-26 (Milestone 2: document approval/rejection workflow slice)_
+_Last updated: 2026-07-26 (Milestone 2: document acknowledgements slice)_
 
 This document is kept truthful and current in the same commit as any work that
 changes it, per [Contributing.md](Contributing.md). It must never describe
@@ -512,16 +512,45 @@ for details and findings.
     [Database.md](Database.md#documents-and-related-tables-milestone-2),
     [docs/modules/DocumentManagement.md](modules/DocumentManagement.md),
     [DecisionLog.md](DecisionLog.md#2026-07-26-document-approval-workflow-a-status-cache-integrity-bug-and-a-toctou-race).
+- **Milestone 2 — document acknowledgements** (backend slice):
+  - `document_acknowledgements` table
+    (`backend/alembic/versions/b8a145cc3e28_add_document_acknowledgements.py`) and
+    two new endpoints — `POST .../acknowledge` (any active user, self-only,
+    idempotent) and `GET .../acknowledgements` (any active user, paginated list of
+    who has acknowledged and when) — per
+    [API.md](API.md#document-management-milestone-2-in-progress). Migration
+    verified with a real upgrade → downgrade → upgrade cycle.
+  - `acknowledged_by_id` is always `current_user.id`; the acknowledge request body
+    is empty, so there is no field a client could use to acknowledge on someone
+    else's behalf. Re-acknowledging the same version is idempotent (returns the
+    existing row via a unique-constraint-aware read-then-fallback-on-`IntegrityError`
+    pattern), never a duplicate row or an error.
+  - **Independent security/tenant-isolation review** (a fresh agent with no prior
+    session context) found **no issues** in this slice — self-only actor
+    provenance, idempotency without duplicate rows, any-user list visibility,
+    404-not-403 cross-org scoping, and immutability (no update/delete route) were
+    all verified as correctly implemented and already test-covered.
+  - 196 backend tests passing (up from 188): 5 new unit tests (actor/timestamp
+    recording, idempotency, cross-org `404`, listing multiple acknowledgers) and 3
+    new integration tests (idempotent-and-listable round trip through the real
+    HTTP API, a non-admin member acknowledging, cross-org `404` for both
+    endpoints).
+  - Gates pass: `ruff format --check`, `ruff check`, `mypy --strict` (81 source
+    files), full `pytest` suite (196 tests: unit + integration against real
+    PostgreSQL 16).
+  - Docs updated in this slice: [API.md](API.md#document-management-milestone-2-in-progress),
+    [Database.md](Database.md#documents-and-related-tables-milestone-2),
+    [docs/modules/DocumentManagement.md](modules/DocumentManagement.md).
 
 ## Work in progress
 
 Milestone 2 (Document Management): plan committed; categories/tags/documents core
-schema with configurable numbering, secure version upload/download/preview, and the
-approval/rejection workflow are all implemented and tested — see "Completed work"
-above. Remaining, per
+schema with configurable numbering, secure version upload/download/preview, the
+approval/rejection workflow, and electronic acknowledgement are all implemented and
+tested — see "Completed work" above. Remaining, per
 [the plan](../.hermes/plans/2026-07-26-milestone-2-document-management.md#suggested-commit-boundaries):
-acknowledgements, search/filtering and version comparison, the frontend, and
-Docker/security verification and closeout. No frontend code exists yet.
+search/filtering and version comparison, the frontend, and Docker/security
+verification and closeout. No frontend code exists yet.
 
 ## Known bugs
 

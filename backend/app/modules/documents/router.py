@@ -27,6 +27,8 @@ from app.modules.documents.schemas import (
     CategoryListResponse,
     CategoryRead,
     CategoryWriteRequest,
+    DocumentAcknowledgementListResponse,
+    DocumentAcknowledgementRead,
     DocumentListResponse,
     DocumentRead,
     DocumentVersionListResponse,
@@ -48,6 +50,7 @@ from app.modules.documents.service import (
     RejectionCommentRequiredError,
     TagAlreadyExistsError,
     TagNotFoundError,
+    acknowledge_document_version,
     approve_document_version,
     create_category,
     create_document,
@@ -61,6 +64,7 @@ from app.modules.documents.service import (
     get_document_version,
     list_categories,
     list_document_tags,
+    list_document_version_acknowledgements,
     list_document_versions,
     list_documents,
     list_tags,
@@ -593,3 +597,59 @@ async def retire_document_endpoint(
             status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
         ) from exc
     return await _document_read(session, document)
+
+
+@documents_router.post("/{document_id}/versions/{version_id}/acknowledge")
+async def acknowledge_document_version_endpoint(
+    document_id: uuid.UUID,
+    version_id: uuid.UUID,
+    current_user: CurrentUser,
+    session: SessionDependency,
+) -> DocumentAcknowledgementRead:
+    """Record that the caller has read and understood this version. Idempotent --
+    acknowledging twice returns the original record, not an error."""
+    try:
+        acknowledgement = await acknowledge_document_version(
+            session,
+            organisation_id=current_user.organisation_id,
+            document_id=document_id,
+            version_id=version_id,
+            acknowledged_by_id=current_user.id,
+        )
+    except (DocumentNotFoundError, DocumentVersionNotFoundError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document version not found"
+        ) from exc
+    return DocumentAcknowledgementRead.model_validate(acknowledgement)
+
+
+@documents_router.get("/{document_id}/versions/{version_id}/acknowledgements")
+async def list_document_version_acknowledgements_endpoint(
+    document_id: uuid.UUID,
+    version_id: uuid.UUID,
+    current_user: CurrentUser,
+    session: SessionDependency,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> DocumentAcknowledgementListResponse:
+    """Who has acknowledged this version, and when -- any active user may view
+    this (useful for confirming staff have read a controlled document)."""
+    try:
+        acknowledgements, total = await list_document_version_acknowledgements(
+            session,
+            organisation_id=current_user.organisation_id,
+            document_id=document_id,
+            version_id=version_id,
+            limit=limit,
+            offset=offset,
+        )
+    except (DocumentNotFoundError, DocumentVersionNotFoundError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document version not found"
+        ) from exc
+    return DocumentAcknowledgementListResponse(
+        items=[DocumentAcknowledgementRead.model_validate(a) for a in acknowledgements],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
