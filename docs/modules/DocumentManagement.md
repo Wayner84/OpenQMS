@@ -5,9 +5,9 @@ underway — see [docs/CurrentStatus.md](../CurrentStatus.md) and the
 [Milestone 2 plan](../../.hermes/plans/2026-07-26-milestone-2-document-management.md)
 for exactly what is and isn't implemented yet. Implemented so far: categories, tags,
 documents (metadata CRUD, soft delete), configurable server-generated numbering,
-secure version file upload/download/preview, the approval/rejection workflow, and
-electronic acknowledgement. Not yet implemented: search/filtering, version
-comparison, and the frontend.
+secure version file upload/download/preview, the approval/rejection workflow,
+electronic acknowledgement, search/filtering, and version comparison. Not yet
+implemented: the frontend and the Docker/security closeout.
 
 ## Purpose
 
@@ -64,7 +64,8 @@ and `/api/v1/documents` — full detail:
   mutation, any-active-user read; delete cascades (unlinks), no "in use" guard.
 - `GET/POST /api/v1/documents`, `GET/PATCH /api/v1/documents/{id}` (any active user),
   `DELETE /api/v1/documents/{id}` (admin-only, soft delete) — filterable by
-  `category_id`, `status`, `owner_id` today; `search`/`tag` planned for a later slice.
+  `category_id`, `status`, `owner_id`, `search` (substring across title/number), and
+  `tag` (exact name), combinable.
 - `GET/POST /api/v1/documents/{id}/versions` — list (any active user) / upload a new
   version (any active user, multipart `file` + optional `change_summary`).
 - `GET /api/v1/documents/{id}/versions/{version_id}/download` /
@@ -80,12 +81,12 @@ and `/api/v1/documents` — full detail:
   user, self-only, idempotent.
 - `GET /api/v1/documents/{id}/versions/{version_id}/acknowledgements` — any
   active user; who has acknowledged, and when.
+- `GET /api/v1/documents/{id}/versions/{a}/compare/{b}` — any active user; version
+  metadata always, plus a text diff for text-based content types under a 5 MB
+  cap, or a checksum-changed boolean otherwise.
 
-Not yet implemented (planned, per the
-[Milestone 2 plan](../../.hermes/plans/2026-07-26-milestone-2-document-management.md)):
-
-- `GET /api/v1/documents/{id}/versions/{a}/compare/{b}` — version comparison.
-- `GET /api/v1/documents?search=&tag=` — full search across title, number, tags.
+Not yet implemented: the frontend, per the
+[Milestone 2 plan](../../.hermes/plans/2026-07-26-milestone-2-document-management.md).
 
 ## Workflow
 
@@ -132,20 +133,30 @@ referenced **from** other modules rather than referencing them:
 ## Known issues / status
 
 In progress. Categories, tags, documents (metadata), configurable numbering, secure
-version upload/download/preview, the approval/rejection workflow, and electronic
-acknowledgement are all implemented and tested (unit + integration against real
-PostgreSQL). Independent security/tenant-isolation reviews were run for the upload,
-workflow, and acknowledgement slices; the first two each found and fixed real issues
-before being committed — a request-body size cap, a version-numbering race, and
-upload-policy extension validation for the upload slice; a status-cache integrity
-bug (a non-admin action could silently un-retire a document) and a related TOCTOU
-race for the workflow slice. The acknowledgement slice's review found no issues. See
-[DecisionLog.md](../DecisionLog.md#2026-07-26-document-upload-request-body-size-cap-version-number-locking-and-upload-policy-extension-validation)
+version upload/download/preview, the approval/rejection workflow, electronic
+acknowledgement, search/filtering, and version comparison are all implemented and
+tested (unit + integration against real PostgreSQL). Independent security/
+tenant-isolation reviews were run for the upload, workflow, acknowledgement, and
+search/comparison slices; three of the four found and fixed real issues before being
+committed:
+
+- Upload slice: a request-body size cap, a version-numbering race, and
+  upload-policy extension validation.
+- Workflow slice: a status-cache integrity bug (a non-admin action could silently
+  un-retire a document) and a related TOCTOU race.
+- Search/comparison slice: an unbounded in-memory text-diff size (now capped at
+  5 MB), a missing-file crash path, and defensive (not previously exploitable)
+  tag-join organisation scoping.
+- Acknowledgement slice: no issues found.
+
+See
+[DecisionLog.md](../DecisionLog.md#2026-07-26-document-upload-request-body-size-cap-version-number-locking-and-upload-policy-extension-validation),
+[DecisionLog.md](../DecisionLog.md#2026-07-26-document-approval-workflow-a-status-cache-integrity-bug-and-a-toctou-race),
 and
-[DecisionLog.md](../DecisionLog.md#2026-07-26-document-approval-workflow-a-status-cache-integrity-bug-and-a-toctou-race).
-No UI exists yet. Search and version comparison are not implemented — see the
-[Milestone 2 plan](../../.hermes/plans/2026-07-26-milestone-2-document-management.md)
-for the remaining slices.
+[DecisionLog.md](../DecisionLog.md#2026-07-26-document-searchfiltering-and-version-comparison-a-text-diff-size-cap-and-defensive-tag-scoping).
+No UI exists yet — the frontend and the final Docker/security closeout are the
+remaining Milestone 2 work, per the
+[Milestone 2 plan](../../.hermes/plans/2026-07-26-milestone-2-document-management.md).
 
 ## Related documents
 

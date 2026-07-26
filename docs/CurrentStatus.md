@@ -1,6 +1,6 @@
 # Current Status
 
-_Last updated: 2026-07-26 (Milestone 2: document acknowledgements slice)_
+_Last updated: 2026-07-26 (Milestone 2: search, filtering, and version comparison slice)_
 
 This document is kept truthful and current in the same commit as any work that
 changes it, per [Contributing.md](Contributing.md). It must never describe
@@ -541,16 +541,65 @@ for details and findings.
   - Docs updated in this slice: [API.md](API.md#document-management-milestone-2-in-progress),
     [Database.md](Database.md#documents-and-related-tables-milestone-2),
     [docs/modules/DocumentManagement.md](modules/DocumentManagement.md).
+- **Milestone 2 — document search, filtering, and version comparison** (backend
+  slice):
+  - `GET /api/v1/documents` gained `?search=` (case-insensitive substring across
+    `title`/`number`) and `?tag=` (exact tag name, joined through
+    `document_tag_links`/`document_tags`), combinable with the existing
+    `category_id`/`status`/`owner_id` filters, per
+    [API.md](API.md#document-management-milestone-2-in-progress).
+  - `GET /api/v1/documents/{id}/versions/{a}/compare/{b}` (any active user): a
+    practical comparison — version-level metadata always, plus a `difflib`
+    unified line diff when both versions are text-based (`text/plain`/`text/csv`)
+    and within a size cap, or just a `checksum_changed` boolean otherwise. File
+    reads go through the same server-side `resolve_path`/`storage_key` mechanism
+    as download/preview.
+  - **Independent security/tenant-isolation review** (a fresh agent with no prior
+    session context) found no SQL-injection, path-traversal, or tenant-isolation
+    defects, but flagged and this slice fixed three lower-severity issues before
+    being committed:
+    1. Unbounded in-memory text diffing (two ~50 MB text files held fully in
+       memory per comparison request, from any active user). Fixed with a new
+       5 MB `MAX_TEXT_DIFF_BYTES` cap — above it, or for non-text content types,
+       the comparison falls back to checksum-only.
+    2. An unhandled `FileNotFoundError` if a version's file was unexpectedly
+       missing from storage. Fixed with a new `VersionFileMissingError`, mapped
+       to a generic `500` with the real error logged server-side only.
+    3. (Defense in depth, not currently exploitable) the tag-name join didn't
+       itself scope `DocumentTag` by `organisation_id`, relying solely on the
+       write-time invariant that a tag can only link to a document in its own
+       organisation. Fixed by adding the redundant scoping predicate directly to
+       the join.
+    Also added a test-coverage gap the review identified: comparing two versions
+    belonging to two different documents within the same organisation (not just a
+    different organisation) correctly `404`s.
+    Full reasoning in
+    [DecisionLog.md](DecisionLog.md#2026-07-26-document-searchfiltering-and-version-comparison-a-text-diff-size-cap-and-defensive-tag-scoping).
+  - 209 backend tests passing (up from 196): 10 new unit tests (search/tag
+    filtering and their combination, text-diff generation, binary
+    checksum-changed reporting, unchanged-content reporting, cross-org and
+    cross-document `404`s, the size-cap fallback, the missing-file error) and 4
+    new integration tests (combined search+tag filtering, a full text-diff
+    round trip through the real HTTP API confirming `storage_key` is never
+    exposed, cross-org `404` for compare).
+  - Gates pass: `ruff format --check`, `ruff check`, `mypy --strict` (82 source
+    files), full `pytest` suite (209 tests: unit + integration against real
+    PostgreSQL 16).
+  - Docs updated in this slice: [API.md](API.md#document-management-milestone-2-in-progress),
+    [Database.md](Database.md#documents-and-related-tables-milestone-2),
+    [docs/modules/DocumentManagement.md](modules/DocumentManagement.md),
+    [DecisionLog.md](DecisionLog.md#2026-07-26-document-searchfiltering-and-version-comparison-a-text-diff-size-cap-and-defensive-tag-scoping).
 
 ## Work in progress
 
 Milestone 2 (Document Management): plan committed; categories/tags/documents core
 schema with configurable numbering, secure version upload/download/preview, the
-approval/rejection workflow, and electronic acknowledgement are all implemented and
-tested — see "Completed work" above. Remaining, per
+approval/rejection workflow, electronic acknowledgement, search/filtering, and
+version comparison are all implemented and tested — see "Completed work" above.
+Remaining, per
 [the plan](../.hermes/plans/2026-07-26-milestone-2-document-management.md#suggested-commit-boundaries):
-search/filtering and version comparison, the frontend, and Docker/security
-verification and closeout. No frontend code exists yet.
+the frontend, and Docker/security verification and closeout. No frontend code
+exists yet.
 
 ## Known bugs
 

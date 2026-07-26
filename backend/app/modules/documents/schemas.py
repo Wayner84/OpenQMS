@@ -141,3 +141,15 @@ class DocumentAcknowledgementListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class VersionComparisonResponse(BaseModel):
+    """Response for GET .../versions/{a}/compare/{b} -- a practical, not
+    speculative, comparison. `text_diff` (a unified diff, one line per list entry)
+    is present only when both versions have a text-based content type; otherwise
+    only `checksum_changed` reports whether the binary content differs."""
+
+    version_a: DocumentVersionRead
+    version_b: DocumentVersionRead
+    checksum_changed: bool
+    text_diff: list[str] | None

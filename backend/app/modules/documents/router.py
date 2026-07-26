@@ -10,6 +10,7 @@ version_id)` scoped to `current_user.organisation_id` (see
 app/modules/documents/service.py::get_document_version).
 """
 
+import logging
 import uuid
 from pathlib import Path
 from typing import Annotated
@@ -38,6 +39,7 @@ from app.modules.documents.schemas import (
     TagCreateRequest,
     TagListResponse,
     TagRead,
+    VersionComparisonResponse,
 )
 from app.modules.documents.service import (
     CategoryHasChildrenError,
@@ -50,8 +52,10 @@ from app.modules.documents.service import (
     RejectionCommentRequiredError,
     TagAlreadyExistsError,
     TagNotFoundError,
+    VersionFileMissingError,
     acknowledge_document_version,
     approve_document_version,
+    compare_document_versions,
     create_category,
     create_document,
     create_document_version,
@@ -81,6 +85,8 @@ from app.modules.documents.storage import (
     UnsupportedFileTypeError,
     resolve_path,
 )
+
+logger = logging.getLogger(__name__)
 
 categories_router = APIRouter(prefix="/document-categories", tags=["documents"])
 tags_router = APIRouter(prefix="/document-tags", tags=["documents"])
@@ -282,15 +288,21 @@ async def list_documents_endpoint(
     category_id: uuid.UUID | None = None,
     status_filter: Annotated[DocumentStatus | None, Query(alias="status")] = None,
     owner_id: uuid.UUID | None = None,
+    search: str | None = None,
+    tag: str | None = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> DocumentListResponse:
+    """`search` is a case-insensitive substring match across `title`/`number`;
+    `tag` is an exact tag name filter."""
     documents, total = await list_documents(
         session,
         organisation_id=current_user.organisation_id,
         category_id=category_id,
         status=status_filter,
         owner_id=owner_id,
+        search=search,
+        tag=tag,
         limit=limit,
         offset=offset,
     )
@@ -652,4 +664,46 @@ async def list_document_version_acknowledgements_endpoint(
         total=total,
         limit=limit,
         offset=offset,
+    )
+
+
+@documents_router.get("/{document_id}/versions/{version_a_id}/compare/{version_b_id}")
+async def compare_document_versions_endpoint(
+    document_id: uuid.UUID,
+    version_a_id: uuid.UUID,
+    version_b_id: uuid.UUID,
+    current_user: CurrentUser,
+    session: SessionDependency,
+    settings: SettingsDependency,
+) -> VersionComparisonResponse:
+    """A practical comparison: version-level metadata always; a line-level unified
+    text diff when both versions are text-based, otherwise just whether the
+    binary content changed (by checksum)."""
+    try:
+        result = await compare_document_versions(
+            session,
+            organisation_id=current_user.organisation_id,
+            document_id=document_id,
+            version_a_id=version_a_id,
+            version_b_id=version_b_id,
+            uploads_dir=Path(settings.uploads_dir),
+        )
+    except (DocumentNotFoundError, DocumentVersionNotFoundError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document version not found"
+        ) from exc
+    except VersionFileMissingError as exc:
+        # Never leak the internal exception text/path to the client, per
+        # docs/Architecture.md#security-baseline -- log it server-side and return
+        # a generic message.
+        logger.error("Document version file missing from storage: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to compare these versions right now",
+        ) from exc
+    return VersionComparisonResponse(
+        version_a=DocumentVersionRead.model_validate(result.version_a),
+        version_b=DocumentVersionRead.model_validate(result.version_b),
+        checksum_changed=result.checksum_changed,
+        text_diff=result.text_diff,
     )

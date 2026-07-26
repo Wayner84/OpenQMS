@@ -273,9 +273,10 @@ approved — not yet reachable in this slice), and the resolved `tags` array.
 
 Paginated list or single fetch, scoped to the caller's own organisation, excluding
 soft-deleted documents. `404` for another organisation's `id` or a soft-deleted
-document. List supports `?category_id=`, `?status=`, `?owner_id=` exact filters
-(`?search=` and `?tag=` are planned for a later Milestone 2 slice, per
-[the plan](../.hermes/plans/2026-07-26-milestone-2-document-management.md#7-search-and-filtering)).
+document. List supports `?category_id=`, `?status=`, `?owner_id=` exact filters,
+`?search=` (case-insensitive substring match across `title`/`number`), and `?tag=`
+(exact tag name, joined through `document_tag_links`/`document_tags`, scoped to the
+caller's own organisation) — all combinable.
 
 ### `DELETE /api/v1/documents/{id}` — **admin only**
 
@@ -364,6 +365,20 @@ document/version doesn't exist in the caller's own organisation.
 Paginated list of who has acknowledged this version, and when (any active user —
 informational visibility, matching this module's shared-directory trust model).
 Same `404` scoping as acknowledge.
+
+### `GET /api/v1/documents/{id}/versions/{a}/compare/{b}`
+
+Any active user. A practical comparison: version-level metadata for both versions
+always; additionally a unified line diff (`text_diff`, one line per array entry)
+when both versions have a text-based content type (`text/plain`/`text/csv`) **and**
+both are at or under a 5 MB diff-size cap — above that, or for any other content
+type (PDF, Office formats, images), `text_diff` is `null` and only
+`checksum_changed` (whether the file content differs) is reported; no structured
+PDF/Office diffing. `404` if either version doesn't exist in the caller's own
+organisation, or doesn't belong to document `{id}` specifically (a version from a
+different document in the same organisation also `404`s, not just a different
+organisation's). `500` (logged server-side, generic message to the client) if a
+version's file is unexpectedly missing from storage.
 
 ## Health and readiness endpoints (Milestone 0)
 

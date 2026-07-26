@@ -1059,3 +1059,97 @@ async def test_acknowledge_returns_404_for_another_organisations_document(
 
     assert ack_response.status_code == 404
     assert list_response.status_code == 404
+
+
+async def test_search_and_tag_filter_documents(context: Context) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        tag_response = await client.post(
+            "/api/v1/document-tags", headers=context.org_a_headers, json={"name": "controlled"}
+        )
+        tag_id = tag_response.json()["id"]
+
+        await client.post(
+            "/api/v1/documents",
+            headers=context.org_a_headers,
+            json={"title": "Quality Manual", "tag_ids": [tag_id]},
+        )
+        await client.post(
+            "/api/v1/documents", headers=context.org_a_headers, json={"title": "Welding Procedure"}
+        )
+
+        search_response = await client.get(
+            "/api/v1/documents", headers=context.org_a_headers, params={"search": "quality"}
+        )
+        tag_filter_response = await client.get(
+            "/api/v1/documents", headers=context.org_a_headers, params={"tag": "controlled"}
+        )
+
+    assert search_response.status_code == 200
+    assert [item["title"] for item in search_response.json()["items"]] == ["Quality Manual"]
+    assert tag_filter_response.status_code == 200
+    assert [item["title"] for item in tag_filter_response.json()["items"]] == ["Quality Manual"]
+
+
+async def test_compare_versions_through_http(context: Context) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        create_response = await client.post(
+            "/api/v1/documents", headers=context.org_a_headers, json={"title": "Notes"}
+        )
+        document_id = create_response.json()["id"]
+
+        version_a_response = await client.post(
+            f"/api/v1/documents/{document_id}/versions",
+            headers=context.org_a_headers,
+            files={"file": ("notes.txt", b"line one\nline two\n", "text/plain")},
+        )
+        version_a_id = version_a_response.json()["id"]
+        version_b_response = await client.post(
+            f"/api/v1/documents/{document_id}/versions",
+            headers=context.org_a_headers,
+            files={"file": ("notes.txt", b"line one\nline THREE\n", "text/plain")},
+        )
+        version_b_id = version_b_response.json()["id"]
+
+        compare_response = await client.get(
+            f"/api/v1/documents/{document_id}/versions/{version_a_id}/compare/{version_b_id}",
+            headers=context.org_a_headers,
+        )
+
+    assert compare_response.status_code == 200, compare_response.text
+    body = compare_response.json()
+    assert body["checksum_changed"] is True
+    assert body["text_diff"] is not None
+    assert any("line THREE" in line for line in body["text_diff"])
+    assert "storage_key" not in body["version_a"]
+    assert "storage_key" not in body["version_b"]
+
+
+async def test_compare_versions_returns_404_for_another_organisations_document(
+    context: Context,
+) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        create_response = await client.post(
+            "/api/v1/documents", headers=context.org_b_headers, json={"title": "Org B Doc"}
+        )
+        document_id = create_response.json()["id"]
+        version_a_response = await client.post(
+            f"/api/v1/documents/{document_id}/versions",
+            headers=context.org_b_headers,
+            files={"file": ("a.txt", b"hello", "text/plain")},
+        )
+        version_b_response = await client.post(
+            f"/api/v1/documents/{document_id}/versions",
+            headers=context.org_b_headers,
+            files={"file": ("b.txt", b"hello again", "text/plain")},
+        )
+
+        response = await client.get(
+            f"/api/v1/documents/{document_id}/versions/{version_a_response.json()['id']}"
+            f"/compare/{version_b_response.json()['id']}",
+            headers=context.org_a_headers,
+        )
+
+    assert response.status_code == 404

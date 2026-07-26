@@ -8,11 +8,13 @@ rule -- see docs/CodingStandards.md#backend-python), never queried directly.
 """
 
 import datetime
+import difflib
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import Select, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -364,9 +366,14 @@ async def list_documents(
     category_id: uuid.UUID | None,
     status: DocumentStatus | None,
     owner_id: uuid.UUID | None,
+    search: str | None = None,
+    tag: str | None = None,
     limit: int,
     offset: int,
 ) -> tuple[list[Document], int]:
+    """List documents, optionally filtered by exact `category_id`/`status`/
+    `owner_id`, a case-insensitive substring `search` across `title`/`number`, and
+    an exact `tag` name (joined through `document_tag_links`/`document_tags`)."""
     filters = [Document.organisation_id == organisation_id, Document.deleted_at.is_(None)]
     if category_id is not None:
         filters.append(Document.category_id == category_id)
@@ -374,13 +381,37 @@ async def list_documents(
         filters.append(Document.status == status)
     if owner_id is not None:
         filters.append(Document.owner_id == owner_id)
+    if search:
+        pattern = f"%{search}%"
+        filters.append(or_(Document.title.ilike(pattern), Document.number.ilike(pattern)))
 
-    total = (
-        await session.execute(select(func.count()).select_from(Document).where(*filters))
-    ).scalar_one()
-    result = await session.execute(
-        select(Document).where(*filters).order_by(Document.created_at).limit(limit).offset(offset)
+    def _with_tag_join(statement: Select[Any]) -> Select[Any]:
+        if not tag:
+            return statement
+        return (
+            statement.join(DocumentTagLink, DocumentTagLink.document_id == Document.id)
+            .join(DocumentTag, DocumentTag.id == DocumentTagLink.tag_id)
+            # Defense in depth: a tag can only ever be linked to a document in
+            # its own organisation (create_document/_resolve_tags enforce this at
+            # write time), so this predicate is redundant with the outer
+            # Document.organisation_id filter today -- but the join is scoped
+            # explicitly anyway rather than relying solely on that write-time
+            # invariant, per an independent review of this slice.
+            .where(DocumentTag.organisation_id == organisation_id, DocumentTag.name == tag)
+        )
+
+    count_query = _with_tag_join(
+        select(func.count(func.distinct(Document.id))).select_from(Document).where(*filters)
     )
+    total = (await session.execute(count_query)).scalar_one()
+
+    list_query = (
+        _with_tag_join(select(Document).where(*filters))
+        .order_by(Document.created_at)
+        .limit(limit)
+        .offset(offset)
+    )
+    result = await session.execute(list_query)
     return list(result.scalars().all()), total
 
 
@@ -826,3 +857,93 @@ async def list_document_version_acknowledgements(
         .offset(offset)
     )
     return list(result.scalars().all()), total
+
+
+# --- Version comparison --------------------------------------------------------
+#
+# Per the Milestone 2 plan's "PDF preview and version comparison" section: a
+# practical, not speculative, comparison. Always reports the version-level
+# metadata diff; additionally reports a line-level unified text diff when both
+# versions have a text-based content type, or otherwise just whether the binary
+# content changed (by checksum) -- no PDF/Office structured diffing, which is
+# recorded there as a future improvement rather than built speculatively now.
+
+TEXT_COMPARABLE_CONTENT_TYPES = frozenset({"text/plain", "text/csv"})
+
+# Independent review finding: diffing is not streamed, so both files are held
+# fully in memory. The per-organisation upload policy already bounds a single
+# file's size (default 50 MB), but a text diff of two files anywhere near that
+# size is neither a useful UI comparison nor a memory cost worth paying on every
+# request. Skip the (expensive, not very readable) diff above this size and fall
+# back to the checksum-only comparison instead -- proportionate to this being a
+# "practical, not speculative" comparison feature, not a full guard against the
+# upload policy's own configured ceiling.
+MAX_TEXT_DIFF_BYTES = 5 * 1024 * 1024
+
+
+class VersionFileMissingError(Exception):
+    """Raised when a version's file is missing from disk at comparison time (an
+    operational data-integrity problem, not a client error)."""
+
+
+@dataclass
+class VersionComparisonResult:
+    version_a: DocumentVersion
+    version_b: DocumentVersion
+    checksum_changed: bool
+    text_diff: list[str] | None
+
+
+async def compare_document_versions(
+    session: AsyncSession,
+    *,
+    organisation_id: uuid.UUID,
+    document_id: uuid.UUID,
+    version_a_id: uuid.UUID,
+    version_b_id: uuid.UUID,
+    uploads_dir: Path,
+) -> VersionComparisonResult:
+    """Compare two versions of the same document. Raises `DocumentNotFoundError`/
+    `DocumentVersionNotFoundError` if either version doesn't exist in the caller's
+    own organisation, or `VersionFileMissingError` if a version's file is missing
+    from disk."""
+    version_a = await get_document_version(
+        session, organisation_id=organisation_id, document_id=document_id, version_id=version_a_id
+    )
+    version_b = await get_document_version(
+        session, organisation_id=organisation_id, document_id=document_id, version_id=version_b_id
+    )
+
+    checksum_changed = version_a.checksum_sha256 != version_b.checksum_sha256
+
+    text_diff: list[str] | None = None
+    if (
+        version_a.content_type in TEXT_COMPARABLE_CONTENT_TYPES
+        and version_b.content_type in TEXT_COMPARABLE_CONTENT_TYPES
+        and version_a.size_bytes <= MAX_TEXT_DIFF_BYTES
+        and version_b.size_bytes <= MAX_TEXT_DIFF_BYTES
+    ):
+        path_a = resolve_path(uploads_dir, version_a.storage_key)
+        path_b = resolve_path(uploads_dir, version_b.storage_key)
+        try:
+            text_a = path_a.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
+            text_b = path_b.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
+        except FileNotFoundError as exc:
+            raise VersionFileMissingError(
+                f"A file for document {document_id} is missing from storage"
+            ) from exc
+        text_diff = list(
+            difflib.unified_diff(
+                text_a,
+                text_b,
+                fromfile=f"v{version_a.version_number}",
+                tofile=f"v{version_b.version_number}",
+            )
+        )
+
+    return VersionComparisonResult(
+        version_a=version_a,
+        version_b=version_b,
+        checksum_changed=checksum_changed,
+        text_diff=text_diff,
+    )

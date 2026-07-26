@@ -798,6 +798,55 @@ happy/error paths. Consistent with the Milestone 1 closeout finding
 this is the reason an independent security review stays a mandatory gate for every
 milestone, not an optional nice-to-have.
 
+## 2026-07-26 — Document search/filtering and version comparison: a text-diff size cap and defensive tag scoping
+
+**Problem:** An independent security/tenant-isolation review of the document
+search/filtering (`list_documents`) and version comparison
+(`compare_document_versions`) slice found no SQL-injection, path-traversal, or
+tenant-isolation defects, but flagged two lower-severity robustness issues and one
+defense-in-depth gap.
+
+**Finding 1 (Low-Medium) — unbounded in-memory text diffing.**
+`compare_document_versions` read both files fully into memory via
+`Path.read_text()` before diffing whenever both versions had a text-based content
+type, with no size guard beyond the organisation's general upload policy (default
+50 MB per file). Any active user (comparison is not admin-only) could request a
+comparison of two ~50 MB text files repeatedly, each request holding both full
+files plus the generated diff in memory.
+
+**Fix:** a new `MAX_TEXT_DIFF_BYTES` constant (5 MB) in
+`app/modules/documents/service.py` — if either version's `size_bytes` exceeds it,
+the comparison falls back to the checksum-only result instead of attempting a
+diff. A unified diff of two files anywhere near the general upload ceiling would
+not be a useful UI comparison anyway, so this is a proportionate cap for a
+"practical, not speculative" comparison feature, not a claim that 5 MB is some
+inherent safe limit.
+
+**Finding 2 (Low) — an unhandled `FileNotFoundError` if a version's file is
+missing from disk** (e.g. an operational data-integrity problem — manual
+deletion, a disk issue) would have surfaced as a bare, potentially detail-leaking
+500. Fixed by catching it and raising a new `VersionFileMissingError`, mapped in
+the router to a generic `500` with the real error logged server-side only, per
+the existing "never leak stack traces/internal exception text" baseline in
+[Architecture.md](Architecture.md#security-baseline).
+
+**Finding 3 (Informational, defense in depth) — the tag-name join in
+`list_documents` did not itself scope `DocumentTag` by `organisation_id`**,
+relying entirely on the write-time invariant that a tag can only ever be linked
+to a document in its own organisation (enforced by `_resolve_tags`/`get_tag`).
+Not currently exploitable — the outer `Document.organisation_id` filter already
+applies to the same query — but a future write path that bypassed
+`_resolve_tags` could silently reintroduce a leak. Fixed by adding the redundant
+`DocumentTag.organisation_id == organisation_id` predicate directly to the join,
+so the read path no longer depends solely on the write path staying correct.
+
+Also closed a real test-coverage gap the review identified: no test exercised
+comparing two versions that belong to two *different* documents within the same
+organisation (as opposed to a different organisation entirely) — added
+`test_compare_versions_raises_not_found_for_a_version_of_a_different_document`,
+confirming `get_document_version`'s `document_id`-scoped lookup already handled
+this correctly by construction.
+
 ## 2026-07-26 — Document approval workflow: a status-cache integrity bug and a TOCTOU race
 
 **Problem:** An independent security/tenant-isolation review of the document

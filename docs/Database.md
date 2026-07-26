@@ -265,6 +265,24 @@ this DB constraint and, defensively, by the service layer catching the resulting
 update/delete path exists. An independent security review found no issues in
 this slice.
 
+#### Search, filtering, and version comparison
+
+`GET /api/v1/documents` supports `search` (ILIKE across `title`/`number`) and
+`tag` (an exact-name join through `document_tag_links`/`document_tags`, itself
+defensively scoped by `organisation_id` even though the write path already
+guarantees a tag can only link to a document in its own organisation) alongside
+the existing `category_id`/`status`/`owner_id` exact filters — see
+[API.md](API.md#document-management-milestone-2-in-progress).
+`GET .../versions/{a}/compare/{b}` reads both versions' files directly through
+the same server-side `resolve_path`/`storage_key` mechanism used by download/
+preview (never a raw path) and diffs them with Python's stdlib `difflib` when
+both are text-based and at or under a 5 MB cap (`MAX_TEXT_DIFF_BYTES` in
+`app/modules/documents/service.py`) — above that, or for any other content type,
+only a checksum-changed boolean is reported. See
+[DecisionLog.md](DecisionLog.md#2026-07-26-document-searchfiltering-and-version-comparison-a-text-diff-size-cap-and-defensive-tag-scoping)
+for the size cap, the defensive tag-join scoping, and a missing-file error path
+an independent review added to this slice.
+
 #### Upload policy
 
 A second `configuration` row per organisation, key `document_upload_policy`, value
