@@ -13,12 +13,12 @@ in-progress or planned work as complete.
 for the exact scope and acceptance criteria, and [Roadmap.md](Roadmap.md) for how it
 fits the overall delivery order.
 
-**Phase: all three backend vertical slices (auth, user management, People) and all
-three frontend slices (authentication, user management, People) are implemented and
-verified. Only the final Docker Compose end-to-end verification and
-security/tenant-isolation review remain before the milestone can be closed out.** M0
-(Platform Foundation) is complete and verified. The M1 plan has been written and
-recorded — see "Completed work" below.
+**Milestone 1 is complete.** All three backend vertical slices (auth, user
+management, People) and all three frontend slices (authentication, user management,
+People) are implemented, tested, and verified end-to-end, including a real
+Docker Compose browser-driven smoke test and an independent security/
+tenant-isolation review. M0 (Platform Foundation) is complete and verified. See
+"Completed work" below for the final closeout slice and its findings.
 
 ## Completed work
 
@@ -297,45 +297,123 @@ recorded — see "Completed work" below.
     fixed, with both fixes covered by new regression tests.
   - Docs updated in this slice: this file, [TODO.md](TODO.md),
     [docs/modules/People.md](modules/People.md).
+- **Milestone 1 — final validation and closeout** (this batch):
+  - Backend gates re-verified from a clean baseline: `ruff format --check`,
+    `ruff check`, `mypy --strict` (60 source files), full `pytest` (103 tests: unit +
+    integration against real PostgreSQL 16).
+  - Frontend gates re-verified: `npm run lint`, `format:check`, `typecheck` (strict),
+    `test` (86 tests across 13 files), `build`.
+  - A real upgrade → downgrade → upgrade cycle for all three Milestone 1 migrations
+    run against a disposable database on the local PostgreSQL instance (not the
+    shared dev database used by the integration suite), confirming every
+    `downgrade()` is correct, not just theoretically present.
+  - Backend (`pip-audit`) and frontend (`npm audit`) dependency audits re-run: no new
+    findings beyond the pre-existing, already-documented deferrals in "Known bugs"
+    below (more CVE IDs are now recorded against the same already-deferred
+    `starlette`/dev-tooling packages; no dependency change is possible within the
+    currently-pinned `fastapi`/`eslint`/`vite` ranges).
+  - An independent security/tenant-isolation review (a fresh reviewer with no prior
+    context, reading the actual backend code and tests, not just this document) found
+    two issues, both fixed test-first in this batch:
+    1. A login timing side-channel: `authenticate_user` only ran the deliberately-slow
+       Argon2id verification when a user existed and was active, so an unknown-email
+       or inactive-account login returned faster than a wrong-password one on a real
+       account — letting an attacker enumerate valid accounts by response timing
+       despite an identical response body/status. Fixed by always verifying against a
+       real-or-dummy hash; two new unit tests assert constant call behaviour.
+    2. A missing HTTP-level (integration) test for the People module's cross-organisation
+       `404` guard on `GET`/`PATCH`/`DELETE /api/v1/people/{id}` (the guarantee held —
+       proven by a unit test and, now, a new integration test — it just wasn't
+       previously proven through the real router/dependency chain the way the
+       equivalent companies test already was).
+    Full reasoning in
+    [DecisionLog.md](DecisionLog.md#2026-07-26-milestone-1-closeout-login-timing-side-channel-and-a-react-strictmode-mountedref-bug).
+  - A real, browser-driven `docker compose up --build` smoke test (headless Chromium
+    via a temporary, uncommitted Playwright script outside the repository — no
+    committed dependency added) found and fixed one genuine functional blocker: the
+    `mountedRef` unmount-safety guard in `UsersPage`, `CompaniesPage`, and
+    `PeoplePage` was only ever cleared `false` on unmount, never reset `true` on
+    (re-)mount. React 18 `<StrictMode>` (used in `main.tsx`) double-invokes effects
+    once in development, which left the guard permanently `false` after the very
+    first render — silently dropping every subsequent `setState`, so all three pages
+    were stuck on "Loading…" (or a submit button stuck on "Creating…"/"Saving…"
+    forever) in a real browser, even though all 83 prior Vitest/RTL tests passed
+    (plain `render()` does not exercise `<StrictMode>`). Fixed by resetting the ref to
+    `true` at the start of the effect, per the pattern now documented in
+    [CodingStandards.md](CodingStandards.md#frontend-react-typescript); a
+    `<StrictMode>`-wrapped regression test was added to each of the three pages'
+    test files (RED confirmed against the old code, then GREEN).
+  - After that fix, the full smoke test sequence in
+    [Docker.md](Docker.md#smoke-test-definition) passed against a rebuilt image: the
+    bootstrap admin logged in, created a member user, deactivated and reactivated
+    them, was correctly blocked from deactivating themselves (`409` shown inline);
+    the member could not see or use `/users` (hidden client-side, and a direct
+    `GET /api/v1/users` call with the member's own token returned a real server-side
+    `403`); the member created a company, a company contact, and an employee under
+    People. `docker compose down` (no `-v`) then `up` (no `--build`) brought the
+    stack back healthy with every one of those records — and both user accounts —
+    still present, proving persistence. Verified with the backend host port
+    temporarily remapped to `18000` in a local, uncommitted test only, for the same
+    reason recorded in the Milestone 0 Docker smoke test note; the committed
+    `docker-compose.yml` is unaffected by the test itself. Separately,
+    [Docker.md](Docker.md#environment-configuration)'s example variable block (unlike
+    the already-correct `.env.example`) had never been updated to list the Milestone 1
+    `JWT_SECRET_KEY`/`BOOTSTRAP_ADMIN_*` variables — corrected in this batch.
+  - Docs updated in this slice: this file, [TODO.md](TODO.md),
+    [DecisionLog.md](DecisionLog.md#2026-07-26-milestone-1-closeout-login-timing-side-channel-and-a-react-strictmode-mountedref-bug),
+    [Architecture.md](Architecture.md#security-baseline),
+    [CodingStandards.md](CodingStandards.md#frontend-react-typescript),
+    [Docker.md](Docker.md#environment-configuration), and the Milestone 1 plan's
+    acceptance checkboxes.
 
 ## Work in progress
 
-Milestone 1 (Authentication, Organisations, People) — see
-[.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md)
-for the full scope. All backend work and all three Milestone 1 frontend slices
-(authentication, user management, People) are done. Still to do: a full Docker
-Compose end-to-end verification and security/tenant-isolation review, then closing
-out the milestone's documentation.
+None. Milestone 1 (Authentication, Organisations, People) is complete and verified —
+see [.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md)
+for the closed-out acceptance criteria. Next up is Milestone 2 (Document Management),
+per [Roadmap.md](Roadmap.md#m2-document-management); no Milestone 2 work has started.
 
 ## Known bugs
 
-None known in the code written so far. `npm audit` (frontend) reports 14
-vulnerabilities: 13 in dev-only tooling transitive dependencies (ESLint's
-`minimatch`/`brace-expansion`, Vite's dev-time `esbuild`, Vitest's `vite-node`/
-`@vitest/mocker`), none in shipped runtime code; each documented fix requires an
-unproven major-version jump (ESLint 9→10, Vite 5→8) and is deferred rather than
-forced — revisit when those majors are mature. The 14th, in `react-router` (a
-runtime dependency), is accepted as inapplicable: it describes an RSC/data-router
+None known in the code written so far. (Two defects found during Milestone 1's final
+validation — a login timing side-channel and a React StrictMode `mountedRef` bug —
+were fixed test-first in that same closeout batch; see "Completed work" above and
+[DecisionLog.md](DecisionLog.md#2026-07-26-milestone-1-closeout-login-timing-side-channel-and-a-react-strictmode-mountedref-bug).)
+
+`npm audit` (frontend) reports 14 vulnerabilities: 13 in dev-only tooling transitive
+dependencies (ESLint's `minimatch`/`brace-expansion`, Vite's dev-time `esbuild`,
+Vitest's `vite-node`/`@vitest/mocker`), none in shipped runtime code; each documented
+fix requires an unproven major-version jump (ESLint 9→10, Vite 5→8) and is deferred
+rather than forced — revisit when those majors are mature. The 14th, in `react-router`
+(a runtime dependency), is accepted as inapplicable: it describes an RSC/data-router
 server-action bypass, and this app uses neither. Full reasoning for both the
 `react-router-dom` v7 upgrade and the accepted residual finding in
 [DecisionLog.md](DecisionLog.md#2026-07-26-react-router-dom-upgraded-to-v7-for-moderate-open-redirect-advisories-residual-high-severity-rsc-advisory-accepted-as-not-applicable).
+Re-verified at Milestone 1 closeout: same 14 findings, same packages/versions, no
+dependency change made — `npm audit`'s severity rollup for a couple of these shifted
+(e.g. `vitest` now reports as "critical" via its vulnerable transitive `esbuild`/
+`vite-node`) but the underlying advisories and packages are unchanged from this entry.
 
 `pip-audit` (backend) reports pre-existing advisories in `starlette` (0.46.2,
 pulled in transitively by the Milestone-0-pinned `fastapi>=0.115,<0.116`) and
 `pytest` (8.3.5, dev-only). Neither is a dependency introduced by Milestone 1's
 authentication work; upgrading either is an unproven major/minor jump out of this
 slice's scope (same posture as the frontend `npm audit` deferral above) — tracked
-here rather than silently fixed or silently ignored. Revisit alongside a future
+here rather than silently fixed or silently ignored. Re-verified at Milestone 1
+closeout: `fastapi==0.115.14`'s own metadata pins `starlette<0.47.0`, and every
+`pip-audit`-reported fix version for the current `starlette` advisories is `>=0.47.0`
+— so no fix is reachable without also bumping `fastapi`, confirming this remains an
+unproven jump out of scope rather than an oversight. Revisit alongside a future
 FastAPI/pytest version bump.
 
 ## Next recommended tasks
 
-All three Milestone 1 backend slices (auth, user management, People) and all three
-frontend slices (authentication, user management, People) are done. Continue in the
-commit order recorded in
-[.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md#suggested-commit-boundaries):
-the full Docker Compose smoke test next, then close out the milestone's
-documentation.
+Milestone 1 is complete. Begin Milestone 2 (Document Management) per
+[Roadmap.md](Roadmap.md#m2-document-management) and
+[docs/modules/DocumentManagement.md](modules/DocumentManagement.md) — write its
+implementation plan under [.hermes/plans/](../.hermes/plans/) first, following the
+same documentation-first process used for Milestones 0 and 1, before writing any
+Milestone 2 code.
 
 Note on local tooling: this backend was developed using a repository-local `uv`
 install and virtual environment under `.tools/` (git-ignored) because `uv` was not

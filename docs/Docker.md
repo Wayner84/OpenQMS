@@ -66,6 +66,17 @@ BACKEND_CORS_ORIGINS=http://localhost:5173
 ENVIRONMENT=development
 LOG_LEVEL=INFO
 
+# Authentication (Milestone 1) - see docs/DecisionLog.md. JWT_SECRET_KEY has no safe
+# default; the backend refuses to start without one.
+JWT_SECRET_KEY=changeme-generate-a-long-random-secret
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
+
+# Bootstrap admin (Milestone 1) - creates the first admin user on first startup only.
+# Leave BOOTSTRAP_ADMIN_PASSWORD empty to have a random password generated and logged
+# once (see `docker compose logs backend`).
+BOOTSTRAP_ADMIN_EMAIL=admin@example.com
+BOOTSTRAP_ADMIN_PASSWORD=
+
 # Frontend
 VITE_API_BASE_URL=http://localhost:8000
 ```
@@ -109,6 +120,18 @@ verify the next implementation batch, not run in this documentation batch):
 6. `docker compose down` stops cleanly; `docker compose up` again (without `--build`,
    without `-v`) brings the stack back up with the same seeded `organisations` row
    still present, proving volume persistence.
+
+**Milestone 1 extension, verified:** with `JWT_SECRET_KEY` and `BOOTSTRAP_ADMIN_EMAIL`/
+`BOOTSTRAP_ADMIN_PASSWORD` set in `.env`, the same sequence additionally verified,
+through a real headless-browser walkthrough of `http://localhost:5173` (not just
+`curl`): the bootstrap admin can log in, create and deactivate/reactivate a user, is
+blocked from deactivating themselves (`409` shown inline), a member cannot see or use
+`/users` (client-side hidden and server-side `403` on direct API call), and a member
+can create a company, a company contact, and an employee under People — all of it
+still present after a `docker compose down` / `up` restart (no `-v`). Verified with
+the backend host port temporarily remapped to `18000` in a local, uncommitted test
+only, for the same reason recorded in the Milestone 0 smoke test note above; the
+committed `docker-compose.yml` is unaffected.
 
 ## Related documents
 

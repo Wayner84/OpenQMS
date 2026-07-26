@@ -51,9 +51,9 @@ Full scope and acceptance criteria:
     criteria in the Milestone 0 plan once verified. Dependencies: Tasks 1–9.
     Complexity: **S**. Status: Done.
 
-## Medium Priority — Milestone 1 (Auth, Organisations, People)
+## Medium Priority — Milestone 1 (Auth, Organisations, People) — COMPLETE
 
-Full scope and acceptance criteria:
+Full scope and acceptance criteria (all checked off):
 [.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md](../.hermes/plans/2026-07-25-milestone-1-auth-organisations-people.md).
 
 11. **Authentication (JWT)** — user model, password hashing (Argon2id), login
@@ -69,6 +69,15 @@ Full scope and acceptance criteria:
     customer/supplier. Dependencies: Task 11 (owner/creator attribution),
     Milestone 0's `organisation_id` pattern. Complexity: **L**. Status: Done
     (backend and frontend both implemented and tested).
+
+Milestone 1 closeout (final validation batch, 2026-07-26): full gate re-run, a real
+upgrade/downgrade/upgrade migration cycle, dependency audits, an independent
+security/tenant-isolation review, and a real browser-driven Docker Compose smoke
+test — all passed, with two defects found and fixed test-first along the way (a
+login timing side-channel and a React StrictMode `mountedRef` bug affecting all three
+Milestone 1 data-table pages). See [CurrentStatus.md](CurrentStatus.md) and
+[DecisionLog.md](DecisionLog.md#2026-07-26-milestone-1-closeout-login-timing-side-channel-and-a-react-strictmode-mountedref-bug)
+for full detail. Next: Milestone 2 (Document Management) — see below.
 
 ## Low Priority — Later modules (Milestones 2–9)
 

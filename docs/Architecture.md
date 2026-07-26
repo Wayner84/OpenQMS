@@ -224,6 +224,14 @@ the following baseline applies from the first commit onward:
   bad mid-use — not just at initial page load — is always handled. Reasoning and
   trade-offs in
   [DecisionLog.md](DecisionLog.md#2026-07-26-frontend-token-storage-and-mid-session-401-handling).
+- **Constant-effort login lookups** (Milestone 1): `authenticate_user` always runs
+  Argon2id verification, against a dummy hash when no user matches the supplied
+  email, so an unknown-email login pays the same verification cost as a
+  wrong-password one. Without this, the deliberately-slow Argon2id check only running
+  for existing/active accounts would let an attacker enumerate valid accounts by
+  response timing, even though the response body and status code are already
+  identical for every failure case. See
+  [DecisionLog.md](DecisionLog.md#2026-07-26-milestone-1-closeout-login-timing-side-channel-and-a-react-strictmode-mountedref-bug).
 
 ## Observability baseline
 

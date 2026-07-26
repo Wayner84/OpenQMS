@@ -88,6 +88,28 @@ test-first) around writing code.
   **Prettier**, run via `npm run lint`.
 - **Type checking**: `tsc --noEmit` via `npm run typecheck`, must pass with zero
   errors before merge.
+- **The unmount-safety `mountedRef` pattern must reset on every (re-)mount, not just
+  clear on unmount.** A component with an async effect/handler that guards
+  `setState` calls with `if (mountedRef.current)` needs:
+  ```tsx
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  ```
+  not just the cleanup half. React 18 `<StrictMode>` (used in `main.tsx`)
+  double-invokes every effect once in development (mount → cleanup → mount again) to
+  surface missing-cleanup bugs; a ref that is only ever set `false` and never back to
+  `true` gets stuck `false` after that simulated first mount, silently dropping every
+  later `setState` — including the one that turns off the initial loading state. This
+  shipped undetected in `UsersPage`/`CompaniesPage`/`PeoplePage` because plain RTL
+  `render()` doesn't exercise `<StrictMode>`; see
+  [DecisionLog.md](DecisionLog.md#2026-07-26-milestone-1-closeout-login-timing-side-channel-and-a-react-strictmode-mountedref-bug).
+  A test that wraps `render()` in `<StrictMode>` and asserts the initial data still
+  loads is required for any new component using this pattern.
 
 ## Testing
 

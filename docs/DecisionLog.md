@@ -611,3 +611,66 @@ app uses none of that: no `RouterProvider`/data router, no `<Form>` actions, no
 server loaders/actions, only the plain declarative components listed above. Tracked
 here rather than silently ignored; revisit if a future milestone adopts data-router
 or RSC mode, or when an upstream fix ships.
+
+## 2026-07-26 — Milestone 1 closeout: login timing side-channel and a React StrictMode `mountedRef` bug
+
+**Problem:** Final Milestone 1 validation (backend/frontend gates, real-PostgreSQL
+migration cycle, dependency audits, an independent security/tenant-isolation review,
+and — critically — a real browser-driven Docker Compose smoke test, not just the
+mocked-API Vitest suite) surfaced two defects that every prior automated gate had
+missed.
+
+**Finding 1 — login timing side-channel.** The independent security review found that
+`authenticate_user` (`backend/app/modules/auth/service.py`) used
+`if user is None or not user.is_active or not verify_password(...)`. Python's `or`
+short-circuits, so the deliberately-slow Argon2id `verify_password` call only ran when
+a user existed **and** was active. An unknown-email or deactivated-account login
+therefore returned in normal query time, while a real, active account with a wrong
+password took measurably longer — an identical response body/status (already
+correctly enforced and tested) does not prevent an attacker enumerating valid, active
+accounts by response *timing* alone. Existing tests only asserted body/status
+equality, never call counts on the verification function, so this was invisible to
+the suite.
+
+**Fix:** `authenticate_user` now always calls `verify_password`, against a module-level
+dummy Argon2id hash when no user matches the supplied email, so an unknown-email
+lookup pays the same verification cost as a wrong-password one on a real account. Two
+new unit tests (`test_authenticate_user_performs_password_verification_even_for_unknown_email`,
+`...for_inactive_user`) assert `verify_password` is called exactly once regardless of
+whether the user exists or is active, confirmed RED against the old code before the
+fix and GREEN after.
+
+**Finding 2 — a `mountedRef` unmount-safety guard was permanently broken by React 18
+StrictMode's development double-invoke.** `UsersPage`, `CompaniesPage`, and
+`PeoplePage` each guard post-await `setState` calls with `if (mountedRef.current)`,
+where `mountedRef = useRef(true)` and a `useEffect(() => () => { mountedRef.current =
+false; }, [])` cleared it only on unmount. `frontend/src/main.tsx` renders the app
+inside `<StrictMode>`, which deliberately mounts, cleans up, and re-mounts every
+component once in development to surface missing-cleanup bugs. Because nothing ever
+set `mountedRef.current` back to `true` on (re-)mount, that simulated first
+mount/cleanup left it permanently `false` — silently dropping every subsequent
+`setState` call in the component, including the one that turns off the initial
+loading state. In a real browser, all three pages were stuck on "Loading…" (or a
+create/update button stuck reading "Creating…"/"Saving…" forever) from the moment
+they mounted. This was invisible to the existing 83 Vitest/RTL tests because plain
+`render()` does not wrap components in `<StrictMode>`. It was only found by scripting
+a real headless-browser walkthrough of the Docker Compose dev stack (bootstrap admin
+login → create/deactivate a user → create a company/contact), per the Milestone 1
+plan's Docker smoke test acceptance criterion.
+
+**Fix:** all three effects now reset `mountedRef.current = true` at the start of the
+effect body, in addition to the existing cleanup that sets it `false`, per the pattern
+now documented in
+[CodingStandards.md](CodingStandards.md#frontend-react-typescript). A new
+`<StrictMode>`-wrapped test was added to each of the three pages' test files,
+confirmed RED against the old code (reproducing the exact "stuck on Loading…"
+symptom) and GREEN after the fix.
+
+**Why this matters beyond the two fixes:** neither defect was reachable by unit
+tests, integration tests against real PostgreSQL, or a mocked-API Vitest run — all of
+which passed throughout. Both were only found by the parts of the Milestone 1
+acceptance criteria that exercise the *real* stack end-to-end (an independent
+security review reading the actual code path, and a real browser against a real
+`docker compose up` dev-mode frontend). This is the concrete argument for keeping
+both of those steps as mandatory milestone-closeout gates, not optional nice-to-haves,
+for every future milestone.

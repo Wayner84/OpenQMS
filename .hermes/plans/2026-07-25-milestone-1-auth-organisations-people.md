@@ -1,6 +1,6 @@
 # Milestone 1 — Authentication, Organisations, People
 
-**Status:** Planned; implementation starting this batch.
+**Status:** Complete — all acceptance criteria verified 2026-07-26.
 **Date planned:** 2026-07-25
 
 ## Purpose
@@ -265,19 +265,27 @@ working, tested unit, per [Contributing.md](../../docs/Contributing.md).
       the `is_employee`/`company_id` invariant and the companies-with-contacts delete
       guard, is organisation-scoped (`404` cross-org), and attributes
       `created_by_id`/`updated_by_id`, all covered by tests.
-- [ ] Frontend: login screen, protected routing, logout; admin user-management
+- [x] Frontend: login screen, protected routing, logout; admin user-management
       screens; People companies/contacts screens — all calling real backend endpoints
       through the typed API client convention, covered by Vitest tests.
-- [ ] All commands in
+- [x] All commands in
       [CodingStandards.md](../../docs/CodingStandards.md#commands-established-in-milestone-0-referenced-by-every-later-batch)
       pass: `ruff check`, `ruff format --check`, `mypy` (strict), `pytest` (unit +
-      integration), `npm run lint`, `format:check`, `typecheck`, `test`, `build`.
-- [ ] `docker compose up --build` smoke test: bootstrap admin can log in through the
+      integration, 103 tests), `npm run lint`, `format:check`, `typecheck`, `test`
+      (86 tests), `build`.
+- [x] `docker compose up --build` smoke test: bootstrap admin can log in through the
       browser UI, create and deactivate a user, create a company and contacts, and
-      all of it survives a `docker compose down` / `up` restart (no `-v`).
-- [ ] Every hard security acceptance criterion above ("Security assumptions") verified
-      by a passing test, not just asserted in this document.
-- [ ] `docs/API.md`, `docs/Database.md`, `docs/modules/People.md`,
+      all of it survives a `docker compose down` / `up` restart (no `-v`). Verified
+      2026-07-26 via a real headless-browser walkthrough (see
+      [Docker.md](../../docs/Docker.md#smoke-test-definition)); found and fixed one
+      genuine blocker along the way (a React StrictMode `mountedRef` bug — see
+      [DecisionLog.md](../../docs/DecisionLog.md#2026-07-26-milestone-1-closeout-login-timing-side-channel-and-a-react-strictmode-mountedref-bug)).
+- [x] Every hard security acceptance criterion above ("Security assumptions") verified
+      by a passing test, not just asserted in this document. An independent review at
+      closeout additionally found and fixed a login timing side-channel not covered
+      by the original test set (same DecisionLog entry as above), and added a missing
+      HTTP-level cross-org 404 test for `/api/v1/people/{id}`.
+- [x] `docs/API.md`, `docs/Database.md`, `docs/modules/People.md`,
       `docs/DecisionLog.md`, `docs/CurrentStatus.md`, `docs/TODO.md` updated in the
       same commits as the behaviour they describe.
 
