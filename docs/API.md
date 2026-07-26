@@ -216,6 +216,79 @@ another organisation's `id`. List supports `?company_id=`, `?is_employee=`,
 [Database.md](Database.md#soft-delete-and-audit-trail)). `404` if not in the caller's
 own organisation.
 
+## Document Management (Milestone 2, in progress)
+
+Under `/api/v1/document-categories`, `/api/v1/document-tags`, and
+`/api/v1/documents`, all requiring `Authorization: Bearer <token>`. Per the
+Milestone 2 plan's
+["Permissions summary"](../.hermes/plans/2026-07-26-milestone-2-document-management.md#6-permissions-summary):
+listing/viewing and document create/edit are open to any active user;
+category/tag mutation and document deletion are admin-only. Version upload/download/
+preview and the approval/acknowledgement workflow are not implemented yet — this
+section covers only the core schema slice built so far.
+
+### `POST /api/v1/document-categories` / `PATCH /api/v1/document-categories/{id}` — **admin only**
+
+Request: `{ "name": "...", "parent_category_id": "..."|null }`. `404` if
+`parent_category_id` is set but not in the caller's own organisation.
+
+### `GET /api/v1/document-categories` / `GET /api/v1/document-categories/{id}`
+
+Paginated list or single fetch (any active user), scoped to the caller's own
+organisation. `404` for another organisation's `id`.
+
+### `DELETE /api/v1/document-categories/{id}` — **admin only**
+
+`204` on success. `409` if the category still has child categories or is referenced
+by a (non-deleted) document.
+
+### `POST /api/v1/document-tags` — **admin only**
+
+Request: `{ "name": "..." }`. `409` if a tag with that name already exists in the
+organisation.
+
+### `GET /api/v1/document-tags?search=`
+
+Paginated, optionally name-substring-filtered list (any active user).
+
+### `DELETE /api/v1/document-tags/{id}` — **admin only**
+
+`204` on success. Cascades: removes the tag from every document that referenced it
+(tags are lightweight free-form labels, not referential-integrity-critical like
+categories — no "still in use" guard).
+
+### `POST /api/v1/documents` / `PATCH /api/v1/documents/{id}`
+
+Request: `{ "title": "...", "category_id": "..."|null, "owner_id": "..."|null,
+"tag_ids": ["..."] }`. `number` is never client-supplied — always generated
+server-side from the organisation's `document_numbering_scheme` configuration row
+(default `DOC-0001`, `DOC-0002`, ...; see
+[Database.md](Database.md#documents-and-related-tables-milestone-2)). `404` if
+`category_id`, `owner_id` (validated against the People module), or any `tag_ids`
+entry doesn't exist in the caller's own organisation. Response `201`/`200` includes
+`status` (`draft` initially), `current_version_id` (`null` until a version is
+approved — not yet reachable in this slice), and the resolved `tags` array.
+
+### `GET /api/v1/documents` / `GET /api/v1/documents/{id}`
+
+Paginated list or single fetch, scoped to the caller's own organisation, excluding
+soft-deleted documents. `404` for another organisation's `id` or a soft-deleted
+document. List supports `?category_id=`, `?status=`, `?owner_id=` exact filters
+(`?search=` and `?tag=` are planned for a later Milestone 2 slice, per
+[the plan](../.hermes/plans/2026-07-26-milestone-2-document-management.md#7-search-and-filtering)).
+
+### `DELETE /api/v1/documents/{id}` — **admin only**
+
+`204` on success. Soft delete (`deleted_at`) — the row and any version files are
+retained, never hard-deleted, per
+[Database.md](Database.md#soft-delete-and-audit-trail).
+
+### `GET /api/v1/documents/{id}/versions`
+
+Paginated list of a document's versions (any active user), newest first. `404` if the
+document doesn't exist in the caller's own organisation. Always empty in this slice —
+version upload lands in a later Milestone 2 commit.
+
 ## Health and readiness endpoints (Milestone 0)
 
 These are the only endpoints Milestone 0 implements:
@@ -246,18 +319,20 @@ Response `503` (database unreachable):
 
 ## Module endpoint prefixes
 
-`/api/v1/auth`, `/api/v1/users`, `/api/v1/people`, and `/api/v1/companies` are
-implemented (see "Authentication", "User management", and "People module" above).
-The rest are reserved prefixes for future modules, so routing collisions are avoided
-as modules land per the [Roadmap](Roadmap.md). Each will get full documentation in
-its `docs/modules/<Module>.md` "Planned APIs" section as it is implemented:
+`/api/v1/auth`, `/api/v1/users`, `/api/v1/people`, `/api/v1/companies`,
+`/api/v1/document-categories`, `/api/v1/document-tags`, and `/api/v1/documents` are
+implemented (see "Authentication", "User management", "People module", and "Document
+Management" above). The rest are reserved prefixes for future modules, so routing
+collisions are avoided as modules land per the [Roadmap](Roadmap.md). Each will get
+full documentation in its `docs/modules/<Module>.md` "Planned APIs" section as it is
+implemented:
 
 | Prefix | Module |
 |---|---|
 | `/api/v1/auth` | Authentication (Milestone 1) — implemented |
 | `/api/v1/users` | User management (Milestone 1) — implemented |
 | `/api/v1/people`, `/api/v1/companies` | People (Milestone 1) — implemented |
-| `/api/v1/documents` | Document Management |
+| `/api/v1/documents`, `/api/v1/document-categories`, `/api/v1/document-tags` | Document Management (Milestone 2) — in progress |
 | `/api/v1/products` | Products |
 | `/api/v1/suppliers` | Suppliers |
 | `/api/v1/ncr` | NCR |

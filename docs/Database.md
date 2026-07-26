@@ -175,15 +175,91 @@ with `422` if the two disagree. A `companies` row cannot be deleted while any
 `people` row still references it (`409`); per
 [the carve-out below](#soft-delete-and-audit-trail), both tables hard-delete.
 
+### Documents and related tables (Milestone 2)
+
+Implements the core schema of the Document Management module
+([docs/modules/DocumentManagement.md](modules/DocumentManagement.md)) — see
+[.hermes/plans/2026-07-26-milestone-2-document-management.md](../.hermes/plans/2026-07-26-milestone-2-document-management.md)
+for full reasoning. Implemented by
+`backend/alembic/versions/8dc9425047ca_add_document_categories_tags_documents_.py`.
+The approval workflow (`document_approvals`), acknowledgements
+(`document_acknowledgements`), and version file upload/download/preview are not
+implemented yet — later Milestone 2 commits.
+
+`document_categories`:
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID, PK | |
+| `organisation_id` | UUID, FK → `organisations.id`, not null | |
+| `name` | text, not null | |
+| `parent_category_id` | UUID, FK → `document_categories.id`, nullable | Self-referencing, for a category tree |
+| `created_at` / `updated_at` | timestamptz | |
+
+`document_tags`: `id`, `organisation_id`, `name` (unique per organisation),
+`created_at`/`updated_at`. Free-form, admin-created labels.
+
+`document_tag_links`: `document_id`, `tag_id` (composite PK, both FKs) — a plain
+many-to-many join table between `documents` and `document_tags`.
+
+`documents`:
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID, PK | |
+| `organisation_id` | UUID, FK → `organisations.id`, not null | |
+| `category_id` | UUID, FK → `document_categories.id`, nullable | |
+| `number` | text, not null | **Server-generated**, never client-supplied — see "Configurable document numbering" below. Unique per (`organisation_id`, `number`) |
+| `title` | text, not null | |
+| `owner_id` | UUID, FK → `people.id`, nullable | An organisational assignment, not an API actor — see the Milestone 2 plan's design decision 1 for why this differs from `document_approvals`/`document_acknowledgements` below, which reference `users.id` instead |
+| `status` | native ENUM (`draft`/`in_review`/`approved`/`obsolete`) | Service-maintained cache of the document's overall state, derived from its versions' workflow stage |
+| `current_version_id` | UUID, FK → `document_versions.id`, nullable | Added with `use_alter=True` (see the migration's docstring) to resolve the circular reference with `document_versions.document_id` |
+| `deleted_at` | timestamptz, nullable | Soft delete — see "Soft delete and audit trail" below |
+| `created_by_id` / `updated_by_id` | UUID, FK → `users.id`, nullable | |
+| `created_at` / `updated_at` | timestamptz | |
+
+`document_versions`: `id`, `document_id` (FK, not null), `version_number` (integer,
+sequential per document, not user-supplied), `storage_key` (text, not null —
+server-generated; never exposed over the API, never derived from client input),
+`original_filename` (text, not null — display only, never used to build a
+filesystem path), `content_type`, `size_bytes`, `checksum_sha256`, `change_summary`
+(nullable), `status` (native ENUM `draft`/`in_review`/`approved`/`rejected`/
+`obsolete`), `created_by_id` (FK → `users.id`, nullable), `created_at`. Immutable
+after creation except `status`; no `updated_at`. Not yet reachable through any
+upload endpoint in this slice — the table exists so `documents.current_version_id`
+has somewhere to point once upload lands.
+
+#### Configurable document numbering
+
+A `configuration` row per organisation, key `document_numbering_scheme`, value
+`{"prefix": "DOC", "separator": "-", "padding": 4, "next_sequence": 1}` — seeded by
+the same migration for the existing default organisation. `number` is generated as
+`f"{prefix}{separator}{next_sequence:0{padding}d}"` (default: `DOC-0001`,
+`DOC-0002`, ...), reading the row with `SELECT ... FOR UPDATE` under PostgreSQL so
+concurrent document creation can't allocate the same number twice (a no-op under
+SQLite, which has no row-level locking and is single-writer for the unit tests that
+use it). See `backend/app/modules/documents/numbering.py`. A second seeded row,
+key `document_upload_policy`
+(`{"allowed_extensions": [...], "max_size_mb": 50}`), is not consumed by any code
+yet — it is seeded now, ready for the upload slice.
+
 ## Soft delete and audit trail
 
-Not implemented in Milestone 0. Planned approach (documented now so later modules are
-consistent, tracked in [TODO.md](TODO.md)): tables holding records with regulatory or
-audit significance (documents, NCRs, calibration certificates) will use a nullable
-`deleted_at` column rather than hard deletes, plus an append-only `audit_log` table
-recording who changed what and when. Purely operational/lookup tables may hard-delete.
-This is deferred until the first module that needs it (Document Management,
-Milestone 2) rather than speculatively built now.
+Milestone 0 deferred this until "the first module that needs it (Document
+Management, Milestone 2)"; Milestone 2 implements the narrowly-needed half now:
+`documents.deleted_at` (nullable timestamptz) is set instead of a hard delete, and
+every list/get path excludes rows where it is non-null. Purely operational/lookup
+tables (`document_categories`, `document_tags`) continue to hard-delete, matching
+People's existing precedent.
+
+A generic, cross-module, append-only `audit_log` table (originally sketched
+alongside soft delete here) is **deliberately not built** in Milestone 2 — see
+[DecisionLog.md](DecisionLog.md#2026-07-26-document-management-schema-numbering-and-the-deferred-audit_log-table)
+for the reasoning (in short: `document_versions`, and the `document_approvals`/
+`document_acknowledgements` tables added in a later Milestone 2 slice, already form
+an immutable, actor-and-timestamp-stamped trail for everything that matters in
+document control; a generic instrumentation layer for every table's mutations is a
+materially larger, separate piece of work).
 
 ## Connection and session management
 

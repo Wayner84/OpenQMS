@@ -674,3 +674,51 @@ security review reading the actual code path, and a real browser against a real
 `docker compose up` dev-mode frontend). This is the concrete argument for keeping
 both of those steps as mandatory milestone-closeout gates, not optional nice-to-haves,
 for every future milestone.
+
+## 2026-07-26 — Document Management: schema, numbering, and the deferred `audit_log` table
+
+**Problem:** [docs/modules/DocumentManagement.md](modules/DocumentManagement.md) (written
+before Milestone 1 existed) sketched `document_approvals.approver_id` and the
+acknowledgement record's actor as referencing `people.id`, and
+[Database.md](Database.md#soft-delete-and-audit-trail) tied introducing a generic
+`audit_log` table to "the first module that needs it (Document Management,
+Milestone 2)". Both needed a real decision once Milestone 2 implementation started.
+Full reasoning also recorded in
+[.hermes/plans/2026-07-26-milestone-2-document-management.md](../.hermes/plans/2026-07-26-milestone-2-document-management.md#design-decisions-made-in-this-plan-refining-the-planned-module-doc).
+
+**Decision 1 — `document_approvals`/`document_acknowledgements` reference `users.id`,
+not `people.id`.** Approving and acknowledging are actions performed by an
+authenticated API caller; Milestone 1 added no link between a `users` row and a
+`people` row, and approving/acknowledging must be attributed to the verified
+`current_user`, not an arbitrary `people` row a caller could claim to be. Using
+`users.id` matches the `created_by_id`/`updated_by_id` attribution pattern already
+established on `companies`/`people` themselves. `documents.owner_id` still
+references `people.id` as originally planned, since ownership is an organisational
+assignment (who this document belongs to), not an action performed through the API —
+it can validly name someone without a login.
+
+**Decision 2 — no generic `audit_log` table in Milestone 2.** `document_versions`
+(immutable revision history) and the `document_approvals`/`document_acknowledgements`
+tables (added in a later Milestone 2 slice) are themselves immutable,
+actor-and-timestamp-stamped audit records for everything that matters in document
+control. A separate generic audit table would duplicate that without adding value
+yet, and a cross-cutting instrumentation layer for every table's mutations is a
+materially larger, separate piece of work than this milestone's vertical slice.
+`documents.deleted_at` (soft delete) **is** implemented now, since it is directly
+needed and narrowly scoped — see [Database.md](Database.md#soft-delete-and-audit-trail).
+
+**Decision 3 — numbering is organisation-wide, generated via a `configuration` row.**
+A `document_numbering_scheme` row (`{"prefix", "separator", "padding",
+"next_sequence"}`) is seeded per organisation by the schema migration and read/
+incremented with `SELECT ... FOR UPDATE` under PostgreSQL, so concurrent document
+creation can't allocate the same number twice, per the spec's "no hard-coded business
+rules" requirement. Per-category or per-document-type numbering is a noted future
+improvement, not built speculatively now.
+
+**Pros (all three):** no premature cross-module linkage table; no premature generic
+instrumentation layer; numbering stays configurable without a deployment. **Cons:**
+decision 1 means a future "who is this person in the system" report can't join
+`document_approvals` straight to `people` — acceptable, since `users` and `people`
+are already independently addressable and a report can join through `email` if ever
+needed; decision 2 will need revisiting if a future module's audit requirements
+outgrow per-table immutable trails.
