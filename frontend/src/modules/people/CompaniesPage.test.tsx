@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -67,6 +68,29 @@ describe('CompaniesPage', () => {
       expect(screen.getByText('Acme Ltd')).toBeInTheDocument();
     });
     expect(screen.getByText('Globex Inc')).toBeInTheDocument();
+  });
+
+  it('loads the list under React StrictMode (dev-mode double-invokes effects on mount)', async () => {
+    // See the equivalent test in UsersPage.test.tsx for why plain `render` doesn't
+    // exercise this path but the real (dev-mode) browser does.
+    mockedListCompanies.mockResolvedValue({
+      items: [acme, globex],
+      total: 2,
+      limit: 20,
+      offset: 0,
+    });
+
+    render(
+      <StrictMode>
+        <MemoryRouter>
+          <CompaniesPage />
+        </MemoryRouter>
+      </StrictMode>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Acme Ltd')).toBeInTheDocument();
+    });
   });
 
   it('shows an error message when the list fails to load', async () => {

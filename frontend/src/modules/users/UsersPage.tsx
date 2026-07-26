@@ -29,12 +29,18 @@ export function UsersPage({ pageSize = DEFAULT_PAGE_SIZE }: { pageSize?: number 
   const [creating, setCreating] = useState(false);
   const mountedRef = useRef(true);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // Set (not just read) on every (re-)mount, not only cleared on unmount: React 18
+    // StrictMode double-invokes this effect in development (mount, cleanup, mount
+    // again) to surface missing-cleanup bugs. Without resetting to `true` here, the
+    // cleanup from that simulated first mount leaves this permanently `false`, so
+    // every subsequent `if (mountedRef.current) setState(...)` below silently no-ops
+    // — including the ones that turn off the initial loading state.
+    mountedRef.current = true;
+    return () => {
       mountedRef.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   const loadPage = useCallback(
     async (nextOffset: number) => {

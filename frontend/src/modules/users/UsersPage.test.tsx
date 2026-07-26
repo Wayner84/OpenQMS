@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiError } from '../../shared/api/client';
@@ -44,6 +45,28 @@ describe('UsersPage', () => {
       expect(screen.getByText('Ada Admin')).toBeInTheDocument();
     });
     expect(screen.getByText('Mel Member')).toBeInTheDocument();
+  });
+
+  it('loads the list under React StrictMode (dev-mode double-invokes effects on mount)', async () => {
+    // Real browsers run the dev-mode frontend under <StrictMode> (see main.tsx), which
+    // deliberately mounts, cleans up, and re-mounts every component once in
+    // development to surface missing-cleanup bugs. A `mountedRef` guard that is only
+    // ever set to `false` (on cleanup) and never back to `true` (on (re-)mount) gets
+    // stuck `false` after that double-invoke, silently dropping every subsequent
+    // `setState` call — including the one that turns off the initial loading state.
+    // Plain RTL `render` (used by every other test in this file) does not exercise
+    // this path, which is why the bug shipped undetected until a real browser did.
+    mockedListUsers.mockResolvedValue({ items: [admin, member], total: 2, limit: 20, offset: 0 });
+
+    render(
+      <StrictMode>
+        <UsersPage />
+      </StrictMode>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Ada Admin')).toBeInTheDocument();
+    });
   });
 
   it('shows an error message when the list fails to load', async () => {
