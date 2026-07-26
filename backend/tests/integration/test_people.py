@@ -269,6 +269,38 @@ async def test_create_person_rejects_contact_in_another_organisations_company(
     assert response.status_code == 404
 
 
+async def test_get_update_delete_person_returns_404_for_another_organisations_person(
+    context: Context,
+) -> None:
+    """HTTP-level equivalent of the companies cross-org 404 test above, proven through
+    the real router/dependency chain for all three by-id person endpoints, not just
+    the service-layer unit test."""
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        create_response = await client.post(
+            "/api/v1/people",
+            headers=context.org_b_headers,
+            json={"first_name": "Org B", "last_name": "Person", "is_employee": True},
+        )
+        person_id = create_response.json()["id"]
+
+        get_response = await client.get(
+            f"/api/v1/people/{person_id}", headers=context.org_a_headers
+        )
+        patch_response = await client.patch(
+            f"/api/v1/people/{person_id}",
+            headers=context.org_a_headers,
+            json={"first_name": "Hijacked", "last_name": "Person", "is_employee": True},
+        )
+        delete_response = await client.delete(
+            f"/api/v1/people/{person_id}", headers=context.org_a_headers
+        )
+
+    assert get_response.status_code == 404
+    assert patch_response.status_code == 404
+    assert delete_response.status_code == 404
+
+
 async def test_company_with_contacts_endpoint_lists_only_that_companys_people(
     context: Context,
 ) -> None:

@@ -11,7 +11,7 @@ client. Multi-organisation login is deferred (see docs/FutureIdeas.md).
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import verify_password
+from app.core.security import hash_password, verify_password
 from app.models.user import User
 
 
@@ -23,11 +23,20 @@ class InvalidCredentialsError(Exception):
     """
 
 
+# Argon2id verification is deliberately slow. Used in place of a real hash when no
+# user matches the supplied email, so an unknown-email login pays the same
+# verification cost as a wrong-password one — otherwise the two are distinguishable
+# by response timing alone, even though their response body/status are identical.
+_DUMMY_HASH = hash_password("no-such-user-dummy-password-for-constant-time-comparison")
+
+
 async def authenticate_user(session: AsyncSession, *, email: str, password: str) -> User:
     """Return the active user matching `email`/`password`, or raise `InvalidCredentialsError`."""
     result = await session.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
-    if user is None or not user.is_active or not verify_password(password, user.hashed_password):
+    hashed_password = user.hashed_password if user is not None else _DUMMY_HASH
+    password_matches = verify_password(password, hashed_password)
+    if user is None or not user.is_active or not password_matches:
         raise InvalidCredentialsError("Incorrect email or password")
     return user
 

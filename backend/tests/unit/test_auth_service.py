@@ -100,6 +100,51 @@ async def test_authenticate_user_rejects_inactive_user_even_with_correct_passwor
             )
 
 
+async def test_authenticate_user_performs_password_verification_even_for_unknown_email(
+    session_maker: SessionMaker, seeded_user: User
+) -> None:
+    """An unknown email must still pay Argon2id's deliberately-slow verification cost.
+
+    Otherwise a login request for a real, active email (which always reaches
+    `verify_password`) takes measurably longer than one for a nonexistent email
+    (which would short-circuit before it), letting an attacker enumerate valid
+    accounts by response timing even though the response body/status are identical.
+    """
+    from unittest.mock import patch
+
+    from app.modules.auth.service import InvalidCredentialsError, authenticate_user
+
+    with patch("app.modules.auth.service.verify_password", return_value=False) as mock_verify:
+        async with session_maker() as session:
+            with pytest.raises(InvalidCredentialsError):
+                await authenticate_user(session, email="nobody@example.com", password="whatever")
+
+    mock_verify.assert_called_once()
+
+
+async def test_authenticate_user_performs_password_verification_even_for_inactive_user(
+    session_maker: SessionMaker, seeded_user: User
+) -> None:
+    """Same timing side-channel as above, for a deactivated account."""
+    from unittest.mock import patch
+
+    from app.modules.auth.service import InvalidCredentialsError, authenticate_user
+
+    async with session_maker() as session:
+        seeded_user.is_active = False
+        session.add(seeded_user)
+        await session.commit()
+
+    with patch("app.modules.auth.service.verify_password", return_value=False) as mock_verify:
+        async with session_maker() as session:
+            with pytest.raises(InvalidCredentialsError):
+                await authenticate_user(
+                    session, email="active@example.com", password="correct-password"
+                )
+
+    mock_verify.assert_called_once()
+
+
 async def test_revoke_tokens_increments_token_version(
     session_maker: SessionMaker, seeded_user: User
 ) -> None:
