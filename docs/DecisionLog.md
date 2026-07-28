@@ -913,3 +913,83 @@ transaction control) isn't set up to simulate deterministically. The fix is
 verified by code review and by the existing sequential-workflow tests still
 passing; a dedicated concurrency test is deferred as a known gap, consistent with
 the same acceptance already recorded for the numbering-lock pattern.
+
+## 2026-07-28 — Document category-tree TOCTOU race and frontend async-state edge cases
+
+**Problem:** A follow-up independent review of the already-committed Document
+Management frontend slice (a fresh reviewer, no prior session context) found a
+genuine concurrency defect the original request-generation guards didn't cover,
+plus several async-state edge cases the guards' own scope didn't reach.
+
+**Finding 1 (Medium) — TOCTOU race in the category-cycle check.**
+`update_category`'s `_assert_no_category_cycle` (added in the original schema
+slice) walks the tree with plain, unlocked `SELECT`s. Two concurrent updates —
+`A.parent := B` and `B.parent := A` — can each read the pre-update tree, each see
+no cycle (the other transaction's write isn't visible yet), and both commit,
+together creating a cycle neither update alone would have passed. This is the
+same shape of bug as the approval-workflow TOCTOU race above, in a part of the
+schema the earlier fix didn't touch.
+
+**Fix:** a new `_lock_category_tree` helper (`app/modules/documents/service.py`)
+locks every category row in the caller's organisation with `SELECT ... FOR
+UPDATE` (a no-op on SQLite, matching every other locking use in this module)
+before `_assert_no_category_cycle` reads the tree, called from `update_category`
+whenever a non-null `parent_category_id` is being set. This serialises concurrent
+tree mutations per organisation: the second transaction to reach the lock waits
+for the first to commit, then correctly sees the already-updated tree and rejects
+its own update as cyclical.
+
+Unlike the approval-workflow TOCTOU fix above (where a dedicated concurrency test
+was deferred as a known gap), this one **is** covered by a genuine concurrent-
+request regression test:
+`test_concurrent_reciprocal_reparenting_cannot_both_succeed`
+(`backend/tests/integration/test_documents.py`) fires both reparenting requests
+through `asyncio.gather` against the same `httpx.AsyncClient`/`ASGITransport`
+pair. Because each request is handled by its own independent DB session/
+connection from the pool, this genuinely exercises two concurrent transactions
+against real PostgreSQL — no manual transaction control needed, contrary to what
+the workflow-slice entry assumed was required. (Retrofitting the same technique
+onto that slice's deferred gap is a reasonable future improvement, not done here
+— out of scope for this pass.) Asserts exactly one of the two requests succeeds
+(`200`)/the other is rejected (`422`), never both.
+
+**Finding 2 — async state not fully scoped to route/prop changes.**
+`DocumentDetailPage` and `VersionComparePanel` can be reused by their parent
+across a navigation to a *different* document (React only remounts on a `key`
+change, and the route only changes `:id`) without every piece of document-scoped
+state being reset: `DocumentDetailPage`'s action/pending/edit-metadata/upload/
+acknowledgement/preview state, and `VersionComparePanel`'s selected versions and
+comparison result, were previously reset only implicitly (or not at all), so a
+still-in-flight or already-applied response for the *previous* document could
+still show through after navigating to the next one. **Fix:** both components
+now reset all of that state — and invalidate any in-flight ack/preview/compare
+request via a monotonic request id — in an effect keyed on the route `id` /
+`documentId` prop respectively; `DocumentDetailPage` additionally guards every
+action handler's post-await state updates with a `currentDocumentIdRef` check so
+an action started on the previous document can't apply its result (or trigger a
+refresh) after the user has already navigated away.
+
+**Finding 3 — option-loading effects and `DocumentCategoriesPage.loadAll` lacked
+a request-id guard.** These effects only guarded on `mountedRef` (unmount
+safety), not on request generation — under React StrictMode's simulated
+mount/cleanup/mount double-invoke in development, two separate fetches are
+dispatched, and an out-of-order (slower, earlier) response could overwrite a
+newer one's state. **Fix:** the same monotonic request-id pattern already used
+elsewhere in this module was added to `DocumentsPage`'s and `DocumentDetailPage`'s
+categories/tags/owners option-loading effects and to `DocumentCategoriesPage`'s
+`loadAll`.
+
+**Finding 4 — `DocumentsPage`'s post-create refresh used a stale filter
+closure.** `handleCreate`'s async body called the `loadPage` closure captured
+when the form was submitted; if the user changed a filter while the `createDocument`
+request was still in flight, that stale closure's refresh would apply the *old*
+filter values, potentially overwriting the fresher, correctly-filtered list the
+filter change had already triggered. **Fix:** the post-create refresh now bumps a
+`refreshVersion` counter that the page's existing load effect depends on, so the
+refresh always runs with the render's current `loadPage` (and therefore current
+filters), not a closure from an earlier render.
+
+All four fixes are covered by new deferred-promise regression tests (frontend) or
+the concurrent-request integration test described above (backend); see
+[docs/modules/DocumentManagement.md](modules/DocumentManagement.md#known-issues--status)
+for the per-slice review summary this entry belongs to.

@@ -42,6 +42,7 @@ from app.modules.documents.schemas import (
     VersionComparisonResponse,
 )
 from app.modules.documents.service import (
+    CategoryCycleError,
     CategoryHasChildrenError,
     CategoryInUseError,
     CategoryNotFoundError,
@@ -185,6 +186,10 @@ async def update_category_endpoint(
     except CategoryNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Category not found"
+        ) from exc
+    except CategoryCycleError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
     return CategoryRead.model_validate(category)
 

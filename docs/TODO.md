@@ -92,8 +92,8 @@ Full scope and acceptance criteria:
     Complexity: **XL**. Status: In Progress (categories/tags/documents core schema,
     configurable numbering, secure version upload/download/preview, the
     approval/rejection workflow, acknowledgements, search/filtering, and version
-    comparison all implemented and tested; the frontend and final Docker/security
-    closeout remain).
+    comparison and the frontend all implemented and tested; final Docker/browser/
+    security verification and closeout remain).
 
 ## Low Priority — Later modules (Milestones 3–9)
 15. **Products module** — see [docs/modules/Products.md](modules/Products.md).

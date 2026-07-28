@@ -114,6 +114,64 @@ export function apiDelete<T = void>(path: string): Promise<T> {
 }
 
 /**
+ * POSTs a `FormData` body (multipart, e.g. a file upload) to `path` and returns the
+ * parsed JSON response. Deliberately does not set a `Content-Type` header — the
+ * browser must set it itself, including the multipart boundary, which cannot be
+ * reproduced by hand. See {@link apiGet} for the error contract.
+ */
+export async function apiPostForm<T>(path: string, formData: FormData): Promise<T> {
+  const baseUrl = getBaseUrl();
+  const headers = new Headers({ Accept: 'application/json' });
+  const token = getToken();
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  const response = await fetch(`${baseUrl}${path}`, { method: 'POST', headers, body: formData });
+  const parsedBody = await parseJsonBody(response);
+  if (!response.ok) {
+    if (response.status === 401 && token) {
+      emitUnauthorized();
+    }
+    throw new ApiError(
+      `POST ${path} failed with status ${response.status}`,
+      response.status,
+      parsedBody,
+    );
+  }
+  return parsedBody as T;
+}
+
+/**
+ * GETs `path` and returns the raw response body as a {@link Blob}, for binary
+ * responses (document download/preview) rather than JSON. See {@link apiGet} for
+ * the error contract; a non-2xx response is still parsed as JSON where possible so
+ * {@link getErrorDetail} works the same way as for every other request.
+ */
+export async function apiGetBlob(path: string): Promise<Blob> {
+  const baseUrl = getBaseUrl();
+  const headers = new Headers();
+  const token = getToken();
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  const response = await fetch(`${baseUrl}${path}`, { method: 'GET', headers });
+  if (!response.ok) {
+    if (response.status === 401 && token) {
+      emitUnauthorized();
+    }
+    const parsedBody = await parseJsonBody(response);
+    throw new ApiError(
+      `GET ${path} failed with status ${response.status}`,
+      response.status,
+      parsedBody,
+    );
+  }
+  return response.blob();
+}
+
+/**
  * Extracts the server's human-readable `detail` message (per
  * docs/API.md#error-format) from a caught error, or `null` if `error` isn't an
  * {@link ApiError} with a string `detail` in its body. Lets callers show the

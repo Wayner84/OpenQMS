@@ -2,7 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { onUnauthorized } from '../auth/sessionEvents';
 import { clearToken, setToken } from '../auth/tokenStore';
-import { ApiError, apiDelete, apiGet, apiPatch, apiPost, getErrorDetail } from './client';
+import {
+  ApiError,
+  apiDelete,
+  apiGet,
+  apiGetBlob,
+  apiPatch,
+  apiPost,
+  apiPostForm,
+  getErrorDetail,
+} from './client';
 
 describe('api client', () => {
   beforeEach(() => {
@@ -137,6 +146,105 @@ describe('api client', () => {
       const [, options] = vi.mocked(fetch).mock.calls[0] ?? [];
       expect(options?.method).toBe('DELETE');
       expect(options?.body).toBeUndefined();
+    });
+  });
+
+  describe('apiPostForm', () => {
+    it('sends a FormData body without setting a Content-Type header', async () => {
+      const responseBody = { id: 'v1' };
+      vi.mocked(fetch).mockResolvedValue(
+        new Response(JSON.stringify(responseBody), { status: 201 }),
+      );
+      const formData = new FormData();
+      formData.set('file', new Blob(['hello'], { type: 'text/plain' }), 'notes.txt');
+
+      const result = await apiPostForm<typeof responseBody>(
+        '/api/v1/documents/1/versions',
+        formData,
+      );
+
+      expect(result).toEqual(responseBody);
+      const [, options] = vi.mocked(fetch).mock.calls[0] ?? [];
+      expect(options?.method).toBe('POST');
+      expect(options?.body).toBe(formData);
+      expect(new Headers(options?.headers).has('Content-Type')).toBe(false);
+      expect(new Headers(options?.headers).get('Accept')).toBe('application/json');
+    });
+
+    it('attaches an Authorization header when a token is stored', async () => {
+      setToken('a.jwt.token');
+      vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({}), { status: 201 }));
+
+      await apiPostForm('/api/v1/documents/1/versions', new FormData());
+
+      const [, options] = vi.mocked(fetch).mock.calls[0] ?? [];
+      expect(new Headers(options?.headers).get('Authorization')).toBe('Bearer a.jwt.token');
+    });
+
+    it('rejects with an ApiError carrying the status and parsed body when the response is not ok', async () => {
+      const body = { detail: 'File type not allowed' };
+      vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify(body), { status: 422 }));
+
+      await expect(
+        apiPostForm('/api/v1/documents/1/versions', new FormData()),
+      ).rejects.toMatchObject({ name: 'ApiError', status: 422, body });
+    });
+  });
+
+  describe('apiGetBlob', () => {
+    it('requests the given path and returns the raw response body as a Blob', async () => {
+      // A plain string body with an explicit header, not `new Response(new Blob(...))`:
+      // jsdom's global `Blob` (what `new Blob()` constructs in this test environment)
+      // isn't recognised as a Blob by Node's own `Response` implementation, which
+      // silently stringifies it (`"[object Blob]"`) instead of using its bytes/type --
+      // a jsdom/Node interop artifact of this test environment, not real browser
+      // behaviour, where there is only one `Blob`/`Response` implementation.
+      vi.mocked(fetch).mockResolvedValue(
+        new Response('%PDF-1.7', { status: 200, headers: { 'Content-Type': 'application/pdf' } }),
+      );
+
+      const result = await apiGetBlob('/api/v1/documents/1/versions/2/download');
+
+      expect(result.size).toBe(8);
+      expect(result.type).toBe('application/pdf');
+      const [url, options] = vi.mocked(fetch).mock.calls[0] ?? [];
+      expect(url).toBe('http://localhost:8000/api/v1/documents/1/versions/2/download');
+      expect(options?.method).toBe('GET');
+    });
+
+    it('attaches an Authorization header when a token is stored', async () => {
+      setToken('a.jwt.token');
+      vi.mocked(fetch).mockResolvedValue(new Response(new Blob(['x']), { status: 200 }));
+
+      await apiGetBlob('/api/v1/documents/1/versions/2/download');
+
+      const [, options] = vi.mocked(fetch).mock.calls[0] ?? [];
+      expect(new Headers(options?.headers).get('Authorization')).toBe('Bearer a.jwt.token');
+    });
+
+    it('rejects with an ApiError carrying the parsed JSON error body when the response is not ok', async () => {
+      const body = { detail: 'Document version not found' };
+      vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify(body), { status: 404 }));
+
+      await expect(apiGetBlob('/api/v1/documents/1/versions/2/download')).rejects.toMatchObject({
+        name: 'ApiError',
+        status: 404,
+        body,
+      });
+    });
+
+    it('emits an unauthorized notification when an authenticated request is rejected with 401', async () => {
+      setToken('expired.token');
+      vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({}), { status: 401 }));
+      const listener = vi.fn();
+      const unsubscribe = onUnauthorized(listener);
+
+      await expect(apiGetBlob('/api/v1/documents/1/versions/2/download')).rejects.toMatchObject({
+        status: 401,
+      });
+
+      unsubscribe();
+      expect(listener).toHaveBeenCalledOnce();
     });
   });
 

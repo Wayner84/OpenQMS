@@ -7,6 +7,7 @@ numbering (seeded via the migration's data seed), category delete guards, cascad
 tag delete, and owner/tag/category validation.
 """
 
+import asyncio
 import os
 import subprocess
 import sys
@@ -384,6 +385,69 @@ async def test_create_category_requires_admin(context: Context) -> None:
         )
 
     assert response.status_code == 403
+
+
+async def test_update_category_returns_422_for_a_cyclical_parent(context: Context) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        parent_response = await client.post(
+            "/api/v1/document-categories", headers=context.org_a_headers, json={"name": "A"}
+        )
+        parent_id = parent_response.json()["id"]
+        child_response = await client.post(
+            "/api/v1/document-categories",
+            headers=context.org_a_headers,
+            json={"name": "B", "parent_category_id": parent_id},
+        )
+        child_id = child_response.json()["id"]
+
+        response = await client.patch(
+            f"/api/v1/document-categories/{parent_id}",
+            headers=context.org_a_headers,
+            json={"name": "A", "parent_category_id": child_id},
+        )
+
+    assert response.status_code == 422
+
+
+async def test_concurrent_reciprocal_reparenting_cannot_both_succeed(context: Context) -> None:
+    """Independent review finding: without a database lock serialising category-tree
+    mutations per organisation, two concurrent updates -- A.parent := B and
+    B.parent := A -- can each read the pre-update tree in `_assert_no_category_cycle`
+    before the other commits its write, so both see "no cycle" and both succeed,
+    together creating a cycle that neither update alone would have passed. Only real
+    concurrent transactions against a database that actually enforces row locks
+    (Postgres) can exercise this -- SQLite's unit tests can't, since SQLite has no
+    real row-level locking and is single-writer regardless. With the fix
+    (service._lock_category_tree), the second transaction to reach the lock must
+    wait for the first to commit, so it observes the already-updated tree and
+    correctly rejects its own update as cyclical: exactly one of the two requests
+    succeeds."""
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response_a = await client.post(
+            "/api/v1/document-categories", headers=context.org_a_headers, json={"name": "A"}
+        )
+        response_b = await client.post(
+            "/api/v1/document-categories", headers=context.org_a_headers, json={"name": "B"}
+        )
+        category_a_id = response_a.json()["id"]
+        category_b_id = response_b.json()["id"]
+
+        results = await asyncio.gather(
+            client.patch(
+                f"/api/v1/document-categories/{category_a_id}",
+                headers=context.org_a_headers,
+                json={"name": "A", "parent_category_id": category_b_id},
+            ),
+            client.patch(
+                f"/api/v1/document-categories/{category_b_id}",
+                headers=context.org_a_headers,
+                json={"name": "B", "parent_category_id": category_a_id},
+            ),
+        )
+
+    assert sorted(response.status_code for response in results) == [200, 422]
 
 
 async def test_delete_category_returns_409_when_referenced_by_a_document(context: Context) -> None:

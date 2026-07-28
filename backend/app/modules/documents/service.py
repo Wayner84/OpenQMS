@@ -62,6 +62,11 @@ class CategoryInUseError(Exception):
     """Raised when deleting a category that is still referenced by a document."""
 
 
+class CategoryCycleError(Exception):
+    """Raised when updating a category's parent would make it its own ancestor
+    (setting it to itself, or to one of its own descendants)."""
+
+
 class TagNotFoundError(Exception):
     """Raised when a tag id doesn't exist in the caller's organisation."""
 
@@ -154,6 +159,64 @@ async def list_categories(
     return list(result.scalars().all()), total
 
 
+async def _assert_no_category_cycle(
+    session: AsyncSession,
+    *,
+    organisation_id: uuid.UUID,
+    category_id: uuid.UUID,
+    new_parent_id: uuid.UUID,
+) -> None:
+    """Walk upward from `new_parent_id` toward the root. If `category_id` is
+    encountered along the way, setting it as the parent would create a cycle --
+    either directly (`new_parent_id == category_id`, caught on the first
+    iteration) or indirectly (`new_parent_id` is one of `category_id`'s own
+    descendants). Raises `CategoryCycleError` in either case."""
+    current_id: uuid.UUID | None = new_parent_id
+    seen: set[uuid.UUID] = set()
+    while current_id is not None:
+        if current_id == category_id:
+            raise CategoryCycleError(
+                "A category cannot be set as its own ancestor (itself or a descendant as parent)"
+            )
+        if current_id in seen:
+            # Defensive only: this same guard is what prevents a cycle from ever
+            # being stored in the first place, so a pre-existing cycle should be
+            # unreachable -- but stop rather than loop forever if one somehow exists.
+            break
+        seen.add(current_id)
+        current_id = (
+            await session.execute(
+                select(DocumentCategory.parent_category_id).where(
+                    DocumentCategory.id == current_id,
+                    DocumentCategory.organisation_id == organisation_id,
+                )
+            )
+        ).scalar_one_or_none()
+
+
+async def _lock_category_tree(session: AsyncSession, *, organisation_id: uuid.UUID) -> None:
+    """Serialise concurrent category-tree mutations within a single organisation by
+    locking every one of its category rows with `SELECT ... FOR UPDATE` (a no-op on
+    SQLite, which has no row-level locking and is single-writer for the unit tests
+    that use it) before `_assert_no_category_cycle` reads the tree. Without this,
+    two concurrent updates -- e.g. A.parent := B and B.parent := A -- can each read
+    the tree before the other commits its write, each see no cycle, and both
+    succeed, together creating a cycle that neither update alone would have passed
+    (a TOCTOU race an independent review of this slice found). Mirrors the same
+    dialect-gated row-lock pattern as `_lock_document` above; a Postgres advisory
+    lock keyed on `organisation_id` would also work, but locking the rows already
+    being read keeps this consistent with the existing pattern instead of
+    introducing a second locking mechanism.
+    """
+    bind = session.bind
+    if bind is not None and bind.dialect.name != "sqlite":
+        await session.execute(
+            select(DocumentCategory.id)
+            .where(DocumentCategory.organisation_id == organisation_id)
+            .with_for_update()
+        )
+
+
 async def update_category(
     session: AsyncSession,
     *,
@@ -165,6 +228,13 @@ async def update_category(
     category = await get_category(session, organisation_id=organisation_id, category_id=category_id)
     if parent_category_id is not None:
         await get_category(session, organisation_id=organisation_id, category_id=parent_category_id)
+        await _lock_category_tree(session, organisation_id=organisation_id)
+        await _assert_no_category_cycle(
+            session,
+            organisation_id=organisation_id,
+            category_id=category_id,
+            new_parent_id=parent_category_id,
+        )
     category.name = name
     category.parent_category_id = parent_category_id
     await session.commit()

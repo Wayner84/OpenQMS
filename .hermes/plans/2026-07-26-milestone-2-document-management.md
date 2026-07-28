@@ -430,7 +430,7 @@ working, tested unit, per [Contributing.md](../../docs/Contributing.md).
       passing hostile-input test, not just asserted.
 - [ ] Version comparison returns a practical metadata + (text-or-binary-appropriate)
       diff, covered by tests.
-- [ ] Frontend: document list/search/filter, upload, workflow actions, acknowledgement,
+- [x] Frontend: document list/search/filter, upload, workflow actions, acknowledgement,
       preview, comparison, categories/tags admin UI — all calling real backend
       endpoints through the typed API client, covered by Vitest tests, accessible and
       responsive.

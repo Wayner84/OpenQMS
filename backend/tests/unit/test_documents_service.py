@@ -131,6 +131,89 @@ async def test_create_category_rejects_cross_org_parent(
             )
 
 
+async def test_update_category_rejects_self_as_parent(
+    session_maker: SessionMaker, organisation_id: uuid.UUID
+) -> None:
+    from app.modules.documents.service import (
+        CategoryCycleError,
+        create_category,
+        update_category,
+    )
+
+    async with session_maker() as session:
+        category = await create_category(
+            session, organisation_id=organisation_id, name="Quality", parent_category_id=None
+        )
+
+    async with session_maker() as session:
+        with pytest.raises(CategoryCycleError):
+            await update_category(
+                session,
+                organisation_id=organisation_id,
+                category_id=category.id,
+                name="Quality",
+                parent_category_id=category.id,
+            )
+
+
+async def test_update_category_rejects_a_descendant_as_parent(
+    session_maker: SessionMaker, organisation_id: uuid.UUID
+) -> None:
+    """A -> B -> C exists; setting A's parent to C (a descendant of A) must be
+    rejected, not just direct self-parenting."""
+    from app.modules.documents.service import (
+        CategoryCycleError,
+        create_category,
+        update_category,
+    )
+
+    async with session_maker() as session:
+        category_a = await create_category(
+            session, organisation_id=organisation_id, name="A", parent_category_id=None
+        )
+        category_b = await create_category(
+            session, organisation_id=organisation_id, name="B", parent_category_id=category_a.id
+        )
+        category_c = await create_category(
+            session, organisation_id=organisation_id, name="C", parent_category_id=category_b.id
+        )
+
+    async with session_maker() as session:
+        with pytest.raises(CategoryCycleError):
+            await update_category(
+                session,
+                organisation_id=organisation_id,
+                category_id=category_a.id,
+                name="A",
+                parent_category_id=category_c.id,
+            )
+
+
+async def test_update_category_allows_reparenting_to_an_unrelated_category(
+    session_maker: SessionMaker, organisation_id: uuid.UUID
+) -> None:
+    from app.modules.documents.service import create_category, update_category
+
+    async with session_maker() as session:
+        category_a = await create_category(
+            session, organisation_id=organisation_id, name="A", parent_category_id=None
+        )
+        category_b = await create_category(
+            session, organisation_id=organisation_id, name="B", parent_category_id=None
+        )
+
+    async with session_maker() as session:
+        updated = await update_category(
+            session,
+            organisation_id=organisation_id,
+            category_id=category_b.id,
+            name="B",
+            parent_category_id=category_a.id,
+        )
+
+    assert updated.parent_category_id == category_a.id
+
+
 async def test_delete_category_rejects_when_it_has_children(
     session_maker: SessionMaker, organisation_id: uuid.UUID
 ) -> None:

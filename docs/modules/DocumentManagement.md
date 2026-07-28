@@ -7,7 +7,7 @@ for exactly what is and isn't implemented yet. Implemented so far: categories, t
 documents (metadata CRUD, soft delete), configurable server-generated numbering,
 secure version file upload/download/preview, the approval/rejection workflow,
 electronic acknowledgement, search/filtering, and version comparison. Not yet
-implemented: the frontend and the Docker/security closeout.
+implemented: the Docker/browser/security closeout.
 
 ## Purpose
 
@@ -85,8 +85,21 @@ and `/api/v1/documents` — full detail:
   metadata always, plus a text diff for text-based content types under a 5 MB
   cap, or a checksum-changed boolean otherwise.
 
-Not yet implemented: the frontend, per the
-[Milestone 2 plan](../../.hermes/plans/2026-07-26-milestone-2-document-management.md).
+## Frontend
+
+Implemented under `frontend/src/modules/documents/`: a typed API client, searchable
+and paginated document register with category/tag/status/owner filters, complete
+option loading, category/tag administration, metadata editing, admin soft-delete and
+retirement, immutable version upload/download/preview, workflow actions,
+acknowledgements, and in-page version comparison. All routes use the shared
+authenticated client; admin-only controls are hidden for usability but remain
+server-enforced. Request-generation guards prevent stale async responses from
+overwriting newer selections or route state — including on a route/prop change that
+reuses the same component instance for a different document — and category
+descendants are excluded as parent choices while the backend independently rejects
+cycles, serialising concurrent category-tree edits per organisation with a database
+row lock so two reciprocal reparentings can never both succeed and create a cycle
+between them.
 
 ## Workflow
 
@@ -148,14 +161,25 @@ committed:
   5 MB), a missing-file crash path, and defensive (not previously exploitable)
   tag-join organisation scoping.
 - Acknowledgement slice: no issues found.
+- Frontend slice (a follow-up pass on the same slice): a TOCTOU race in the
+  category-cycle check (two concurrent reciprocal reparentings could together
+  create a cycle neither alone would have passed) and several async-state edge
+  cases beyond the original request-generation guards — a route/prop change
+  reusing the same component instance for a different document didn't reset every
+  piece of document-scoped UI state, `DocumentCategoriesPage`'s own `loadAll` and
+  the categories/tags/owners option-loading effects lacked a request-id guard
+  (StrictMode double-invoke could apply a stale response), and a post-create
+  refresh could use a stale filter closure.
 
 See
 [DecisionLog.md](../DecisionLog.md#2026-07-26-document-upload-request-body-size-cap-version-number-locking-and-upload-policy-extension-validation),
 [DecisionLog.md](../DecisionLog.md#2026-07-26-document-approval-workflow-a-status-cache-integrity-bug-and-a-toctou-race),
+[DecisionLog.md](../DecisionLog.md#2026-07-26-document-searchfiltering-and-version-comparison-a-text-diff-size-cap-and-defensive-tag-scoping),
 and
-[DecisionLog.md](../DecisionLog.md#2026-07-26-document-searchfiltering-and-version-comparison-a-text-diff-size-cap-and-defensive-tag-scoping).
-No UI exists yet — the frontend and the final Docker/security closeout are the
-remaining Milestone 2 work, per the
+[DecisionLog.md](../DecisionLog.md#2026-07-28-document-category-tree-toctou-race-and-frontend-async-state-edge-cases).
+The frontend is implemented and covered by Vitest/RTL, including StrictMode,
+out-of-order-response, workflow-retirement, preview, and category-cycle regressions.
+The final Docker/browser/security closeout is the remaining Milestone 2 work, per the
 [Milestone 2 plan](../../.hermes/plans/2026-07-26-milestone-2-document-management.md).
 
 ## Related documents
