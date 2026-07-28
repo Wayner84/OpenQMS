@@ -618,8 +618,11 @@ set to B, B's parent set to A) could each pass `_assert_no_category_cycle` befor
 the other committed, together creating the very cycle neither update alone would
 have passed; fixed with a new `_lock_category_tree` per-organisation row lock
 (`backend/app/modules/documents/service.py`, mirroring the existing `_lock_document`
-pattern), proven by a new real-PostgreSQL concurrent-request integration test
-(skipped, like the rest of that suite, without `TEST_DATABASE_URL`). (2)
+pattern), regression-covered by a real-PostgreSQL concurrent-request integration test
+(skipped, like the rest of that suite, without `TEST_DATABASE_URL`). The test exercises
+independent concurrent transactions but does not deterministically force both requests
+past the old check before either commits; the organisation-wide lock itself is the
+correctness mechanism. (2)
 `DocumentDetailPage` and `VersionComparePanel` now fully reset every
 document-scoped piece of UI state (actions, errors, pending flags, the edit-details
 form, expanded acknowledgements, an open preview and its object URL, comparison
@@ -634,8 +637,9 @@ StrictMode's simulated double-invoke on mount. (4) `DocumentsPage`'s post-create
 refresh no longer calls a `loadPage` closure captured at click time (which could
 carry stale filter values if the filters changed while the create request was in
 flight) — it instead bumps a `refreshVersion` counter so the effect re-runs with
-the render's current, live filters. All four fixes are covered by new
-deferred-promise regression tests.
+the render's current, live filters. The three frontend async-state fixes are covered
+by deferred-promise regression tests; the backend category-tree race is exercised by
+the real-PostgreSQL concurrent-request integration test described above.
 
 Remaining, per
 [the plan](../.hermes/plans/2026-07-26-milestone-2-document-management.md#suggested-commit-boundaries):

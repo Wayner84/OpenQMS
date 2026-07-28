@@ -940,18 +940,20 @@ for the first to commit, then correctly sees the already-updated tree and reject
 its own update as cyclical.
 
 Unlike the approval-workflow TOCTOU fix above (where a dedicated concurrency test
-was deferred as a known gap), this one **is** covered by a genuine concurrent-
-request regression test:
+was deferred as a known gap), this one is regression-covered by
 `test_concurrent_reciprocal_reparenting_cannot_both_succeed`
-(`backend/tests/integration/test_documents.py`) fires both reparenting requests
-through `asyncio.gather` against the same `httpx.AsyncClient`/`ASGITransport`
-pair. Because each request is handled by its own independent DB session/
-connection from the pool, this genuinely exercises two concurrent transactions
-against real PostgreSQL — no manual transaction control needed, contrary to what
-the workflow-slice entry assumed was required. (Retrofitting the same technique
-onto that slice's deferred gap is a reasonable future improvement, not done here
-— out of scope for this pass.) Asserts exactly one of the two requests succeeds
-(`200`)/the other is rejected (`422`), never both.
+(`backend/tests/integration/test_documents.py`). It fires both reparenting requests
+through `asyncio.gather` against the same `httpx.AsyncClient`/`ASGITransport` pair,
+and each request receives its own DB session/connection, so the test exercises
+independent concurrent transactions against real PostgreSQL and asserts that exactly
+one request succeeds (`200`) while the other is rejected (`422`). The test is still
+scheduler-dependent: it does not contain a barrier proving both requests reached the
+formerly vulnerable check before either committed, so it should not be treated as a
+deterministic reproduction of the old race. Correctness comes from the
+per-organisation category-row lock and ancestry re-read described above; a future
+test hook or direct transaction-level barrier could make the regression test itself
+deterministic. Retrofitting equivalent coverage onto the approval slice's deferred
+gap remains a reasonable future improvement, out of scope for this pass.
 
 **Finding 2 — async state not fully scoped to route/prop changes.**
 `DocumentDetailPage` and `VersionComparePanel` can be reused by their parent

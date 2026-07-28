@@ -21,8 +21,11 @@ electronic signatures and ISO compliance assistance (see
 
 ## Database tables
 
-All tables carry `organisation_id` per [Database.md](../Database.md#multi-tenancy-baseline).
-Full column detail: [Database.md](../Database.md#documents-and-related-tables-milestone-2).
+Root tenant-owned tables (`document_categories`, `document_tags`, and `documents`)
+carry `organisation_id`; versions, tag links, approvals, and acknowledgements inherit
+tenant scope through mandatory parent relationships. Service lookups enforce that
+scope through the organisation-owned parent. Full column detail:
+[Database.md](../Database.md#documents-and-related-tables-milestone-2).
 
 - **`document_categories`** — implemented. `id`, `organisation_id`, `name`,
   `parent_category_id` (nullable, self-referencing, for a category tree).

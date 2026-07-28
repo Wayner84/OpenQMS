@@ -1,7 +1,7 @@
 # Milestone 2 — Document Management
 
-**Status:** Planned — implementation starts after this plan and its doc updates are
-committed.
+**Status:** In progress — implementation is complete through the Document Management
+frontend; Docker/browser/security verification and Milestone 2 closeout remain.
 **Date planned:** 2026-07-26
 
 ## Purpose
