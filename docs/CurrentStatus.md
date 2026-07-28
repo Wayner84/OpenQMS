@@ -1,6 +1,6 @@
 # Current Status
 
-_Last updated: 2026-07-28 (Milestone 2: Document Management closeout)_
+_Last updated: 2026-07-28 (Milestone 3: Products and Suppliers planned)_
 
 This document is kept truthful and current in the same commit as any work that
 changes it, per [Contributing.md](Contributing.md). It must never describe
@@ -8,8 +8,14 @@ in-progress or planned work as complete.
 
 ## Current milestone
 
-**M3 — Products and Suppliers**, next up. See [Roadmap.md](Roadmap.md#m3-products-and-suppliers)
-and [TODO.md](TODO.md) (Tasks 15–16). M0 (Platform Foundation), M1 (Authentication,
+**M3 — Products and Suppliers.** See
+[.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md](../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md)
+for the exact scope, schema/API/permissions decisions, and acceptance criteria, and
+[Roadmap.md](Roadmap.md#m3-products-and-suppliers) for how it fits the overall
+delivery order.
+
+**Milestone 3 is in progress.** The implementation plan is written and committed; no
+implementation exists yet. M0 (Platform Foundation), M1 (Authentication,
 Organisations, People), and M2 (Document Management) are all complete and verified —
 see "Completed work" below for details and findings.
 
@@ -672,8 +678,9 @@ see "Completed work" below for details and findings.
 
 ## Work in progress
 
-None. Milestone 3 (Products and Suppliers, [TODO.md](TODO.md) Task 15) has not yet
-started.
+Milestone 3 (Products and Suppliers): plan committed
+([.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md](../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md)).
+No implementation exists yet.
 
 ## Known bugs
 
@@ -716,11 +723,10 @@ a new or worsened finding.
 
 ## Next recommended tasks
 
-Begin Milestone 3 (Products and Suppliers): write the implementation plan under
-`.hermes/plans/`, per [TODO.md](TODO.md) Task 15 and
-[Roadmap.md](Roadmap.md#m3-products-and-suppliers), then implement test-first in
-small, independently-committable vertical slices following the same pattern used for
-Milestones 1 and 2.
+Implement Milestone 3 per the committed plan, starting with the Suppliers backend
+slice (schema, CRUD, certifications, performance records), then Products, then both
+frontends, then closeout — test-first, in small independently-committable vertical
+slices, following the same pattern used for Milestones 1 and 2.
 
 Note on local tooling: this backend was developed using a repository-local `uv`
 install and virtual environment under `.tools/` (git-ignored) because `uv` was not

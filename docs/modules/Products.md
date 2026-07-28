@@ -1,8 +1,10 @@
 # Products
 
-**Status: Planned.** Not yet implemented — targeted for
-[Milestone 3](../Roadmap.md#m3-products-and-suppliers). No code exists for this
-module yet; see [docs/CurrentStatus.md](../CurrentStatus.md).
+**Status: In Progress.** [Milestone 3](../Roadmap.md#m3-products-and-suppliers) is
+underway — see [docs/CurrentStatus.md](../CurrentStatus.md) and the
+[Milestone 3 plan](../../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md)
+for exactly what is and isn't implemented yet. No code exists yet; the plan is
+committed.
 
 ## Purpose
 
@@ -66,7 +68,10 @@ Per [ProductSpecification.md](../ProductSpecification.md#module-relationships):
 
 Planned only; no schema, API, or UI exists yet. Depends on
 [Document Management](DocumentManagement.md) existing first for drawing/spec links to
-be meaningful (see [Roadmap.md](../Roadmap.md)).
+be meaningful, and on [Suppliers](Suppliers.md) existing first for
+`product_supplier_links` (built first within Milestone 3 — see the
+[Milestone 3 plan](../../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md)'s
+design decision 1) (see [Roadmap.md](../Roadmap.md)).
 
 ## Related documents
 

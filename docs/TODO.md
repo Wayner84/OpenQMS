@@ -105,13 +105,19 @@ uploaded file's own bytes intact. No new defects found. See
 [CurrentStatus.md](CurrentStatus.md) for full detail. Next: Milestone 3 (Products and
 Suppliers) — see below.
 
-## Low Priority — Later modules (Milestones 3–9)
+## Medium Priority — Milestone 3 (Products and Suppliers) — IN PROGRESS
+
+Full scope and acceptance criteria:
+[.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md](../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md).
+
 15. **Products module** — see [docs/modules/Products.md](modules/Products.md).
-    Dependencies: Milestone 1, Task 14 (document links). Complexity: **L**.
-    Status: Not Started.
+    Dependencies: Milestone 1, Task 14 (document links), Task 16 (supplier links).
+    Complexity: **L**. Status: In Progress (plan committed; no implementation yet).
 16. **Suppliers module** — see [docs/modules/Suppliers.md](modules/Suppliers.md).
     Dependencies: Milestone 1, Task 13 (people/contacts). Complexity: **M**.
-    Status: Not Started.
+    Status: In Progress (plan committed; no implementation yet).
+
+## Low Priority — Later modules (Milestones 4–9)
 17. **NCR module** — see [docs/modules/NCR.md](modules/NCR.md). Dependencies:
     Tasks 13, 14, 15, 16. Complexity: **XL**. Status: Not Started.
 18. **Calibration and Asset Management module** — see

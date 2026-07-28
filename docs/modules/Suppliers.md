@@ -1,8 +1,11 @@
 # Suppliers
 
-**Status: Planned.** Not yet implemented — targeted for
-[Milestone 3](../Roadmap.md#m3-products-and-suppliers). No code exists for this
-module yet; see [docs/CurrentStatus.md](../CurrentStatus.md).
+**Status: In Progress.** [Milestone 3](../Roadmap.md#m3-products-and-suppliers) is
+underway — see [docs/CurrentStatus.md](../CurrentStatus.md) and the
+[Milestone 3 plan](../../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md)
+for exactly what is and isn't implemented yet. No code exists yet; the plan is
+committed. Built first within this milestone (before Products), since it has no
+dependency on Products and Products' `product_supplier_links` depends on it.
 
 ## Purpose
 
