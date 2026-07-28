@@ -1,6 +1,6 @@
 # Current Status
 
-_Last updated: 2026-07-28 (Milestone 2: Document Management frontend slice)_
+_Last updated: 2026-07-28 (Milestone 2: Document Management closeout)_
 
 This document is kept truthful and current in the same commit as any work that
 changes it, per [Contributing.md](Contributing.md). It must never describe
@@ -8,16 +8,10 @@ in-progress or planned work as complete.
 
 ## Current milestone
 
-**M2 — Document Management.** See
-[.hermes/plans/2026-07-26-milestone-2-document-management.md](../.hermes/plans/2026-07-26-milestone-2-document-management.md)
-for the exact scope, schema/API/permissions/storage decisions, and acceptance
-criteria, and [Roadmap.md](Roadmap.md) for how it fits the overall delivery order.
-
-**Milestone 2 is in progress.** The implementation plan is written and committed; the
-first backend vertical slice (categories, tags, documents, configurable numbering) is
-implemented and tested. M0 (Platform Foundation) and M1 (Authentication,
-Organisations, People) are both complete and verified — see "Completed work" below
-for details and findings.
+**M3 — Products and Suppliers**, next up. See [Roadmap.md](Roadmap.md#m3-products-and-suppliers)
+and [TODO.md](TODO.md) (Tasks 15–16). M0 (Platform Foundation), M1 (Authentication,
+Organisations, People), and M2 (Document Management) are all complete and verified —
+see "Completed work" below for details and findings.
 
 ## Completed work
 
@@ -589,64 +583,97 @@ for details and findings.
     [Database.md](Database.md#documents-and-related-tables-milestone-2),
     [docs/modules/DocumentManagement.md](modules/DocumentManagement.md),
     [DecisionLog.md](DecisionLog.md#2026-07-26-document-searchfiltering-and-version-comparison-a-text-diff-size-cap-and-defensive-tag-scoping).
+- **Milestone 2 — Document Management frontend**: adds the typed Document Management
+  client and authenticated routes for the document register, category/tag
+  administration, and document detail: search and all backend filters (including
+  owner), complete category/tag/owner option loading without a fixed-result
+  truncation, metadata editing, admin-confirmed soft delete/retirement, version
+  upload/download/preview, workflow actions, acknowledgements, and version
+  comparison. Async request-generation guards prevent older document-list/detail/
+  acknowledgement/preview/comparison responses from overwriting newer state; preview
+  MIME checks, sandboxed PDF frames, image rendering, and delayed object-URL
+  revocation harden browser file handling. Category editing excludes descendants in
+  the UI and the backend now rejects category-tree cycles even if a client bypasses
+  that UX.
+  - A follow-up independent-review pass on this same frontend slice found and fixed
+    a further set of edge cases, all test-first: (1) a genuine TOCTOU race in the
+    category-cycle check itself — two concurrent reciprocal reparentings (A's parent
+    set to B, B's parent set to A) could each pass `_assert_no_category_cycle`
+    before the other committed, together creating the very cycle neither update
+    alone would have passed; fixed with a new `_lock_category_tree` per-organisation
+    row lock (`backend/app/modules/documents/service.py`, mirroring the existing
+    `_lock_document` pattern), regression-covered by a real-PostgreSQL concurrent-
+    request integration test. (2) `DocumentDetailPage` and `VersionComparePanel` now
+    fully reset every document-scoped piece of UI state (actions, errors, pending
+    flags, the edit-details form, expanded acknowledgements, an open preview and its
+    object URL, comparison selections/results) and invalidate in-flight requests
+    whenever the route `:id` (or, for the panel, the `documentId` prop) changes —
+    the component instance is reused across a navigation to a different document,
+    so state and in-flight requests scoped to the previous one could otherwise leak
+    into the next. (3) The categories/tags/owners option-loading effects in
+    `DocumentsPage` and `DocumentDetailPage`, and `DocumentCategoriesPage`'s own
+    `loadAll`, gained the same monotonic request-id guard already used elsewhere,
+    making them robust to React StrictMode's simulated double-invoke on mount. (4)
+    `DocumentsPage`'s post-create refresh no longer calls a `loadPage` closure
+    captured at click time (which could carry stale filter values if the filters
+    changed while the create request was in flight) — it instead bumps a
+    `refreshVersion` counter so the effect re-runs with the render's current, live
+    filters. Full reasoning in
+    [DecisionLog.md](DecisionLog.md#2026-07-28-document-category-tree-toctou-race-and-frontend-async-state-edge-cases).
+  - Frontend gates pass: `lint`, `format:check`, strict `typecheck`, 194 tests across
+    19 files, production `build`.
+  - Docs updated in this slice: this file, [TODO.md](TODO.md),
+    [docs/modules/DocumentManagement.md](modules/DocumentManagement.md),
+    [DecisionLog.md](DecisionLog.md#2026-07-28-document-category-tree-toctou-race-and-frontend-async-state-edge-cases).
+- **Milestone 2 — final closeout verification** (2026-07-28, this batch): every
+  outstanding item from
+  [the plan's acceptance criteria](../.hermes/plans/2026-07-26-milestone-2-document-management.md#acceptance-criteria)
+  verified against a clean checkout:
+  - Full gate re-run: `ruff format --check`, `ruff check`, `mypy --strict` (82
+    source files), full `pytest` (150 unit + 64 real-PostgreSQL integration tests,
+    all passing — a disposable PostgreSQL 16 Docker container, not the shared dev
+    database, so no `TEST_DATABASE_URL` was needed from the host); `npm run lint`,
+    `format:check`, `typecheck`, `test` (194 tests across 19 files), `build`.
+  - A real upgrade → downgrade → upgrade cycle for the complete six-revision
+    migration chain, run against a disposable PostgreSQL 16 database, confirming
+    every `downgrade()` is correct and the seed data/schema are both right after the
+    final upgrade.
+  - `pip-audit` and `npm audit` re-run: same findings as already documented under
+    "Known bugs" below (same packages/versions, `starlette`/`pytest` on the backend
+    and dev-tooling/`react-router` on the frontend) — no dependency change made or
+    required.
+  - A real, browser-driven `docker compose up --build` smoke test (headless
+    Chromium via a temporary, uncommitted Playwright script outside the repository,
+    matching the Milestone 1 closeout precedent — no committed dependency added):
+    the bootstrap admin logged in, created a category and a tag, created a document
+    using both, uploaded a version, submitted it for approval, approved it as admin,
+    acknowledged it, viewed the "who acknowledged" list, previewed it inline,
+    downloaded it (content verified byte-for-byte), uploaded a second version,
+    compared the two versions (correctly reported as binary-content-changed), and
+    retired the document — all with no browser console/page errors. `docker compose
+    down` (no `-v`) then `up` (no `--build`) brought the stack back healthy with the
+    bootstrap admin, the category, the tag, the document, both versions, the
+    acknowledgement, and — read back through a fresh download in the browser — the
+    uploaded file's own bytes on the `openqms_uploads` volume all still present and
+    correct, proving real file persistence, not just database rows. Acknowledged as
+    the admin account in this run rather than a separate member account; every
+    member-vs-admin permission boundary is already independently covered by the
+    backend unit/integration suites. Verified with the backend host port temporarily
+    remapped to `18000` in a local, uncommitted override, for the same
+    pre-existing host-port-8000-conflict reason recorded in the Milestone 0/1 Docker
+    smoke test notes — the committed `docker-compose.yml` is unaffected.
+  - No new defects found during this closeout pass — everything above passed on
+    first execution.
+  - Docs updated in this slice: this file, [TODO.md](TODO.md), and the
+    [Milestone 2 plan](../.hermes/plans/2026-07-26-milestone-2-document-management.md)'s
+    acceptance-criteria checkboxes and status line.
+
+**Milestone 2 (Document Management) is complete.**
 
 ## Work in progress
 
-Milestone 2 (Document Management): plan committed; categories/tags/documents core
-schema with configurable numbering, secure version upload/download/preview, the
-approval/rejection workflow, electronic acknowledgement, search/filtering, and
-version comparison, and the frontend are implemented and tested.
-
-The frontend slice adds the typed Document Management client and authenticated
-routes for the document register, category/tag administration, and document detail:
-search and all backend filters (including owner), complete category/tag/owner option
-loading without a fixed-result truncation, metadata editing, admin-confirmed soft
-delete/retirement, version upload/download/preview, workflow actions,
-acknowledgements, and version comparison. Async request-generation guards prevent
-older document-list/detail/acknowledgement/preview/comparison responses from
-overwriting newer state; preview MIME checks, sandboxed PDF frames, image rendering,
-and delayed object-URL revocation harden browser file handling. Category editing
-excludes descendants in the UI and the backend now rejects category-tree cycles
-even if a client bypasses that UX. Frontend gates pass (`lint`, `format:check`,
-strict `typecheck`, 194 tests across 19 files, and production `build`); backend Ruff,
-strict mypy, and the complete local unit suite pass, including the cycle regressions.
-
-A follow-up independent-review pass on this same frontend slice found and fixed a
-further set of edge cases, all test-first: (1) a genuine TOCTOU race in the
-category-cycle check itself — two concurrent reciprocal reparentings (A's parent
-set to B, B's parent set to A) could each pass `_assert_no_category_cycle` before
-the other committed, together creating the very cycle neither update alone would
-have passed; fixed with a new `_lock_category_tree` per-organisation row lock
-(`backend/app/modules/documents/service.py`, mirroring the existing `_lock_document`
-pattern), regression-covered by a real-PostgreSQL concurrent-request integration test
-(skipped, like the rest of that suite, without `TEST_DATABASE_URL`). The test exercises
-independent concurrent transactions but does not deterministically force both requests
-past the old check before either commits; the organisation-wide lock itself is the
-correctness mechanism. (2)
-`DocumentDetailPage` and `VersionComparePanel` now fully reset every
-document-scoped piece of UI state (actions, errors, pending flags, the edit-details
-form, expanded acknowledgements, an open preview and its object URL, comparison
-selections/results) and invalidate in-flight requests whenever the route `:id` (or,
-for the panel, the `documentId` prop) changes — the component instance is reused
-across a navigation to a different document, so state and in-flight requests
-scoped to the previous one could otherwise leak into the next. (3) The
-categories/tags/owners option-loading effects in `DocumentsPage` and
-`DocumentDetailPage`, and `DocumentCategoriesPage`'s own `loadAll`, gained the same
-monotonic request-id guard already used elsewhere, making them robust to React
-StrictMode's simulated double-invoke on mount. (4) `DocumentsPage`'s post-create
-refresh no longer calls a `loadPage` closure captured at click time (which could
-carry stale filter values if the filters changed while the create request was in
-flight) — it instead bumps a `refreshVersion` counter so the effect re-runs with
-the render's current, live filters. The three frontend async-state fixes are covered
-by deferred-promise regression tests; the backend category-tree race is exercised by
-the real-PostgreSQL concurrent-request integration test described above.
-
-Remaining, per
-[the plan](../.hermes/plans/2026-07-26-milestone-2-document-management.md#suggested-commit-boundaries):
-Docker/browser/security verification and Milestone 2 closeout. The real-PostgreSQL
-integration suite is retained for that closeout; it was skipped in this frontend-only
-gate run because no `TEST_DATABASE_URL`/openQMS PostgreSQL service was available, and
-Docker closeout was explicitly not started in this slice.
+None. Milestone 3 (Products and Suppliers, [TODO.md](TODO.md) Task 15) has not yet
+started.
 
 ## Known bugs
 
@@ -679,13 +706,21 @@ closeout: `fastapi==0.115.14`'s own metadata pins `starlette<0.47.0`, and every
 `pip-audit`-reported fix version for the current `starlette` advisories is `>=0.47.0`
 — so no fix is reachable without also bumping `fastapi`, confirming this remains an
 unproven jump out of scope rather than an oversight. Revisit alongside a future
-FastAPI/pytest version bump.
+FastAPI/pytest version bump. Re-verified at Milestone 2 closeout (2026-07-28): same
+`fastapi==0.115.14`/`starlette==0.46.2`/`pytest==8.3.5` versions, more CVE IDs now
+recorded against the same unchanged `starlette` version (`pip-audit` lists 7 distinct
+advisories against it rather than fewer previously), but the underlying constraint —
+`fastapi==0.115.14` pins `starlette<0.47.0`, and every fix version is `>=0.47.0` — is
+unchanged, so this remains the same accepted, unproven-jump-out-of-scope deferral, not
+a new or worsened finding.
 
 ## Next recommended tasks
 
-Run Milestone 2's final Docker/browser/security verification and closeout per the
-[committed plan](../.hermes/plans/2026-07-26-milestone-2-document-management.md),
-including the real-PostgreSQL suite and the complete persisted-file browser workflow.
+Begin Milestone 3 (Products and Suppliers): write the implementation plan under
+`.hermes/plans/`, per [TODO.md](TODO.md) Task 15 and
+[Roadmap.md](Roadmap.md#m3-products-and-suppliers), then implement test-first in
+small, independently-committable vertical slices following the same pattern used for
+Milestones 1 and 2.
 
 Note on local tooling: this backend was developed using a repository-local `uv`
 install and virtual environment under `.tools/` (git-ignored) because `uv` was not

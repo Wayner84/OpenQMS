@@ -79,9 +79,9 @@ Milestone 1 data-table pages). See [CurrentStatus.md](CurrentStatus.md) and
 [DecisionLog.md](DecisionLog.md#2026-07-26-milestone-1-closeout-login-timing-side-channel-and-a-react-strictmode-mountedref-bug)
 for full detail. Next: Milestone 2 (Document Management) — see below.
 
-## Medium Priority — Milestone 2 (Document Management) — IN PROGRESS
+## Medium Priority — Milestone 2 (Document Management) — COMPLETE
 
-Full scope and acceptance criteria:
+Full scope and acceptance criteria (all checked off):
 [.hermes/plans/2026-07-26-milestone-2-document-management.md](../.hermes/plans/2026-07-26-milestone-2-document-management.md).
 
 14. **Document Management module** — see
@@ -89,11 +89,21 @@ Full scope and acceptance criteria:
     tags, documents, immutable versions, configurable numbering, approval/rejection
     workflow, acknowledgements, search/filtering, permissions, secure upload/download/
     preview, version comparison; backend and frontend. Dependencies: Milestone 1.
-    Complexity: **XL**. Status: In Progress (categories/tags/documents core schema,
-    configurable numbering, secure version upload/download/preview, the
-    approval/rejection workflow, acknowledgements, search/filtering, and version
-    comparison and the frontend all implemented and tested; final Docker/browser/
-    security verification and closeout remain).
+    Complexity: **XL**. Status: Done (backend and frontend both implemented and
+    tested; closed out 2026-07-28 with a full gate re-run, the real-PostgreSQL
+    integration suite, a migration upgrade/downgrade/upgrade cycle, dependency
+    audits, and a browser-driven Docker Compose smoke test with a persistence-restart
+    check — see [CurrentStatus.md](CurrentStatus.md)).
+
+Milestone 2 closeout (2026-07-28): full gate re-run (backend and frontend), the
+64-test real-PostgreSQL integration suite (a disposable PostgreSQL 16 container, not
+the shared dev database), a real upgrade → downgrade → upgrade cycle for the complete
+six-revision migration chain, re-verified dependency audits (no new findings), and a
+real headless-Chromium browser walkthrough of the full Document Management workflow
+through `docker compose up --build`, surviving a `down`/`up` restart with the
+uploaded file's own bytes intact. No new defects found. See
+[CurrentStatus.md](CurrentStatus.md) for full detail. Next: Milestone 3 (Products and
+Suppliers) — see below.
 
 ## Low Priority — Later modules (Milestones 3–9)
 15. **Products module** — see [docs/modules/Products.md](modules/Products.md).

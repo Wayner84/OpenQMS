@@ -216,7 +216,8 @@ another organisation's `id`. List supports `?company_id=`, `?is_employee=`,
 [Database.md](Database.md#soft-delete-and-audit-trail)). `404` if not in the caller's
 own organisation.
 
-## Document Management (Milestone 2, in progress)
+<a id="document-management-milestone-2-in-progress"></a>
+## Document Management (Milestone 2)
 
 Under `/api/v1/document-categories`, `/api/v1/document-tags`, and
 `/api/v1/documents`, all requiring `Authorization: Bearer <token>`. Per the
@@ -224,8 +225,8 @@ Milestone 2 plan's
 ["Permissions summary"](../.hermes/plans/2026-07-26-milestone-2-document-management.md#6-permissions-summary):
 listing/viewing and document create/edit are open to any active user;
 category/tag mutation and document deletion are admin-only. Version upload/download/
-preview and the approval/acknowledgement workflow are not implemented yet — this
-section covers only the core schema slice built so far.
+preview, the approval/rejection workflow, acknowledgements, search/filtering, and
+version comparison are documented below.
 
 ### `POST /api/v1/document-categories` / `PATCH /api/v1/document-categories/{id}` — **admin only**
 
@@ -267,7 +268,7 @@ server-side from the organisation's `document_numbering_scheme` configuration ro
 `category_id`, `owner_id` (validated against the People module), or any `tag_ids`
 entry doesn't exist in the caller's own organisation. Response `201`/`200` includes
 `status` (`draft` initially), `current_version_id` (`null` until a version is
-approved — not yet reachable in this slice), and the resolved `tags` array.
+approved via the workflow endpoints below), and the resolved `tags` array.
 
 ### `GET /api/v1/documents` / `GET /api/v1/documents/{id}`
 
@@ -423,7 +424,7 @@ implemented:
 | `/api/v1/auth` | Authentication (Milestone 1) — implemented |
 | `/api/v1/users` | User management (Milestone 1) — implemented |
 | `/api/v1/people`, `/api/v1/companies` | People (Milestone 1) — implemented |
-| `/api/v1/documents`, `/api/v1/document-categories`, `/api/v1/document-tags` | Document Management (Milestone 2) — in progress |
+| `/api/v1/documents`, `/api/v1/document-categories`, `/api/v1/document-tags` | Document Management (Milestone 2) — implemented |
 | `/api/v1/products` | Products |
 | `/api/v1/suppliers` | Suppliers |
 | `/api/v1/ncr` | NCR |

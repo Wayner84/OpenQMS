@@ -12,11 +12,14 @@ Full product vision: [docs/ProductSpecification.md](docs/ProductSpecification.md
 
 ## Project status
 
-**Milestone 0 in progress.** The backend platform, PostgreSQL database baseline, and
-frontend shell are implemented and verified; the Docker Compose stack is next. See
-[docs/CurrentStatus.md](docs/CurrentStatus.md) for the truthful, up-to-date state and
-[.hermes/plans/2026-07-25-milestone-0-foundation.md](.hermes/plans/2026-07-25-milestone-0-foundation.md)
-for exactly what remains.
+**Milestones 0–2 complete; Milestone 3 next.** Platform foundation (Docker Compose,
+auth, organisations), authentication/user management/People, and Document Management
+(categories/tags, versioned files, approval workflow, acknowledgements, search,
+comparison — backend and frontend) are all implemented, tested, and verified,
+including a real-PostgreSQL integration suite and a browser-driven Docker Compose
+smoke test. See [docs/CurrentStatus.md](docs/CurrentStatus.md) for the truthful,
+up-to-date state and [docs/TODO.md](docs/TODO.md) for what's next (Products and
+Suppliers).
 
 ## Stack
 
@@ -28,8 +31,6 @@ Reasoning for these choices: [docs/DecisionLog.md](docs/DecisionLog.md). Full sy
 design: [docs/Architecture.md](docs/Architecture.md).
 
 ## Getting started
-
-Once Milestone 0 is implemented (see status above), the full stack will start with:
 
 ```
 cp .env.example .env
@@ -44,8 +45,8 @@ Backend at `http://localhost:8000` (interactive API docs at `/docs`), frontend a
 openQMS is delivered as a documented, tested platform foundation followed by vertical
 module slices, in roadmap order — not all at once. See [docs/Roadmap.md](docs/Roadmap.md)
 for delivery order and reasoning. Every module has a planning document under
-[docs/modules/](docs/modules/), each currently labelled `Status: Planned` since no
-module has been implemented yet:
+[docs/modules/](docs/modules/); People and Document Management are implemented
+(Milestones 1–2), the rest are still labelled `Status: Planned`:
 
 - [Document Management](docs/modules/DocumentManagement.md)
 - [Calibration and Asset Management](docs/modules/CalibrationAndAssetManagement.md)

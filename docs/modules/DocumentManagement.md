@@ -1,13 +1,14 @@
 # Document Management
 
-**Status: In Progress.** [Milestone 2](../Roadmap.md#m2-document-management) is
-underway — see [docs/CurrentStatus.md](../CurrentStatus.md) and the
+**Status: Implemented.** [Milestone 2](../Roadmap.md#m2-document-management) is
+complete — see [docs/CurrentStatus.md](../CurrentStatus.md) and the
 [Milestone 2 plan](../../.hermes/plans/2026-07-26-milestone-2-document-management.md)
-for exactly what is and isn't implemented yet. Implemented so far: categories, tags,
-documents (metadata CRUD, soft delete), configurable server-generated numbering,
-secure version file upload/download/preview, the approval/rejection workflow,
-electronic acknowledgement, search/filtering, and version comparison. Not yet
-implemented: the Docker/browser/security closeout.
+(all acceptance criteria checked off) for full detail. Categories, tags, documents
+(metadata CRUD, soft delete), configurable server-generated numbering, secure version
+file upload/download/preview, the approval/rejection workflow, electronic
+acknowledgement, search/filtering, version comparison, and the frontend are all
+implemented, tested (unit, real-PostgreSQL integration, and a browser-driven Docker
+Compose smoke test with a persistence-restart check), and documented.
 
 ## Purpose
 
@@ -148,7 +149,7 @@ referenced **from** other modules rather than referencing them:
 
 ## Known issues / status
 
-In progress. Categories, tags, documents (metadata), configurable numbering, secure
+Complete. Categories, tags, documents (metadata), configurable numbering, secure
 version upload/download/preview, the approval/rejection workflow, electronic
 acknowledgement, search/filtering, and version comparison are all implemented and
 tested (unit + integration against real PostgreSQL). Independent security/
@@ -182,8 +183,13 @@ and
 [DecisionLog.md](../DecisionLog.md#2026-07-28-document-category-tree-toctou-race-and-frontend-async-state-edge-cases).
 The frontend is implemented and covered by Vitest/RTL, including StrictMode,
 out-of-order-response, workflow-retirement, preview, and category-cycle regressions.
-The final Docker/browser/security closeout is the remaining Milestone 2 work, per the
-[Milestone 2 plan](../../.hermes/plans/2026-07-26-milestone-2-document-management.md).
+Milestone 2 closeout (2026-07-28) additionally verified, against a clean checkout: a
+real upgrade → downgrade → upgrade cycle for the full migration chain, re-run
+dependency audits (no new findings), and a real headless-Chromium browser walkthrough
+of the complete workflow through `docker compose up --build` — surviving a `down`/
+`up` restart with the uploaded file's own bytes intact. All acceptance criteria in the
+[Milestone 2 plan](../../.hermes/plans/2026-07-26-milestone-2-document-management.md)
+are checked off.
 
 ## Related documents
 

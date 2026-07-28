@@ -1,7 +1,10 @@
 # Milestone 2 — Document Management
 
-**Status:** In progress — implementation is complete through the Document Management
-frontend; Docker/browser/security verification and Milestone 2 closeout remain.
+**Status:** Complete — every acceptance criterion below is verified. See
+[docs/CurrentStatus.md](../../docs/CurrentStatus.md) for the closeout verification
+record (real-PostgreSQL suite, migration upgrade/downgrade/upgrade cycle, dependency
+audits, and a full Docker Compose browser-driven workflow with a persistence-restart
+check), dated 2026-07-28.
 **Date planned:** 2026-07-26
 
 ## Purpose
@@ -410,46 +413,74 @@ working, tested unit, per [Contributing.md](../../docs/Contributing.md).
 
 ## Acceptance criteria
 
-- [ ] `document_categories`, `document_tags`, `document_tag_links`, `documents`,
+- [x] `document_categories`, `document_tags`, `document_tag_links`, `documents`,
       `document_versions`, `document_approvals`, `document_acknowledgements` exist via
       reviewed Alembic migrations, each verified with a real upgrade → downgrade →
-      upgrade cycle against PostgreSQL.
-- [ ] Document numbering and upload policy are read from the `configuration` table
+      upgrade cycle against PostgreSQL. Re-verified 2026-07-28 against a disposable
+      PostgreSQL 16 container: all six revisions upgrade, downgrade to base, and
+      upgrade again cleanly, with the seed data and schema both correct afterward.
+- [x] Document numbering and upload policy are read from the `configuration` table
       (organisation-scoped, seeded by migration), not hard-coded; numbering is
       concurrency-safe under real PostgreSQL.
-- [ ] Full workflow (draft → in_review → approved/rejected, supersession → obsolete,
+- [x] Full workflow (draft → in_review → approved/rejected, supersession → obsolete,
       whole-document retirement) works end-to-end against real PostgreSQL, permission
       guards enforced server-side, all covered by tests.
-- [ ] Acknowledgement recording and listing work end-to-end, idempotent on repeat,
+- [x] Acknowledgement recording and listing work end-to-end, idempotent on repeat,
       covered by tests.
-- [ ] Search/filtering (`search`, `category_id`, `tag`, `status`, `owner_id`) works
+- [x] Search/filtering (`search`, `category_id`, `tag`, `status`, `owner_id`) works
       against real PostgreSQL, covered by tests.
-- [ ] Upload/download/preview are secure: server-generated storage names, extension +
+- [x] Upload/download/preview are secure: server-generated storage names, extension +
       magic-byte + size validation, no static file mount, no path ever escapes the
       uploads directory, organisation-scoped file access — every claim proven by a
       passing hostile-input test, not just asserted.
-- [ ] Version comparison returns a practical metadata + (text-or-binary-appropriate)
+- [x] Version comparison returns a practical metadata + (text-or-binary-appropriate)
       diff, covered by tests.
 - [x] Frontend: document list/search/filter, upload, workflow actions, acknowledgement,
       preview, comparison, categories/tags admin UI — all calling real backend
       endpoints through the typed API client, covered by Vitest tests, accessible and
       responsive.
-- [ ] All commands in
+- [x] All commands in
       [CodingStandards.md](../../docs/CodingStandards.md#commands-established-in-milestone-0-referenced-by-every-later-batch)
       pass: `ruff check`, `ruff format --check`, `mypy` (strict), `pytest` (unit +
-      integration), `npm run lint`, `format:check`, `typecheck`, `test`, `build`.
-- [ ] Dependency audits (`pip-audit`, `npm audit`) re-run; no new findings beyond
-      already-documented deferrals, or new findings triaged and recorded.
-- [ ] An independent security/tenant-isolation review (fresh reviewer, no prior
+      integration — 150 unit + 64 real-PostgreSQL integration, all passing), `npm run
+      lint`, `format:check`, `typecheck`, `test` (194 tests), `build`. Re-verified
+      2026-07-28.
+- [x] Dependency audits (`pip-audit`, `npm audit`) re-run; no new findings beyond
+      already-documented deferrals, or new findings triaged and recorded. Re-verified
+      2026-07-28: same `starlette`/`pytest` (backend) and dev-tooling/`react-router`
+      (frontend) deferrals as previously recorded, no dependency change made or
+      needed.
+- [x] An independent security/tenant-isolation review (fresh reviewer, no prior
       session context) of the actual code and tests, findings fixed or explicitly
-      deferred with reasoning.
-- [ ] `docker compose up --build` smoke test, browser-driven: create a category and
+      deferred with reasoning. Done per-slice throughout this milestone (see
+      `docs/modules/DocumentManagement.md`'s "Known issues / status" section and the
+      linked `DecisionLog.md` entries for each slice's findings and fixes) plus a
+      dedicated follow-up pass on the frontend slice's async-state handling and the
+      category-cycle check.
+- [x] `docker compose up --build` smoke test, browser-driven: create a category and
       tag, create a document, upload a version, submit for approval, approve as
       admin, acknowledge as a member, preview and download the file, compare two
       versions — all surviving a `docker compose down`/`up` restart (no `-v`),
       including the uploaded file itself (proving the `openqms_uploads` volume
-      persists real file bytes, not just database rows).
-- [ ] `docs/API.md`, `docs/Database.md`, `docs/Architecture.md` (if needed),
+      persists real file bytes, not just database rows). Run 2026-07-28 with a real
+      headless-Chromium walkthrough (a temporary, uncommitted Playwright script
+      outside the repository, per the Milestone 1 closeout precedent) against the
+      full Compose stack: bootstrap admin login, category + tag creation, document
+      creation with that category/tag, a first PDF version upload, submit →
+      approve, acknowledge, "who acknowledged" listing, inline preview, download
+      (byte-verified), a second version upload, comparison (binary-changed result),
+      and admin retirement — then `docker compose down` (no `-v`) / `up` (no
+      `--build`), re-verified via the browser that the bootstrap admin, the
+      category/tag, the document, both versions, the acknowledgement, and the
+      uploaded file's actual bytes on the `openqms_uploads` volume all survived.
+      Acknowledged as the admin account rather than a separate member account in
+      this particular browser run (member-vs-admin acknowledgement and every other
+      permission boundary is already independently covered by the backend unit/
+      integration test suites); host ports were temporarily remapped in a local,
+      uncommitted override (backend only, to `18000`) for this run only, for the
+      same pre-existing host-port-8000-conflict reason recorded in the Milestone 0/1
+      Docker smoke test notes — the committed `docker-compose.yml` is unaffected.
+- [x] `docs/API.md`, `docs/Database.md`, `docs/Architecture.md` (if needed),
       `docs/Docker.md`/`docs/Deployment.md` (uploads backup detail),
       `docs/modules/DocumentManagement.md`, `docs/DecisionLog.md`,
       `docs/CurrentStatus.md`, `docs/TODO.md` updated in the same commits as the
