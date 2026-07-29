@@ -9,6 +9,8 @@ import { DocumentDetailPage } from '../modules/documents/DocumentDetailPage';
 import { DocumentsPage } from '../modules/documents/DocumentsPage';
 import { CompaniesPage } from '../modules/people/CompaniesPage';
 import { PeoplePage } from '../modules/people/PeoplePage';
+import { SupplierDetailPage } from '../modules/suppliers/SupplierDetailPage';
+import { SuppliersPage } from '../modules/suppliers/SuppliersPage';
 import { UsersPage } from '../modules/users/UsersPage';
 import { ThemeProvider } from '../shared/theme/ThemeProvider';
 import { HealthStatus } from './HealthStatus';
@@ -29,6 +31,8 @@ export function App(): ReactElement {
                 <Route path="/people" element={<PeoplePage />} />
                 <Route path="/documents" element={<DocumentsPage />} />
                 <Route path="/documents/:id" element={<DocumentDetailPage />} />
+                <Route path="/suppliers" element={<SuppliersPage />} />
+                <Route path="/suppliers/:id" element={<SupplierDetailPage />} />
                 <Route element={<ProtectedRoute requireAdmin />}>
                   <Route path="/users" element={<UsersPage />} />
                   <Route path="/documents/categories" element={<DocumentCategoriesPage />} />

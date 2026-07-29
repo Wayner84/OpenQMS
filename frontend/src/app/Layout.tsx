@@ -17,6 +17,7 @@ export function Layout(): ReactElement {
           <NavLink to="/companies">Companies</NavLink>
           <NavLink to="/people">People</NavLink>
           <NavLink to="/documents">Documents</NavLink>
+          <NavLink to="/suppliers">Suppliers</NavLink>
           {user?.role === 'admin' && <NavLink to="/users">Users</NavLink>}
         </nav>
         <div className="app-header__actions">

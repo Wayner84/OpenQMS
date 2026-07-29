@@ -192,6 +192,10 @@ table.data-table {
   font-weight: 600;
 }
 
+.supplier-certification--expiring {
+  border-left: 4px solid var(--color-error);
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;

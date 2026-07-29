@@ -1,13 +1,14 @@
 # Suppliers
 
-**Status: Implemented (backend).** [Milestone 3](../Roadmap.md#m3-products-and-suppliers)
+**Status: Implemented.** [Milestone 3](../Roadmap.md#m3-products-and-suppliers)
 is underway — see [docs/CurrentStatus.md](../CurrentStatus.md) and the
 [Milestone 3 plan](../../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md)
 for exactly what is and isn't implemented yet. The backend (schema, migration, CRUD,
-certifications, performance records, the expiring-certifications endpoint) is
-implemented and tested against real PostgreSQL; the frontend is not yet built. Built
-first within this milestone (before Products), since it has no dependency on Products
-and Products' `product_supplier_links` depends on it.
+certifications, performance records, the expiring-certifications endpoint) and the
+frontend (`frontend/src/modules/suppliers/`: `SuppliersPage`/`SupplierDetailPage`)
+are both implemented and tested. Built first within this milestone (before Products),
+since it has no dependency on Products and Products' `product_supplier_links`
+depends on it.
 
 ## Purpose
 
@@ -74,7 +75,9 @@ Per [ProductSpecification.md](../ProductSpecification.md#module-relationships):
 ## Known issues / status
 
 Backend schema, migration, and API are implemented and tested (unit + real-PostgreSQL
-integration); the frontend is not yet built — see the
+integration); the frontend (`SuppliersPage` search/filter/create, `SupplierDetailPage`
+metadata edit + certifications + performance records) is implemented and tested
+(Vitest + React Testing Library) — see the
 [Milestone 3 plan](../../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md).
 `GET /api/v1/suppliers/{id}/ncr-history` is deferred to Milestone 4, when the NCR
 module's `ncr_records.supplier_id` actually exists (plan design decision 6). The exact

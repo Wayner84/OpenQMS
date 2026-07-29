@@ -767,12 +767,38 @@ details and findings.
     [Database.md](Database.md#products-and-related-tables-milestone-3),
     [docs/modules/Products.md](modules/Products.md) (`Status: Implemented
     (backend)`).
+- **Milestone 3 — Suppliers frontend**: `frontend/src/modules/suppliers/`: typed
+  `api.ts`/`types.ts` client matching `docs/API.md#suppliers-module-milestone-3`,
+  `SuppliersPage.tsx` (search, approval-status/risk-rating/preferred filters, and a
+  create form that selects an existing company — with a "Create a company first"
+  link to `/companies` when none exist yet, matching Document Management's
+  link-out-to-category-admin precedent), and `SupplierDetailPage.tsx` (metadata edit,
+  certifications add/edit/delete with an expiry-highlighted row state, and an
+  append-only performance-record list with an add form). Mounted at `/suppliers` and
+  `/suppliers/:id` in `frontend/src/app/App.tsx`, with a new "Suppliers" nav link in
+  `frontend/src/app/Layout.tsx` visible to every authenticated user (no admin gate,
+  matching the backend's design decision 2). A new
+  `.supplier-certification--expiring` style
+  (`frontend/src/shared/theme/theme.css`) highlights a certification row within 30
+  days of (or past) its `expiry_date` with a border, not colour alone — the row also
+  carries an explicit "(expiring soon)" text label for the same reason.
+  - 25 new frontend tests (219 total, up from 194 at Milestone 2 closeout — no
+    frontend changes were made during the Suppliers/Products backend-only slices
+    above), across 3 new test files, written test-first. Coverage includes:
+    list/search/filter, the empty-companies "create a company first" prompt, create,
+    pagination, `<StrictMode>` mount-safety regressions for both pages, metadata
+    edit, certification add/edit/delete, the expiry-highlight rendering, and
+    append-only performance-record creation.
+  - Gates pass: `npm run lint`, `format:check` (Prettier), `typecheck` (strict),
+    `test` (219 tests across 22 files), `build`.
+  - Docs updated in this slice: this file, [TODO.md](TODO.md),
+    [docs/modules/Suppliers.md](modules/Suppliers.md) (`Status: Implemented`).
 
 ## Work in progress
 
-Milestone 3 (Products and Suppliers): Suppliers and Products backends both
-implemented and tested (see above). Not yet done: the Suppliers and Products
-frontends, and final Milestone 3 closeout verification (full Docker Compose
+Milestone 3 (Products and Suppliers): Suppliers backend and frontend, and the
+Products backend, are all implemented and tested (see above). Not yet done: the
+Products frontend, and final Milestone 3 closeout verification (full Docker Compose
 browser-driven smoke test, dependency audits re-run, plan acceptance checkboxes).
 Plan: [.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md](../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md).
 

@@ -116,7 +116,7 @@ Full scope and acceptance criteria:
     not yet built).
 16. **Suppliers module** — see [docs/modules/Suppliers.md](modules/Suppliers.md).
     Dependencies: Milestone 1, Task 13 (people/contacts). Complexity: **M**.
-    Status: In Progress (backend implemented and tested; frontend not yet built).
+    Status: Done (backend and frontend both implemented and tested).
 
 ## Low Priority — Later modules (Milestones 4–9)
 17. **NCR module** — see [docs/modules/NCR.md](modules/NCR.md). Dependencies:
