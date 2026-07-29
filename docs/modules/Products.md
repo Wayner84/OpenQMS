@@ -1,11 +1,12 @@
 # Products
 
-**Status: Implemented (backend).** [Milestone 3](../Roadmap.md#m3-products-and-suppliers)
+**Status: Implemented.** [Milestone 3](../Roadmap.md#m3-products-and-suppliers)
 is underway — see [docs/CurrentStatus.md](../CurrentStatus.md) and the
 [Milestone 3 plan](../../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md)
 for exactly what is and isn't implemented yet. The backend (schema, migration, CRUD,
-category admin, document/supplier links) is implemented and tested against real
-PostgreSQL; the frontend is not yet built.
+category admin, document/supplier links) and the frontend
+(`frontend/src/modules/products/`: `ProductsPage`/`ProductCategoriesPage`/
+`ProductDetailPage`) are both implemented and tested.
 
 ## Purpose
 
@@ -68,7 +69,9 @@ Per [ProductSpecification.md](../ProductSpecification.md#module-relationships):
 ## Known issues / status
 
 Backend schema, migration, and API are implemented and tested (unit + real-PostgreSQL
-integration); the frontend is not yet built — see the
+integration); the frontend (`ProductsPage` search/filter/create, `ProductCategoriesPage`
+admin, `ProductDetailPage` metadata edit + document/supplier link management) is
+implemented and tested (Vitest + React Testing Library) — see the
 [Milestone 3 plan](../../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md).
 NCR/FAIR/SPC references to `products.id` will be added when those later milestones'
 own schemas are built (see [Roadmap.md](../Roadmap.md)); nothing here blocks them.

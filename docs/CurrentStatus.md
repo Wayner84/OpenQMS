@@ -1,6 +1,6 @@
 # Current Status
 
-_Last updated: 2026-07-29 (Milestone 3: Suppliers and Products backends implemented)_
+_Last updated: 2026-07-29 (Milestone 3: Suppliers and Products fully implemented; closeout verification pending)_
 
 This document is kept truthful and current in the same commit as any work that
 changes it, per [Contributing.md](Contributing.md). It must never describe
@@ -14,12 +14,13 @@ for the exact scope, schema/API/permissions decisions, and acceptance criteria, 
 [Roadmap.md](Roadmap.md#m3-products-and-suppliers) for how it fits the overall
 delivery order.
 
-**Milestone 3 is in progress.** The Suppliers backend (schema, CRUD, certifications,
-performance records) and the Products backend (schema, CRUD, category admin,
-document/supplier links) are both implemented and tested; both frontends are not yet
-built. M0 (Platform Foundation), M1 (Authentication, Organisations, People), and M2
-(Document Management) are all complete and verified — see "Completed work" below for
-details and findings.
+**Milestone 3 is in progress.** Suppliers (schema, CRUD, certifications, performance
+records) and Products (schema, CRUD, category admin, document/supplier links) are
+both fully implemented and tested, backend and frontend. Final closeout verification
+(full gate re-run, migration cycle, dependency audits, Docker Compose browser smoke
+test) has not yet run. M0 (Platform Foundation), M1 (Authentication, Organisations,
+People), and M2 (Document Management) are all complete and verified — see "Completed
+work" below for details and findings.
 
 ## Completed work
 
@@ -793,13 +794,37 @@ details and findings.
     `test` (219 tests across 22 files), `build`.
   - Docs updated in this slice: this file, [TODO.md](TODO.md),
     [docs/modules/Suppliers.md](modules/Suppliers.md) (`Status: Implemented`).
+- **Milestone 3 — Products frontend**: `frontend/src/modules/products/`: typed
+  `api.ts`/`types.ts` client matching `docs/API.md#products-module-milestone-3`,
+  `ProductsPage.tsx` (search, category/type filters, create form, with a link to
+  category administration), `ProductCategoriesPage.tsx` (flat create/list/edit/
+  delete, mirroring `CompaniesPage`'s simple-CRUD shape rather than Document
+  Management's tree pattern, since product categories are flat per the schema), and
+  `ProductDetailPage.tsx` (metadata edit; linked-document management — search
+  Document Management records by title/number, then attach with a relationship
+  type, or unlink; linked-supplier management — attach an existing supplier with an
+  `is_preferred` flag, or unlink). Mounted at `/products`, `/products/categories`,
+  and `/products/:id`, with a new "Products" nav link visible to every
+  authenticated user (no admin gate, matching the backend's design decision 2).
+  - 28 new frontend tests (247 total, up from 219 after the Suppliers frontend
+    slice), across 4 new test files, written test-first. Coverage includes:
+    category admin create/edit/delete (including the in-use `409` shown inline),
+    product list/search/filter/create/pagination, the category-administration
+    link, `<StrictMode>` mount-safety regressions for all three pages, metadata
+    edit, document search-then-link and unlink, and supplier link/unlink.
+  - Gates pass: `npm run lint`, `format:check` (Prettier), `typecheck` (strict),
+    `test` (247 tests across 26 files), `build`.
+  - Docs updated in this slice: this file, [TODO.md](TODO.md),
+    [docs/modules/Products.md](modules/Products.md) (`Status: Implemented`).
 
 ## Work in progress
 
-Milestone 3 (Products and Suppliers): Suppliers backend and frontend, and the
-Products backend, are all implemented and tested (see above). Not yet done: the
-Products frontend, and final Milestone 3 closeout verification (full Docker Compose
-browser-driven smoke test, dependency audits re-run, plan acceptance checkboxes).
+Milestone 3 (Products and Suppliers): Suppliers (backend + frontend) and Products
+(backend + frontend) are both fully implemented and tested (see above). Not yet
+done: final Milestone 3 closeout verification (full gate re-run from a clean
+checkout, real-PostgreSQL integration suite, a migration upgrade/downgrade/upgrade
+cycle for the complete chain, dependency audits, a browser-driven Docker Compose
+smoke test with a persistence-restart check, and the plan's acceptance checkboxes).
 Plan: [.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md](../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md).
 
 ## Known bugs

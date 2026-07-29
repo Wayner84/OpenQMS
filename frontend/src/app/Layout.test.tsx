@@ -125,6 +125,7 @@ describe('Layout', () => {
     expect(await screen.findByRole('link', { name: /^companies$/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /^people$/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /^suppliers$/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /^products$/i })).toBeInTheDocument();
   });
 
   it('shows the Users nav link to an admin', async () => {

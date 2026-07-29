@@ -9,6 +9,9 @@ import { DocumentDetailPage } from '../modules/documents/DocumentDetailPage';
 import { DocumentsPage } from '../modules/documents/DocumentsPage';
 import { CompaniesPage } from '../modules/people/CompaniesPage';
 import { PeoplePage } from '../modules/people/PeoplePage';
+import { ProductCategoriesPage } from '../modules/products/ProductCategoriesPage';
+import { ProductDetailPage } from '../modules/products/ProductDetailPage';
+import { ProductsPage } from '../modules/products/ProductsPage';
 import { SupplierDetailPage } from '../modules/suppliers/SupplierDetailPage';
 import { SuppliersPage } from '../modules/suppliers/SuppliersPage';
 import { UsersPage } from '../modules/users/UsersPage';
@@ -33,6 +36,9 @@ export function App(): ReactElement {
                 <Route path="/documents/:id" element={<DocumentDetailPage />} />
                 <Route path="/suppliers" element={<SuppliersPage />} />
                 <Route path="/suppliers/:id" element={<SupplierDetailPage />} />
+                <Route path="/products" element={<ProductsPage />} />
+                <Route path="/products/categories" element={<ProductCategoriesPage />} />
+                <Route path="/products/:id" element={<ProductDetailPage />} />
                 <Route element={<ProtectedRoute requireAdmin />}>
                   <Route path="/users" element={<UsersPage />} />
                   <Route path="/documents/categories" element={<DocumentCategoriesPage />} />

@@ -112,8 +112,7 @@ Full scope and acceptance criteria:
 
 15. **Products module** — see [docs/modules/Products.md](modules/Products.md).
     Dependencies: Milestone 1, Task 14 (document links), Task 16 (supplier links).
-    Complexity: **L**. Status: In Progress (backend implemented and tested; frontend
-    not yet built).
+    Complexity: **L**. Status: Done (backend and frontend both implemented and tested).
 16. **Suppliers module** — see [docs/modules/Suppliers.md](modules/Suppliers.md).
     Dependencies: Milestone 1, Task 13 (people/contacts). Complexity: **M**.
     Status: Done (backend and frontend both implemented and tested).
