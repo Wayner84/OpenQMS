@@ -1,6 +1,6 @@
 # Current Status
 
-_Last updated: 2026-07-29 (Milestone 4 planned; implementation starting)_
+_Last updated: 2026-07-30 (Milestone 4: NCR schema/CRUD/workflow slice implemented)_
 
 This document is kept truthful and current in the same commit as any work that
 changes it, per [Contributing.md](Contributing.md). It must never describe
@@ -13,10 +13,13 @@ in-progress or planned work as complete.
 for the exact scope, schema/API/permissions decisions, and acceptance criteria, and
 [Roadmap.md](Roadmap.md#m4-ncr) for how it fits the overall delivery order.
 
-**Milestone 4 is in progress.** The implementation plan is committed; no NCR code
-exists yet. M0 (Platform Foundation), M1 (Authentication, Organisations, People),
-M2 (Document Management), and M3 (Products and Suppliers) are all complete and
-verified — see "Completed work" below for details and findings.
+**Milestone 4 is in progress.** The `ncrs`/`ncr_status_history` schema, CRUD, and
+the full transition workflow are implemented and tested (backend only) — see
+"Completed work" below. Not yet implemented: actions, investigation tools,
+attachments, PDF export, supplier NCR history, and the frontend. M0 (Platform
+Foundation), M1 (Authentication, Organisations, People), M2 (Document Management),
+and M3 (Products and Suppliers) are all complete and verified — see "Completed
+work" below for details and findings.
 
 ## Completed work
 
@@ -889,10 +892,83 @@ verified — see "Completed work" below for details and findings.
 
 **Milestone 3 (Products and Suppliers) is complete.**
 
+- **Milestone 4 — NCR schema, numbering, CRUD, and the transition workflow**
+  (backend slice): NCR module (`backend/app/modules/ncr/`): `ncrs`,
+  `ncr_status_history` tables
+  (`backend/alembic/versions/12394296d0cf_add_ncrs_and_ncr_status_history.py`),
+  router mounted at `/api/v1/ncr`, per [API.md](API.md#ncr-module-milestone-4-in-progress)
+  and [docs/modules/NCR.md](modules/NCR.md). Every operation requires only
+  authentication (any active user) except deletion, which is admin-only soft
+  delete, per the plan's design decision 2.
+  - `product_id`/`supplier_id`/`raised_by_id` are validated against the Products,
+    Suppliers, and People modules' own service layers respectively — never their
+    models directly, per the module-isolation rule — and `404` (never a
+    cross-organisation leak) if not in the caller's organisation. The
+    `type`/`supplier_id` invariant (supplier NCRs must have a `supplier_id`,
+    internal NCRs must not) is enforced at the Pydantic schema layer, mirroring
+    the People module's `is_employee`/`company_id` precedent.
+  - `number` is server-generated from a new `ncr_numbering_scheme` configuration
+    row holding two independent prefix/sequence pairs (`NCR-0001`, `NCR-0002`, ...
+    for internal; `SNCR-0001`, ... for supplier), per design decision 6.
+  - The workflow (`open` → `investigate` → `containment` → `corrective_action` →
+    `verification` → `closed`) only allows moving to exactly the next status —
+    no skipping stages, no moving backward, no transitioning once closed — enforced
+    in a locked transaction (`_lock_ncr`, mirroring
+    `documents.service._lock_document`) that also writes an immutable
+    `ncr_status_history` row. The close-blocked-while-actions-open guard from the
+    module doc is deferred to the `ncr_actions` slice, since that table doesn't
+    exist yet.
+  - Migration verified with a real upgrade → downgrade → upgrade cycle against a
+    disposable local PostgreSQL 16 database, in addition to the integration suite
+    running `alembic upgrade head` itself.
+  - **Independent security/tenant-isolation review** (a fresh agent with no prior
+    session context) found no cross-organisation leaks, client-controlled
+    `organisation_id`, or module-isolation violations, but found and this slice
+    fixed test-first two issues before being committed:
+    1. `_lock_ncr`'s row lock was acquired *after* `get_ncr`'s
+       `deleted_at.is_(None)` filter had already run, so a concurrent admin delete
+       committing in that window could leave a transition (or metadata update)
+       proceeding against — and adding status-history rows to — an NCR that is now
+       soft-deleted. Fixed by having `delete_ncr` acquire the same lock, and having
+       `transition_ncr`/`update_ncr` re-check `deleted_at` immediately after
+       locking.
+    2. `ncrs.number` had no DB-level uniqueness backstop, unlike every other
+       server-generated-number table in this codebase (`documents.number` →
+       `uq_documents_org_number`). No exploitable duplicate was found — the
+       numbering lock is held for the whole creation transaction — but the
+       missing defence-in-depth constraint was added
+       (`uq_ncrs_org_number`), edited into the still-uncommitted migration rather
+       than added as a second one.
+    Full reasoning in
+    [DecisionLog.md](DecisionLog.md#2026-07-29-ncr-schemacrudworkflow-slice-a-soft-deletetransition-race-and-a-missing-number-uniqueness-backstop).
+  - 33 new backend tests (307 total, up from 274 at Milestone 3 closeout): 19 unit
+    tests (numbering per-type sequencing, the invariant, cross-module validation,
+    the full transition sequence and its rejections, soft delete, the two
+    deterministic soft-delete-race regression tests, and the DB-level
+    number-uniqueness test) and 14 integration tests against real PostgreSQL (full
+    CRUD round trip, the `422` invariant, cross-organisation `404`s, the full
+    transition sequence through the real HTTP API, admin-only delete (`403` for a
+    member), and two real-concurrency race tests kept as documentation of intended
+    behaviour, not a guaranteed deterministic reproduction — same
+    scheduler-dependency caveat already recorded for this style of test in
+    [DecisionLog.md](DecisionLog.md#2026-07-28-document-category-tree-toctou-race-and-frontend-async-state-edge-cases)).
+    All written test-first.
+  - Gates pass: `ruff format --check`, `ruff check`, `mypy --strict` (108 source
+    files), full `pytest` suite (307 tests: unit + integration against real
+    PostgreSQL 16).
+  - Docs updated in this slice: [API.md](API.md#ncr-module-milestone-4-in-progress),
+    [Database.md](Database.md#ncr-and-related-tables-milestone-4-in-progress),
+    [docs/modules/NCR.md](modules/NCR.md) (`Status: Implemented
+    (schema/CRUD/workflow only)`),
+    [DecisionLog.md](DecisionLog.md#2026-07-29-ncr-schemacrudworkflow-slice-a-soft-deletetransition-race-and-a-missing-number-uniqueness-backstop).
+
 ## Work in progress
 
-Milestone 4 (NCR): the implementation plan is committed (this batch). Not yet
-started: any schema, API, or frontend code. Plan:
+Milestone 4 (NCR): the `ncrs`/`ncr_status_history` schema, CRUD, and transition
+workflow are implemented and tested (see above). Not yet done: `ncr_actions` (and
+the close-blocked-while-actions-open guard), `ncr_investigation_tools`,
+`ncr_attachments`, PDF export, `GET /api/v1/suppliers/{id}/ncr-history`, and the
+frontend. Plan:
 [.hermes/plans/2026-07-29-milestone-4-ncr.md](../.hermes/plans/2026-07-29-milestone-4-ncr.md).
 
 ## Known bugs

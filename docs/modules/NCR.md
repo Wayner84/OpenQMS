@@ -1,12 +1,15 @@
 # NCR
 
-**Status: Planned.** Implementation starting in
-[Milestone 4](../Roadmap.md#m4-ncr) — full scope, schema, API, and design decisions
-in the
-[Milestone 4 plan](../../.hermes/plans/2026-07-29-milestone-4-ncr.md). No code
-exists for this module yet; see [docs/CurrentStatus.md](../CurrentStatus.md). This
-is one of the two "major modules" named in the spec (with [SPC](SPC.md)) and is
-expected to span multiple implementation batches.
+**Status: Implemented (schema/CRUD/workflow only).** [Milestone 4](../Roadmap.md#m4-ncr)
+is in progress — full scope, schema, API, and design decisions in the
+[Milestone 4 plan](../../.hermes/plans/2026-07-29-milestone-4-ncr.md). NCR creation,
+editing, listing, admin-only soft deletion, and the full transition workflow
+(`ncrs`, `ncr_status_history`) are implemented and tested, backend only; see
+[docs/CurrentStatus.md](../CurrentStatus.md) for exactly what is and isn't done yet.
+Actions, investigation tools, attachments, PDF export, supplier NCR history, and the
+frontend are not yet implemented. This is one of the two "major modules" named in
+the spec (with [SPC](SPC.md)) and is expected to span multiple implementation
+batches.
 
 ## Purpose
 
@@ -95,14 +98,17 @@ open, per the spec's explicit rule.
 
 ## Known issues / status
 
-Planned only; no schema, API, or UI exists yet. As the largest single module in the
-roadmap, implementation is expected to be split across several commits/batches per
+`ncrs` and `ncr_status_history` (creation, editing, listing, admin-only soft
+deletion, the full one-directional transition workflow with concurrency-safe
+row-locking) are implemented and tested against real PostgreSQL. Not yet
+implemented: `ncr_actions` (and, with it, the close-blocked-while-actions-open
+guard), `ncr_investigation_tools`, `ncr_attachments`, PDF export, the Suppliers
+`ncr-history` endpoint, and the frontend. As the largest single module in the
+roadmap, implementation is split across several commits/batches per
 [Contributing.md](../Contributing.md#branching-and-commits) rather than one large
 change — see the
 [Milestone 4 plan](../../.hermes/plans/2026-07-29-milestone-4-ncr.md)'s suggested
-commit boundaries. Depends on [People](People.md), [Products](Products.md),
-[Suppliers](Suppliers.md) and [Document Management](DocumentManagement.md), all of
-which are now implemented (see [docs/CurrentStatus.md](../CurrentStatus.md)).
+commit boundaries.
 
 ## Related documents
 

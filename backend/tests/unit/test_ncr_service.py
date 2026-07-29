@@ -1,0 +1,874 @@
+"""Unit tests for app/modules/ncr/service.py (SQLite, ORM-level only).
+
+Per docs/modules/NCR.md and the Milestone 4 plan
+(.hermes/plans/2026-07-29-milestone-4-ncr.md#1-schema): organisation-scoped CRUD for
+NCRs, `product_id`/`supplier_id`/`raised_by_id` validated against the Products/
+Suppliers/People modules' own services (never their models directly), the
+type/supplier_id invariant, cross-organisation lookups raising a not-found error,
+soft delete, and the one-directional transition workflow (no skipping stages, no
+moving backward once closed).
+"""
+
+import datetime
+import uuid
+from collections.abc import AsyncIterator
+
+import pytest
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from app.models.organisation import Organisation
+
+SessionMaker = async_sessionmaker[AsyncSession]
+
+
+@pytest.fixture
+async def session_maker() -> AsyncIterator[SessionMaker]:
+    import app.modules.documents.models  # noqa: F401
+    import app.modules.ncr.models  # noqa: F401
+    import app.modules.people.models  # noqa: F401
+    import app.modules.products.models  # noqa: F401
+    import app.modules.suppliers.models  # noqa: F401
+    from app.models.base import Base
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield async_sessionmaker(engine, expire_on_commit=False)
+    await engine.dispose()
+
+
+@pytest.fixture
+async def organisation_id(session_maker: SessionMaker) -> uuid.UUID:
+    async with session_maker() as session:
+        org = Organisation(name="Default Organisation", slug="default")
+        session.add(org)
+        await session.commit()
+        return org.id
+
+
+@pytest.fixture
+async def other_organisation_id(session_maker: SessionMaker) -> uuid.UUID:
+    async with session_maker() as session:
+        org = Organisation(name="Other Organisation", slug="other")
+        session.add(org)
+        await session.commit()
+        return org.id
+
+
+@pytest.fixture
+async def user_id(session_maker: SessionMaker, organisation_id: uuid.UUID) -> uuid.UUID:
+    from app.models.user import User
+
+    async with session_maker() as session:
+        user = User(
+            organisation_id=organisation_id,
+            email="creator@example.com",
+            hashed_password="irrelevant",
+            full_name="Creator",
+        )
+        session.add(user)
+        await session.commit()
+        return user.id
+
+
+async def _create_person(session_maker: SessionMaker, *, organisation_id: uuid.UUID) -> uuid.UUID:
+    from app.modules.people.service import create_person
+
+    async with session_maker() as session:
+        person = await create_person(
+            session,
+            organisation_id=organisation_id,
+            company_id=None,
+            first_name="Quinn",
+            last_name="Reporter",
+            email=None,
+            phone=None,
+            role=None,
+            department=None,
+            notes=None,
+            is_employee=True,
+            created_by_id=None,
+        )
+        return person.id
+
+
+@pytest.fixture
+async def raised_by_id(session_maker: SessionMaker, organisation_id: uuid.UUID) -> uuid.UUID:
+    return await _create_person(session_maker, organisation_id=organisation_id)
+
+
+@pytest.fixture
+async def other_org_person_id(
+    session_maker: SessionMaker, other_organisation_id: uuid.UUID
+) -> uuid.UUID:
+    return await _create_person(session_maker, organisation_id=other_organisation_id)
+
+
+async def _create_product(session_maker: SessionMaker, *, organisation_id: uuid.UUID) -> uuid.UUID:
+    from app.modules.products.models import ProductType
+    from app.modules.products.service import create_product
+
+    async with session_maker() as session:
+        product = await create_product(
+            session,
+            organisation_id=organisation_id,
+            part_number="PN-001",
+            description="A widget",
+            revision="A",
+            category_id=None,
+            type=ProductType.INTERNAL,
+            manufacturing_notes=None,
+            created_by_id=None,
+        )
+        return product.id
+
+
+@pytest.fixture
+async def product_id(session_maker: SessionMaker, organisation_id: uuid.UUID) -> uuid.UUID:
+    return await _create_product(session_maker, organisation_id=organisation_id)
+
+
+@pytest.fixture
+async def other_org_product_id(
+    session_maker: SessionMaker, other_organisation_id: uuid.UUID
+) -> uuid.UUID:
+    return await _create_product(session_maker, organisation_id=other_organisation_id)
+
+
+async def _create_supplier(session_maker: SessionMaker, *, organisation_id: uuid.UUID) -> uuid.UUID:
+    from app.modules.people.models import CompanyType
+    from app.modules.people.service import create_company
+    from app.modules.suppliers.models import ApprovalStatus
+    from app.modules.suppliers.service import create_supplier
+
+    async with session_maker() as session:
+        company = await create_company(
+            session,
+            organisation_id=organisation_id,
+            name="Acme Supplies Ltd",
+            type=CompanyType.SUPPLIER,
+            address=None,
+            phone=None,
+            general_email=None,
+            notes=None,
+            created_by_id=None,
+        )
+        supplier = await create_supplier(
+            session,
+            organisation_id=organisation_id,
+            company_id=company.id,
+            approval_status=ApprovalStatus.APPROVED,
+            risk_rating=None,
+            is_preferred=False,
+            notes=None,
+            created_by_id=None,
+        )
+        return supplier.id
+
+
+@pytest.fixture
+async def supplier_id(session_maker: SessionMaker, organisation_id: uuid.UUID) -> uuid.UUID:
+    return await _create_supplier(session_maker, organisation_id=organisation_id)
+
+
+@pytest.fixture
+async def other_org_supplier_id(
+    session_maker: SessionMaker, other_organisation_id: uuid.UUID
+) -> uuid.UUID:
+    return await _create_supplier(session_maker, organisation_id=other_organisation_id)
+
+
+async def _create_ncr(
+    session_maker: SessionMaker,
+    *,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+    **overrides: object,
+) -> uuid.UUID:
+    from app.modules.ncr.models import NcrType
+    from app.modules.ncr.service import create_ncr
+
+    kwargs: dict[str, object] = {
+        "type": NcrType.INTERNAL,
+        "product_id": None,
+        "supplier_id": None,
+        "raised_by_id": raised_by_id,
+        "description": "A widget was out of spec",
+        "root_cause_summary": None,
+        "created_by_id": user_id,
+    }
+    kwargs.update(overrides)
+
+    async with session_maker() as session:
+        ncr = await create_ncr(session, organisation_id=organisation_id, **kwargs)  # type: ignore[arg-type]
+        return ncr.id
+
+
+# --- Create ------------------------------------------------------------------
+
+
+async def test_ncrs_number_is_unique_per_organisation_at_the_database_level(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    """Independent review finding: `ncrs` had no DB-level uniqueness backstop on
+    `number`, unlike every other server-generated-number table in this codebase
+    (`documents.uq_documents_org_number`). The `SELECT ... FOR UPDATE` numbering
+    lock should make a real duplicate unreachable through the service layer, but
+    the constraint itself -- inserting two rows with the same
+    (organisation_id, number) directly -- must still reject at the database."""
+    from sqlalchemy.exc import IntegrityError
+
+    from app.modules.ncr.models import Ncr, NcrStatus, NcrType
+
+    async with session_maker() as session:
+        session.add(
+            Ncr(
+                organisation_id=organisation_id,
+                number="NCR-0001",
+                type=NcrType.INTERNAL,
+                status=NcrStatus.OPEN,
+                raised_by_id=raised_by_id,
+                description="First",
+                created_by_id=user_id,
+                updated_by_id=user_id,
+            )
+        )
+        await session.commit()
+
+        session.add(
+            Ncr(
+                organisation_id=organisation_id,
+                number="NCR-0001",
+                type=NcrType.INTERNAL,
+                status=NcrStatus.OPEN,
+                raised_by_id=raised_by_id,
+                description="Duplicate number",
+                created_by_id=user_id,
+                updated_by_id=user_id,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            await session.commit()
+
+
+async def test_create_ncr_generates_sequential_internal_numbers(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.models import NcrType
+    from app.modules.ncr.service import create_ncr
+
+    async with session_maker() as session:
+        first = await create_ncr(
+            session,
+            organisation_id=organisation_id,
+            type=NcrType.INTERNAL,
+            product_id=None,
+            supplier_id=None,
+            raised_by_id=raised_by_id,
+            description="First issue",
+            root_cause_summary=None,
+            created_by_id=user_id,
+        )
+    async with session_maker() as session:
+        second = await create_ncr(
+            session,
+            organisation_id=organisation_id,
+            type=NcrType.INTERNAL,
+            product_id=None,
+            supplier_id=None,
+            raised_by_id=raised_by_id,
+            description="Second issue",
+            root_cause_summary=None,
+            created_by_id=user_id,
+        )
+
+    assert first.number == "NCR-0001"
+    assert second.number == "NCR-0002"
+    assert first.status.value == "open"
+
+
+async def test_create_ncr_uses_the_supplier_prefix_and_an_independent_sequence(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    supplier_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.models import NcrType
+    from app.modules.ncr.service import create_ncr
+
+    async with session_maker() as session:
+        internal = await create_ncr(
+            session,
+            organisation_id=organisation_id,
+            type=NcrType.INTERNAL,
+            product_id=None,
+            supplier_id=None,
+            raised_by_id=raised_by_id,
+            description="Internal issue",
+            root_cause_summary=None,
+            created_by_id=user_id,
+        )
+    async with session_maker() as session:
+        supplier_ncr = await create_ncr(
+            session,
+            organisation_id=organisation_id,
+            type=NcrType.SUPPLIER,
+            product_id=None,
+            supplier_id=supplier_id,
+            raised_by_id=raised_by_id,
+            description="Supplier issue",
+            root_cause_summary=None,
+            created_by_id=user_id,
+        )
+
+    assert internal.number == "NCR-0001"
+    assert supplier_ncr.number == "SNCR-0001"
+
+
+async def test_create_ncr_records_the_initial_status_history_entry(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.service import list_status_history
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+
+    async with session_maker() as session:
+        entries, total = await list_status_history(
+            session, organisation_id=organisation_id, ncr_id=ncr_id, limit=50, offset=0
+        )
+
+    assert total == 1
+    assert entries[0].from_status is None
+    assert entries[0].to_status.value == "open"
+    assert entries[0].changed_by_id == user_id
+
+
+async def test_create_ncr_rejects_product_in_another_organisation(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    other_org_product_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.service import NcrProductNotFoundError
+
+    with pytest.raises(NcrProductNotFoundError):
+        await _create_ncr(
+            session_maker,
+            organisation_id=organisation_id,
+            raised_by_id=raised_by_id,
+            user_id=user_id,
+            product_id=other_org_product_id,
+        )
+
+
+async def test_create_ncr_rejects_supplier_in_another_organisation(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    other_org_supplier_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.models import NcrType
+    from app.modules.ncr.service import NcrSupplierNotFoundError
+
+    with pytest.raises(NcrSupplierNotFoundError):
+        await _create_ncr(
+            session_maker,
+            organisation_id=organisation_id,
+            raised_by_id=raised_by_id,
+            user_id=user_id,
+            type=NcrType.SUPPLIER,
+            supplier_id=other_org_supplier_id,
+        )
+
+
+async def test_create_ncr_rejects_raised_by_in_another_organisation(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    other_org_person_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.service import NcrRaisedByNotFoundError
+
+    with pytest.raises(NcrRaisedByNotFoundError):
+        await _create_ncr(
+            session_maker,
+            organisation_id=organisation_id,
+            raised_by_id=other_org_person_id,
+            user_id=user_id,
+        )
+
+
+# --- Get / list ----------------------------------------------------------------
+
+
+async def test_get_ncr_raises_not_found_for_cross_organisation_id(
+    session_maker: SessionMaker,
+    other_organisation_id: uuid.UUID,
+    organisation_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.service import NcrNotFoundError, get_ncr
+
+    other_raised_by_id = await _create_person(session_maker, organisation_id=other_organisation_id)
+    ncr_id = await _create_ncr(
+        session_maker,
+        organisation_id=other_organisation_id,
+        raised_by_id=other_raised_by_id,
+        user_id=user_id,
+    )
+
+    async with session_maker() as session:
+        with pytest.raises(NcrNotFoundError):
+            await get_ncr(session, organisation_id=organisation_id, ncr_id=ncr_id)
+
+
+async def test_list_ncrs_filters_by_type_status_and_search(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    supplier_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.models import NcrType
+    from app.modules.ncr.service import list_ncrs
+
+    await _create_ncr(
+        session_maker,
+        organisation_id=organisation_id,
+        raised_by_id=raised_by_id,
+        user_id=user_id,
+        description="Bracket bent out of spec",
+    )
+    await _create_ncr(
+        session_maker,
+        organisation_id=organisation_id,
+        raised_by_id=raised_by_id,
+        user_id=user_id,
+        type=NcrType.SUPPLIER,
+        supplier_id=supplier_id,
+        description="Late delivery",
+    )
+
+    async with session_maker() as session:
+        by_type, type_total = await list_ncrs(
+            session,
+            organisation_id=organisation_id,
+            type=NcrType.SUPPLIER,
+            status=None,
+            product_id=None,
+            supplier_id=None,
+            raised_by_id=None,
+            search=None,
+            limit=50,
+            offset=0,
+        )
+        by_search, search_total = await list_ncrs(
+            session,
+            organisation_id=organisation_id,
+            type=None,
+            status=None,
+            product_id=None,
+            supplier_id=None,
+            raised_by_id=None,
+            search="bracket",
+            limit=50,
+            offset=0,
+        )
+
+    assert type_total == 1
+    assert by_type[0].type.value == "supplier"
+    assert search_total == 1
+    assert "Bracket" in by_search[0].description
+
+
+# --- Update / delete -------------------------------------------------------------
+
+
+async def test_update_ncr_changes_fields_and_validates_links(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    product_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.models import NcrType
+    from app.modules.ncr.service import update_ncr
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+
+    async with session_maker() as session:
+        updated = await update_ncr(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            updated_by_id=user_id,
+            type=NcrType.INTERNAL,
+            product_id=product_id,
+            supplier_id=None,
+            raised_by_id=raised_by_id,
+            description="Updated description",
+            root_cause_summary="Tooling wear",
+        )
+
+    assert updated.product_id == product_id
+    assert updated.description == "Updated description"
+    assert updated.root_cause_summary == "Tooling wear"
+    assert updated.updated_by_id == user_id
+
+
+async def test_delete_ncr_soft_deletes_and_excludes_from_get(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.service import NcrNotFoundError, delete_ncr, get_ncr
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+
+    async with session_maker() as session:
+        await delete_ncr(session, organisation_id=organisation_id, ncr_id=ncr_id)
+
+    async with session_maker() as session:
+        with pytest.raises(NcrNotFoundError):
+            await get_ncr(session, organisation_id=organisation_id, ncr_id=ncr_id)
+
+
+# --- Transition workflow ---------------------------------------------------------
+
+
+async def test_transition_moves_through_the_full_sequence(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.models import NcrStatus
+    from app.modules.ncr.service import transition_ncr
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+
+    sequence = [
+        NcrStatus.INVESTIGATE,
+        NcrStatus.CONTAINMENT,
+        NcrStatus.CORRECTIVE_ACTION,
+        NcrStatus.VERIFICATION,
+        NcrStatus.CLOSED,
+    ]
+    for to_status in sequence:
+        async with session_maker() as session:
+            ncr = await transition_ncr(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=ncr_id,
+                to_status=to_status,
+                changed_by_id=user_id,
+                comments=None,
+            )
+        assert ncr.status == to_status
+
+    assert ncr.closed_at is not None
+
+
+async def test_transition_rejects_skipping_a_stage(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.models import NcrStatus
+    from app.modules.ncr.service import InvalidNcrTransitionError, transition_ncr
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+
+    async with session_maker() as session:
+        with pytest.raises(InvalidNcrTransitionError):
+            await transition_ncr(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=ncr_id,
+                to_status=NcrStatus.CONTAINMENT,
+                changed_by_id=user_id,
+                comments=None,
+            )
+
+
+async def test_transition_rejects_moving_backward(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.models import NcrStatus
+    from app.modules.ncr.service import InvalidNcrTransitionError, transition_ncr
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+    async with session_maker() as session:
+        await transition_ncr(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            to_status=NcrStatus.INVESTIGATE,
+            changed_by_id=user_id,
+            comments=None,
+        )
+
+    async with session_maker() as session:
+        with pytest.raises(InvalidNcrTransitionError):
+            await transition_ncr(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=ncr_id,
+                to_status=NcrStatus.OPEN,
+                changed_by_id=user_id,
+                comments=None,
+            )
+
+
+async def test_transition_rejects_once_already_closed(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.models import NcrStatus
+    from app.modules.ncr.service import InvalidNcrTransitionError, transition_ncr
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+    for to_status in [
+        NcrStatus.INVESTIGATE,
+        NcrStatus.CONTAINMENT,
+        NcrStatus.CORRECTIVE_ACTION,
+        NcrStatus.VERIFICATION,
+        NcrStatus.CLOSED,
+    ]:
+        async with session_maker() as session:
+            await transition_ncr(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=ncr_id,
+                to_status=to_status,
+                changed_by_id=user_id,
+                comments=None,
+            )
+
+    async with session_maker() as session:
+        with pytest.raises(InvalidNcrTransitionError):
+            await transition_ncr(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=ncr_id,
+                to_status=NcrStatus.CLOSED,
+                changed_by_id=user_id,
+                comments=None,
+            )
+
+
+async def test_transition_records_a_status_history_row_with_comments(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.models import NcrStatus
+    from app.modules.ncr.service import list_status_history, transition_ncr
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+
+    async with session_maker() as session:
+        await transition_ncr(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            to_status=NcrStatus.INVESTIGATE,
+            changed_by_id=user_id,
+            comments="Starting the investigation",
+        )
+
+    async with session_maker() as session:
+        entries, total = await list_status_history(
+            session, organisation_id=organisation_id, ncr_id=ncr_id, limit=50, offset=0
+        )
+
+    assert total == 2
+    assert entries[1].from_status == NcrStatus.OPEN
+    assert entries[1].to_status == NcrStatus.INVESTIGATE
+    assert entries[1].comments == "Starting the investigation"
+
+
+async def test_transition_raises_not_found_for_cross_organisation_ncr(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    other_organisation_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.models import NcrStatus
+    from app.modules.ncr.service import NcrNotFoundError, transition_ncr
+
+    other_raised_by_id = await _create_person(session_maker, organisation_id=other_organisation_id)
+    ncr_id = await _create_ncr(
+        session_maker,
+        organisation_id=other_organisation_id,
+        raised_by_id=other_raised_by_id,
+        user_id=user_id,
+    )
+
+    async with session_maker() as session:
+        with pytest.raises(NcrNotFoundError):
+            await transition_ncr(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=ncr_id,
+                to_status=NcrStatus.INVESTIGATE,
+                changed_by_id=user_id,
+                comments=None,
+            )
+
+
+# --- Soft-delete / transition race (independent security review finding) --------
+
+
+async def test_transition_rejects_an_ncr_deleted_after_the_initial_fetch(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Independent review finding: `get_ncr`'s `deleted_at.is_(None)` filter runs
+    before `_lock_ncr` acquires the row lock, so a concurrent admin delete could
+    commit in between -- without a post-lock re-check, the transition would proceed
+    against a now-deleted NCR. Simulate that race deterministically (real
+    concurrency can't be forced to interleave reliably in a test) by monkeypatching
+    `_lock_ncr` to soft-delete the NCR, in a separate session, as a side effect of
+    "acquiring the lock"."""
+    import app.modules.ncr.service as ncr_service
+    from app.modules.ncr.models import NcrStatus
+    from app.modules.ncr.service import NcrNotFoundError, _lock_ncr, transition_ncr
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+
+    original_lock_ncr = _lock_ncr
+
+    async def _concurrently_delete_then_lock(session: object, ncr: object) -> None:
+        # Simulates a concurrent delete that commits in the window between the
+        # caller's initial get_ncr() fetch and this lock being acquired -- so it
+        # must run and commit *before* original_lock_ncr's own
+        # SELECT ... FOR UPDATE + refresh(), which is what should pick up the new
+        # deleted_at (mirroring how a real second transaction would only observe
+        # the first transaction's committed write once it acquires the row lock in
+        # turn). Deliberately bypasses delete_ncr itself (which calls the
+        # now-patched module-level _lock_ncr and would recurse into this same
+        # function) -- writes deleted_at directly instead.
+        async with session_maker() as other_session:
+            from app.modules.ncr.models import Ncr
+
+            other_ncr = (
+                await other_session.execute(select(Ncr).where(Ncr.id == ncr_id))
+            ).scalar_one()
+            other_ncr.deleted_at = datetime.datetime.now(datetime.UTC)
+            await other_session.commit()
+        await original_lock_ncr(session, ncr)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(ncr_service, "_lock_ncr", _concurrently_delete_then_lock)
+
+    async with session_maker() as session:
+        with pytest.raises(NcrNotFoundError):
+            await transition_ncr(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=ncr_id,
+                to_status=NcrStatus.INVESTIGATE,
+                changed_by_id=user_id,
+                comments=None,
+            )
+
+
+async def test_update_ncr_rejects_an_ncr_deleted_after_the_initial_fetch(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Same TOCTOU class as
+    test_transition_rejects_an_ncr_deleted_after_the_initial_fetch, for
+    `update_ncr`."""
+    import app.modules.ncr.service as ncr_service
+    from app.modules.ncr.models import NcrType
+    from app.modules.ncr.service import NcrNotFoundError, _lock_ncr, update_ncr
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+
+    original_lock_ncr = _lock_ncr
+
+    async def _concurrently_delete_then_lock(session: object, ncr: object) -> None:
+        # Simulates a concurrent delete that commits in the window between the
+        # caller's initial get_ncr() fetch and this lock being acquired -- so it
+        # must run and commit *before* original_lock_ncr's own
+        # SELECT ... FOR UPDATE + refresh(), which is what should pick up the new
+        # deleted_at (mirroring how a real second transaction would only observe
+        # the first transaction's committed write once it acquires the row lock in
+        # turn). Deliberately bypasses delete_ncr itself (which calls the
+        # now-patched module-level _lock_ncr and would recurse into this same
+        # function) -- writes deleted_at directly instead.
+        async with session_maker() as other_session:
+            from app.modules.ncr.models import Ncr
+
+            other_ncr = (
+                await other_session.execute(select(Ncr).where(Ncr.id == ncr_id))
+            ).scalar_one()
+            other_ncr.deleted_at = datetime.datetime.now(datetime.UTC)
+            await other_session.commit()
+        await original_lock_ncr(session, ncr)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(ncr_service, "_lock_ncr", _concurrently_delete_then_lock)
+
+    async with session_maker() as session:
+        with pytest.raises(NcrNotFoundError):
+            await update_ncr(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=ncr_id,
+                updated_by_id=user_id,
+                type=NcrType.INTERNAL,
+                product_id=None,
+                supplier_id=None,
+                raised_by_id=raised_by_id,
+                description="Updated while a concurrent delete raced in",
+                root_cause_summary=None,
+            )

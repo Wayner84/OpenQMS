@@ -523,6 +523,67 @@ product `{id}`.
 Unlink a supplier. `404` if the link or its parent product isn't in the caller's
 organisation.
 
+## NCR module (Milestone 4, in progress)
+
+Per [docs/modules/NCR.md](modules/NCR.md) and the
+[Milestone 4 plan](../.hermes/plans/2026-07-29-milestone-4-ncr.md). Everyday NCR
+work (create, view, edit, transition) requires authentication only (any active
+user), matching People/Products/Suppliers' precedent — not admin-gated, per design
+decision 2. Deleting an NCR is admin-only (design decision 2), since an NCR is an
+audit-significant record with a full status history, unlike Suppliers/Products'
+pure reference data. This section covers the schema/CRUD/workflow slice only;
+actions, investigation tools, attachments, PDF export, and supplier NCR history are
+added in later slices (see the plan's suggested commit boundaries) and documented
+here as they land.
+
+### `POST /api/v1/ncr` / `PATCH /api/v1/ncr/{id}`
+
+Create/full-update an NCR. Body: `type` (`internal`/`supplier`), `product_id`
+(optional, must belong to the caller's own organisation — `404` otherwise),
+`supplier_id` (required iff `type: supplier`, forbidden iff `type: internal` — `422`
+on violation, per design decision 5; must belong to the caller's own organisation —
+`404` otherwise), `raised_by_id` (required, a People record — must belong to the
+caller's own organisation — `404` otherwise), `description`, `root_cause_summary`
+(optional). `status` is not settable here — it only changes via
+`POST .../transition`. `number` is always server-generated (see below), never
+client-supplied.
+
+### `GET /api/v1/ncr` / `GET /api/v1/ncr/{id}`
+
+List (paginated) or fetch one NCR. List filters: `type`, `status`, `product_id`,
+`supplier_id`, `raised_by_id` (exact match), `search` (case-insensitive substring
+across `number`/`description`). `404` for a cross-organisation `{id}`.
+
+### `DELETE /api/v1/ncr/{id}`
+
+Admin-only. Soft delete (`deleted_at`) — an NCR's full status history remains an
+audit-significant record, matching `documents`' existing soft-delete precedent.
+`404` for a cross-organisation id; `403` for a non-admin caller.
+
+### `POST /api/v1/ncr/{id}/transition`
+
+Body: `to_status`, `comments` (optional). Moves the NCR to exactly the next status
+in the fixed sequence `open` → `investigate` → `containment` → `corrective_action` →
+`verification` → `closed` — `409` if `to_status` is not that next status (no
+skipping stages, no moving backward, no transitioning once already `closed`, per
+design decision 3). Race-safe under concurrent requests via a per-NCR row lock.
+Records an immutable `ncr_status_history` entry. `404` for a cross-organisation
+`{id}`.
+
+### `GET /api/v1/ncr/{id}/status-history`
+
+Paginated, chronological list of every transition for an NCR, including the initial
+entry into `open` at creation (`from_status: null`). `404` for a cross-organisation
+NCR `{id}`.
+
+### NCR numbering
+
+`number` is generated server-side from an organisation-scoped `ncr_numbering_scheme`
+`configuration` row (per [Database.md](Database.md#configuration-table)) holding two
+independent prefixes/sequences — default `NCR-0001`, `NCR-0002`, ... for
+`type: internal` and `SNCR-0001`, `SNCR-0002`, ... for `type: supplier` — per design
+decision 6. Never a hard-coded prefix in application code.
+
 ## Health and readiness endpoints (Milestone 0)
 
 These are the only endpoints Milestone 0 implements:
@@ -555,12 +616,13 @@ Response `503` (database unreachable):
 
 `/api/v1/auth`, `/api/v1/users`, `/api/v1/people`, `/api/v1/companies`,
 `/api/v1/document-categories`, `/api/v1/document-tags`, `/api/v1/documents`,
-`/api/v1/suppliers`, `/api/v1/products`, and `/api/v1/product-categories` are
-implemented (see "Authentication", "User management", "People module", "Document
-Management", "Suppliers module", and "Products module" above). The rest are reserved
-prefixes for future modules, so routing collisions are avoided as modules land per the
-[Roadmap](Roadmap.md). Each will get full documentation in its
-`docs/modules/<Module>.md` "Planned APIs" section as it is implemented:
+`/api/v1/suppliers`, `/api/v1/products`, `/api/v1/product-categories`, and
+`/api/v1/ncr` are implemented (see "Authentication", "User management", "People
+module", "Document Management", "Suppliers module", "Products module", and "NCR
+module" above). The rest are reserved prefixes for future modules, so routing
+collisions are avoided as modules land per the [Roadmap](Roadmap.md). Each will get
+full documentation in its `docs/modules/<Module>.md` "Planned APIs" section as it is
+implemented:
 
 | Prefix | Module |
 |---|---|
@@ -570,7 +632,7 @@ prefixes for future modules, so routing collisions are avoided as modules land p
 | `/api/v1/documents`, `/api/v1/document-categories`, `/api/v1/document-tags` | Document Management (Milestone 2) — implemented |
 | `/api/v1/suppliers` | Suppliers (Milestone 3) — implemented |
 | `/api/v1/products`, `/api/v1/product-categories` | Products (Milestone 3) — implemented (backend) |
-| `/api/v1/ncr` | NCR |
+| `/api/v1/ncr` | NCR (Milestone 4) — implemented (schema/CRUD/workflow only; in progress) |
 | `/api/v1/calibration` | Calibration and Asset Management |
 | `/api/v1/maintenance` | Maintenance |
 | `/api/v1/fair` | FAIR |

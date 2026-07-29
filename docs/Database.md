@@ -375,6 +375,60 @@ transitively through their parent `product_id`.
   (FK → `suppliers.id`, not null), `is_preferred` (boolean, default `false`).
   Composite uniqueness on `(product_id, supplier_id)`.
 
+### NCR and related tables (Milestone 4, in progress)
+
+Per [docs/modules/NCR.md](modules/NCR.md) and the
+[Milestone 4 plan](../.hermes/plans/2026-07-29-milestone-4-ncr.md). This section
+covers the schema/CRUD/workflow slice only; `ncr_actions`,
+`ncr_investigation_tools`, and `ncr_attachments` are added in later slices and
+documented here as they land. Both tables below carry `organisation_id` directly
+(`ncr_status_history` transitively, through its parent `ncr_id`).
+
+- **`ncrs`** — `number` (server-generated, see "NCR numbering" below), `type`
+  (native enum `internal`/`supplier`), `product_id` (nullable FK → `products.id`),
+  `supplier_id` (nullable FK → `suppliers.id`; required iff `type: supplier`,
+  forbidden iff `type: internal` — enforced at the Pydantic schema layer, mirroring
+  the People module's `is_employee`/`company_id` invariant, not a DB constraint —
+  see
+  [DecisionLog.md](DecisionLog.md#2026-07-26-people-module-is_employeecompany_id-invariant-enforced-at-the-schema-layer-not-a-db-constraint)),
+  `status` (native enum `open`/`investigate`/`containment`/`corrective_action`/
+  `verification`/`closed`, default `open`), `raised_by_id` (FK → `people.id`, not
+  null — an organisational assignment, can validly name someone without a login,
+  matching `documents.owner_id`'s precedent), `description`, `root_cause_summary`
+  (nullable), `created_by_id`/`updated_by_id` (FK → `users.id`, not null),
+  `created_at`/`updated_at`, `closed_at` (nullable, set on transition to `closed`),
+  `deleted_at` (nullable — soft delete, admin-only, matching `documents`' precedent;
+  see the plan's design decision 2 for why NCRs soft-delete while Suppliers/Products
+  hard-delete).
+- **`ncr_status_history`** — `ncr_id` (FK, cascade delete), `from_status` (nullable
+  native enum — null for the initial entry into `open`), `to_status` (native enum,
+  not null), `changed_by_id` (FK → `users.id`, not null — a workflow transition is
+  an authenticated API action, matching `document_approvals`/
+  `document_acknowledgements`'s precedent, **not** `people.id` as the module doc
+  originally sketched; see the plan's design decision 1), `changed_at`, `comments`
+  (nullable). Immutable — no update/delete route, matching `document_versions`'s
+  existing precedent.
+
+The one-directional transition workflow (`open` → `investigate` → `containment` →
+`corrective_action` → `verification` → `closed`, no skipping stages, no moving
+backward) is enforced in `backend/app/modules/ncr/service.py::transition_ncr`,
+race-safe under concurrent requests via a per-NCR `SELECT ... FOR UPDATE` row lock
+(`_lock_ncr`, mirroring `documents.service._lock_document`). The
+close-blocked-while-actions-open guard from the module doc is added once
+`ncr_actions` exists, in a later slice.
+
+#### NCR numbering
+
+A `configuration` row per organisation, key `ncr_numbering_scheme`, value
+`{"internal": {"prefix": "NCR", "separator": "-", "padding": 4, "next_sequence": 1},
+"supplier": {"prefix": "SNCR", "separator": "-", "padding": 4, "next_sequence": 1}}`
+— seeded by the schema migration for the existing default organisation. Two
+independent sequences in one row (an internal and a supplier NCR can validly share
+the same trailing number with different prefixes), read/incremented with
+`SELECT ... FOR UPDATE` under PostgreSQL exactly like `document_numbering_scheme`,
+with an extra lookup keyed by `type` inside the row's value — see
+`backend/app/modules/ncr/numbering.py`.
+
 ## Soft delete and audit trail
 
 Milestone 0 deferred this until "the first module that needs it (Document

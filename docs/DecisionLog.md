@@ -955,6 +955,47 @@ test hook or direct transaction-level barrier could make the regression test its
 deterministic. Retrofitting equivalent coverage onto the approval slice's deferred
 gap remains a reasonable future improvement, out of scope for this pass.
 
+**Finding 2 — async state not fully scoped to route/prop changes.**
+`DocumentDetailPage` and `VersionComparePanel` can be reused by their parent
+across a navigation to a *different* document (React only remounts on a `key`
+change, and the route only changes `:id`) without every piece of document-scoped
+state being reset: `DocumentDetailPage`'s action/pending/edit-metadata/upload/
+acknowledgement/preview state, and `VersionComparePanel`'s selected versions and
+comparison result, were previously reset only implicitly (or not at all), so a
+still-in-flight or already-applied response for the *previous* document could
+still show through after navigating to the next one. **Fix:** both components
+now reset all of that state — and invalidate any in-flight ack/preview/compare
+request via a monotonic request id — in an effect keyed on the route `id` /
+`documentId` prop respectively; `DocumentDetailPage` additionally guards every
+action handler's post-await state updates with a `currentDocumentIdRef` check so
+an action started on the previous document can't apply its result (or trigger a
+refresh) after the user has already navigated away.
+
+**Finding 3 — option-loading effects and `DocumentCategoriesPage.loadAll` lacked
+a request-id guard.** These effects only guarded on `mountedRef` (unmount
+safety), not on request generation — under React StrictMode's simulated
+mount/cleanup/mount double-invoke in development, two separate fetches are
+dispatched, and an out-of-order (slower, earlier) response could overwrite a
+newer one's state. **Fix:** the same monotonic request-id pattern already used
+elsewhere in this module was added to `DocumentsPage`'s and `DocumentDetailPage`'s
+categories/tags/owners option-loading effects and to `DocumentCategoriesPage`'s
+`loadAll`.
+
+**Finding 4 — `DocumentsPage`'s post-create refresh used a stale filter
+closure.** `handleCreate`'s async body called the `loadPage` closure captured
+when the form was submitted; if the user changed a filter while the `createDocument`
+request was still in flight, that stale closure's refresh would apply the *old*
+filter values, potentially overwriting the fresher, correctly-filtered list the
+filter change had already triggered. **Fix:** the post-create refresh now bumps a
+`refreshVersion` counter that the page's existing load effect depends on, so the
+refresh always runs with the render's current `loadPage` (and therefore current
+filters), not a closure from an earlier render.
+
+All four fixes are covered by new deferred-promise regression tests (frontend) or
+the concurrent-request integration test described above (backend); see
+[docs/modules/DocumentManagement.md](modules/DocumentManagement.md#known-issues--status)
+for the per-slice review summary this entry belongs to.
+
 ## 2026-07-29 — Milestone 3 closeout: Products check-then-insert races mapped to clean conflicts
 
 **Problem:** An independent security/tenant-isolation review of the Suppliers and
@@ -1016,43 +1057,52 @@ inconsistency with every other list endpoint's pagination, not fixed in this pas
 Both are tracked here rather than silently ignored; revisit if either becomes a real
 problem under production data volumes.
 
-**Finding 2 — async state not fully scoped to route/prop changes.**
-`DocumentDetailPage` and `VersionComparePanel` can be reused by their parent
-across a navigation to a *different* document (React only remounts on a `key`
-change, and the route only changes `:id`) without every piece of document-scoped
-state being reset: `DocumentDetailPage`'s action/pending/edit-metadata/upload/
-acknowledgement/preview state, and `VersionComparePanel`'s selected versions and
-comparison result, were previously reset only implicitly (or not at all), so a
-still-in-flight or already-applied response for the *previous* document could
-still show through after navigating to the next one. **Fix:** both components
-now reset all of that state — and invalidate any in-flight ack/preview/compare
-request via a monotonic request id — in an effect keyed on the route `id` /
-`documentId` prop respectively; `DocumentDetailPage` additionally guards every
-action handler's post-await state updates with a `currentDocumentIdRef` check so
-an action started on the previous document can't apply its result (or trigger a
-refresh) after the user has already navigated away.
+## 2026-07-29 — NCR schema/CRUD/workflow slice: a soft-delete/transition race and a missing number uniqueness backstop
 
-**Finding 3 — option-loading effects and `DocumentCategoriesPage.loadAll` lacked
-a request-id guard.** These effects only guarded on `mountedRef` (unmount
-safety), not on request generation — under React StrictMode's simulated
-mount/cleanup/mount double-invoke in development, two separate fetches are
-dispatched, and an out-of-order (slower, earlier) response could overwrite a
-newer one's state. **Fix:** the same monotonic request-id pattern already used
-elsewhere in this module was added to `DocumentsPage`'s and `DocumentDetailPage`'s
-categories/tags/owners option-loading effects and to `DocumentCategoriesPage`'s
-`loadAll`.
+**Problem:** An independent security/tenant-isolation review of the first NCR
+slice (`ncrs`, `ncr_status_history` — schema, CRUD, and the transition workflow; a
+fresh reviewer with no prior session context) found no cross-organisation leaks,
+client-controlled `organisation_id`, or module-isolation violations, but flagged
+two real gaps.
 
-**Finding 4 — `DocumentsPage`'s post-create refresh used a stale filter
-closure.** `handleCreate`'s async body called the `loadPage` closure captured
-when the form was submitted; if the user changed a filter while the `createDocument`
-request was still in flight, that stale closure's refresh would apply the *old*
-filter values, potentially overwriting the fresher, correctly-filtered list the
-filter change had already triggered. **Fix:** the post-create refresh now bumps a
-`refreshVersion` counter that the page's existing load effect depends on, so the
-refresh always runs with the render's current `loadPage` (and therefore current
-filters), not a closure from an earlier render.
+**Finding 1 (Medium) — soft-delete not re-checked after the transition lock.**
+`get_ncr`'s `deleted_at.is_(None)` filter runs before `_lock_ncr` acquires the
+row's `SELECT ... FOR UPDATE` lock; a concurrent admin `DELETE` could commit in
+that window, and `_lock_ncr`'s `session.refresh(ncr)` would pick up the new
+`deleted_at` without either `transition_ncr` or `update_ncr` ever checking it —
+so a transition could still proceed against (and add `ncr_status_history` rows to)
+an NCR that is now soft-deleted, violating the hard acceptance criterion that a
+deleted NCR is excluded from every read path. Compounding this, `delete_ncr`
+itself didn't lock the row at all, so it couldn't even serialise against a
+concurrent transition the way `_lock_ncr`'s callers are meant to.
 
-All four fixes are covered by new deferred-promise regression tests (frontend) or
-the concurrent-request integration test described above (backend); see
-[docs/modules/DocumentManagement.md](modules/DocumentManagement.md#known-issues--status)
-for the per-slice review summary this entry belongs to.
+**Fix:** `delete_ncr` now calls `_lock_ncr` before setting `deleted_at`, so it
+serialises against `transition_ncr`/`update_ncr` through the same row lock; both
+of those now re-check `ncr.deleted_at` immediately after acquiring the lock and
+raise `NcrNotFoundError` if it's set, mirroring how `documents.service` re-checks
+version state after `_lock_document`. Regression-covered by two deterministic unit
+tests (`test_transition_rejects_an_ncr_deleted_after_the_initial_fetch`,
+`test_update_ncr_rejects_an_ncr_deleted_after_the_initial_fetch`) that monkeypatch
+`_lock_ncr` to commit a soft-delete (in a separate session) immediately before
+delegating to the real lock-and-refresh, deterministically reproducing "the delete
+won the race" without relying on real concurrency timing; plus a best-effort real
+concurrent `asyncio.gather` integration test
+(`test_concurrent_delete_and_transition_cannot_both_succeed`), kept as
+documentation of intended behaviour with the same scheduler-dependency caveat
+already recorded for this style of test above.
+
+**Finding 2 (Low-Medium) — no DB-level uniqueness backstop on `ncrs.number`.**
+Every other server-generated-number table in this codebase pairs its numbering
+lock with a DB `UniqueConstraint` as defence in depth (`documents.number` →
+`uq_documents_org_number`); `ncrs.number` was missing the equivalent. The
+`SELECT ... FOR UPDATE` lock in `numbering.generate_ncr_number` is held for the
+whole creation transaction, so no exploitable duplicate was found — this is a
+consistency/defence-in-depth gap, not a demonstrated bug. **Fix:** added
+`UniqueConstraint(organisation_id, number, name="uq_ncrs_org_number")` to `Ncr`
+and the still-unapplied migration (`12394296d0cf`, edited in place rather than
+superseded by a second migration, since it had not yet been committed),
+regression-covered by a direct-insert unit test asserting the constraint rejects
+a duplicate pair.
+
+Full reasoning for the slice itself in the
+[Milestone 4 plan](../.hermes/plans/2026-07-29-milestone-4-ncr.md).
