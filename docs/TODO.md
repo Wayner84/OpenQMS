@@ -105,9 +105,9 @@ uploaded file's own bytes intact. No new defects found. See
 [CurrentStatus.md](CurrentStatus.md) for full detail. Next: Milestone 3 (Products and
 Suppliers) — see below.
 
-## Medium Priority — Milestone 3 (Products and Suppliers) — IN PROGRESS
+## Medium Priority — Milestone 3 (Products and Suppliers) — COMPLETE
 
-Full scope and acceptance criteria:
+Full scope and acceptance criteria (all checked off):
 [.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md](../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md).
 
 15. **Products module** — see [docs/modules/Products.md](modules/Products.md).
@@ -116,6 +116,17 @@ Full scope and acceptance criteria:
 16. **Suppliers module** — see [docs/modules/Suppliers.md](modules/Suppliers.md).
     Dependencies: Milestone 1, Task 13 (people/contacts). Complexity: **M**.
     Status: Done (backend and frontend both implemented and tested).
+
+Milestone 3 closeout (2026-07-29): full gate re-run (backend and frontend), the
+274-test real-PostgreSQL integration suite, a real upgrade → downgrade → upgrade
+cycle for the complete eight-revision migration chain, re-verified dependency
+audits (no new findings), an independent security/tenant-isolation review that
+found and fixed test-first a TOCTOU race in three Products check-then-insert paths,
+and a real headless-Chromium browser walkthrough of the full Suppliers/Products
+workflow through `docker compose up --build`, surviving a `down`/`up` restart. See
+[CurrentStatus.md](CurrentStatus.md) and
+[DecisionLog.md](DecisionLog.md#2026-07-29-milestone-3-closeout-products-check-then-insert-races-mapped-to-clean-conflicts)
+for full detail. Next: Milestone 4 (NCR) — see below.
 
 ## Low Priority — Later modules (Milestones 4–9)
 17. **NCR module** — see [docs/modules/NCR.md](modules/NCR.md). Dependencies:

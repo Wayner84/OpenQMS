@@ -1,8 +1,9 @@
 # Milestone 3 — Products and Suppliers
 
-**Status:** Planned — implementation starts after this plan and its doc updates are
-committed.
+**Status:** Complete — implemented and closed out. See
+[CurrentStatus.md](../../docs/CurrentStatus.md) for verification detail.
 **Date planned:** 2026-07-28
+**Date closed out:** 2026-07-29
 
 ## Purpose
 
@@ -293,31 +294,31 @@ working, tested unit, per [Contributing.md](../../docs/Contributing.md).
 
 ## Acceptance criteria
 
-- [ ] `suppliers`, `supplier_certifications`, `supplier_performance_records`,
+- [x] `suppliers`, `supplier_certifications`, `supplier_performance_records`,
       `product_categories`, `products`, `product_documents`,
       `product_supplier_links` exist via reviewed Alembic migrations, each verified
       with a real upgrade → downgrade → upgrade cycle against PostgreSQL.
-- [ ] Full Suppliers CRUD + certifications + performance records works end-to-end
+- [x] Full Suppliers CRUD + certifications + performance records works end-to-end
       against real PostgreSQL, covered by tests.
-- [ ] Full Products CRUD + category admin + document/supplier links works
+- [x] Full Products CRUD + category admin + document/supplier links works
       end-to-end against real PostgreSQL, covered by tests.
-- [ ] `part_number` uniqueness, category/company "still referenced" delete guards,
+- [x] `part_number` uniqueness, category/company "still referenced" delete guards,
       and cross-organisation `404`s are all covered by tests.
-- [ ] Frontend: Suppliers and Products list/search/filter, create/edit/delete,
+- [x] Frontend: Suppliers and Products list/search/filter, create/edit/delete,
       certification/performance management, document/supplier link management —
       all calling real backend endpoints through typed API clients, covered by
       Vitest tests, accessible and responsive.
-- [ ] All commands in
+- [x] All commands in
       [CodingStandards.md](../../docs/CodingStandards.md#commands-established-in-milestone-0-referenced-by-every-later-batch)
       pass: `ruff check`, `ruff format --check`, `mypy` (strict), `pytest` (unit +
       integration), `npm run lint`, `format:check`, `typecheck`, `test`, `build`.
-- [ ] Dependency audits (`pip-audit`, `npm audit`) re-run; no new findings beyond
+- [x] Dependency audits (`pip-audit`, `npm audit`) re-run; no new findings beyond
       already-documented deferrals, or new findings triaged and recorded.
-- [ ] `docker compose up --build` smoke test, browser-driven: create a supplier
+- [x] `docker compose up --build` smoke test, browser-driven: create a supplier
       (with a certification and a performance record), create a product category,
       create a product linking that supplier and a document, edit and delete
       records — all surviving a `docker compose down`/`up` restart (no `-v`).
-- [ ] `docs/API.md`, `docs/Database.md`, `docs/modules/Products.md`,
+- [x] `docs/API.md`, `docs/Database.md`, `docs/modules/Products.md`,
       `docs/modules/Suppliers.md`, `docs/DecisionLog.md`, `docs/CurrentStatus.md`,
       `docs/TODO.md` updated in the same commits as the behaviour they describe.
 

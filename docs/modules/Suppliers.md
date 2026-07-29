@@ -1,9 +1,9 @@
 # Suppliers
 
 **Status: Implemented.** [Milestone 3](../Roadmap.md#m3-products-and-suppliers)
-is underway — see [docs/CurrentStatus.md](../CurrentStatus.md) and the
-[Milestone 3 plan](../../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md)
-for exactly what is and isn't implemented yet. The backend (schema, migration, CRUD,
+is complete and closed out — see [docs/CurrentStatus.md](../CurrentStatus.md) and
+the [Milestone 3 plan](../../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md)
+for full verification detail. The backend (schema, migration, CRUD,
 certifications, performance records, the expiring-certifications endpoint) and the
 frontend (`frontend/src/modules/suppliers/`: `SuppliersPage`/`SupplierDetailPage`)
 are both implemented and tested. Built first within this milestone (before Products),

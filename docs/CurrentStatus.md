@@ -1,6 +1,6 @@
 # Current Status
 
-_Last updated: 2026-07-29 (Milestone 3: Suppliers and Products fully implemented; closeout verification pending)_
+_Last updated: 2026-07-29 (Milestone 3: Products and Suppliers complete and closed out)_
 
 This document is kept truthful and current in the same commit as any work that
 changes it, per [Contributing.md](Contributing.md). It must never describe
@@ -8,19 +8,11 @@ in-progress or planned work as complete.
 
 ## Current milestone
 
-**M3 — Products and Suppliers.** See
-[.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md](../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md)
-for the exact scope, schema/API/permissions decisions, and acceptance criteria, and
-[Roadmap.md](Roadmap.md#m3-products-and-suppliers) for how it fits the overall
-delivery order.
-
-**Milestone 3 is in progress.** Suppliers (schema, CRUD, certifications, performance
-records) and Products (schema, CRUD, category admin, document/supplier links) are
-both fully implemented and tested, backend and frontend. Final closeout verification
-(full gate re-run, migration cycle, dependency audits, Docker Compose browser smoke
-test) has not yet run. M0 (Platform Foundation), M1 (Authentication, Organisations,
-People), and M2 (Document Management) are all complete and verified — see "Completed
-work" below for details and findings.
+**M4 — NCR**, not yet started. M0 (Platform Foundation), M1 (Authentication,
+Organisations, People), M2 (Document Management), and M3 (Products and Suppliers)
+are all complete and verified — see "Completed work" below for details and
+findings. See [Roadmap.md](Roadmap.md#m4-ncr) and [TODO.md](TODO.md) for what's
+next.
 
 ## Completed work
 
@@ -816,16 +808,87 @@ work" below for details and findings.
     `test` (247 tests across 26 files), `build`.
   - Docs updated in this slice: this file, [TODO.md](TODO.md),
     [docs/modules/Products.md](modules/Products.md) (`Status: Implemented`).
+- **Milestone 3 — final closeout verification** (2026-07-29, this batch): every
+  outstanding item from
+  [the plan's acceptance criteria](../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md#acceptance-criteria)
+  verified against the live repository, not just re-asserted from a prior session's
+  uncommitted draft notes:
+  - Full gate re-run: `ruff format --check`, `ruff check`, `mypy --strict` (99 source
+    files), full `pytest` (274 tests: unit + integration against real PostgreSQL 16,
+    the pre-existing `openqms-dev-postgres` dev database — up from 268 at the end of
+    the Products backend slice, +6 from the TOCTOU fix below); `npm run lint`,
+    `format:check`, `typecheck` (strict), `test` (247 tests across 26 files), `build`.
+  - A real upgrade → downgrade → upgrade cycle for the complete eight-revision
+    migration chain (Milestones 0–3), run against a disposable PostgreSQL 16
+    container created and torn down for this check alone, confirming every
+    `downgrade()` is correct and the seed configuration rows (including the
+    Milestone 3 `supplier_certification_reminder_window_days`) are present and
+    correct after the final upgrade.
+  - `pip-audit` and `npm audit` re-run and independently confirmed (not merely
+    copied from a prior draft): `pip-audit` reports the same `starlette==0.46.2`/
+    `pytest==8.3.5` advisories (10 findings total, unchanged); `npm audit` reports
+    the same 14 findings (3 moderate, 10 high, 1 critical), same packages/versions.
+    No new dependency was added by Milestone 3, so both re-runs are re-confirmations
+    of the pre-existing, already-documented deferrals below, not new findings.
+  - **Independent security/tenant-isolation review** (a fresh agent with no prior
+    session context, reading the actual Suppliers/Products code and tests) found no
+    cross-organisation leaks, no client-controlled `organisation_id`, and no
+    path-traversal issues, but did find one real concurrency defect, fixed test-first
+    in this batch: three check-then-insert sequences in
+    `app/modules/products/service.py` (`part_number` uniqueness in
+    `create_product`/`update_product`, and the duplicate-link checks in
+    `create_product_document_link`/`create_product_supplier_link`) had no row lock
+    and no `IntegrityError` handling, so a losing concurrent request would surface a
+    raw `500` instead of the documented `409` — the same TOCTOU class already fixed
+    for Document Management's version numbering, acknowledgement idempotency, and
+    category-tree cycle check, reintroduced here in three new places. Fixed by
+    catching `IntegrityError` around each commit and mapping it to the same domain
+    conflict exception the normal check-path already raises. Two lower-severity,
+    pre-existing observations were verified and recorded but not changed:
+    `delete_category`'s unlocked count-then-delete shape (shared with Document
+    Management, and not a data-integrity risk since the FK rejects the delete rather
+    than silently corrupting data) and `list_company_ids_matching_name`'s missing
+    pagination limit (bounded by the caller's own organisation size). Full reasoning
+    in [DecisionLog.md](DecisionLog.md#2026-07-29-milestone-3-closeout-products-check-then-insert-races-mapped-to-clean-conflicts).
+  - 6 new backend tests from the fix above (274 total): three real-concurrency
+    `asyncio.gather` integration tests (kept as documentation of intended behaviour,
+    but — consistent with the same scheduler-dependency caveat already recorded for
+    the Document Management category-tree TOCTOU regression test — not a reliable
+    deterministic reproduction of the race) and three deterministic unit tests that
+    monkeypatch the relevant availability check to a no-op, forcing the code down
+    the `IntegrityError`-handling path directly.
+  - A real, browser-driven `docker compose up --build` smoke test (headless
+    Chromium via a temporary, uncommitted Playwright script outside the repository,
+    matching the Milestone 0/1/2 closeout precedent — no committed dependency
+    added): the bootstrap admin logged in, created a company and a supplier linked
+    to it, added a certification and a performance record to the supplier, created a
+    product category, created a product in that category, created a document and
+    linked it to the product (then unlinked it), linked the supplier to the
+    product, edited the product's metadata, and deleted the certification — all
+    with no browser console/page errors. `docker compose down` (no `-v`) then `up`
+    (no `--build`) brought the stack back healthy with the supplier, its
+    (now-empty) certification list, its performance record, the product category,
+    the product with its edited description and linked supplier, and the unlinked
+    document correctly still absent — all verified through the browser again after
+    the restart, not just the database directly. Verified with the backend and
+    frontend host ports temporarily remapped to `18000`/`15173` via a local,
+    uncommitted `docker-compose.override.yml` (using the Compose `!override` merge
+    tag, since plain list-merge would otherwise concatenate rather than replace the
+    `ports` key), for the same pre-existing host-port-8000-conflict reason recorded
+    in every prior milestone's Docker smoke test notes — the committed
+    `docker-compose.yml` is unaffected, and the override file was deleted after the
+    test rather than committed.
+  - Docs updated in this slice: this file, [TODO.md](TODO.md),
+    [DecisionLog.md](DecisionLog.md#2026-07-29-milestone-3-closeout-products-check-then-insert-races-mapped-to-clean-conflicts),
+    and the [Milestone 3 plan](../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md)'s
+    acceptance-criteria checkboxes and status line.
+
+**Milestone 3 (Products and Suppliers) is complete.**
 
 ## Work in progress
 
-Milestone 3 (Products and Suppliers): Suppliers (backend + frontend) and Products
-(backend + frontend) are both fully implemented and tested (see above). Not yet
-done: final Milestone 3 closeout verification (full gate re-run from a clean
-checkout, real-PostgreSQL integration suite, a migration upgrade/downgrade/upgrade
-cycle for the complete chain, dependency audits, a browser-driven Docker Compose
-smoke test with a persistence-restart check, and the plan's acceptance checkboxes).
-Plan: [.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md](../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md).
+None. Milestone 3 is closed out (see above). Next: Milestone 4 (NCR) — see
+[Roadmap.md](Roadmap.md#m4-ncr) and [TODO.md](TODO.md).
 
 ## Known bugs
 
@@ -847,6 +910,9 @@ Re-verified at Milestone 1 closeout: same 14 findings, same packages/versions, n
 dependency change made — `npm audit`'s severity rollup for a couple of these shifted
 (e.g. `vitest` now reports as "critical" via its vulnerable transitive `esbuild`/
 `vite-node`) but the underlying advisories and packages are unchanged from this entry.
+Re-verified at Milestone 3 closeout (2026-07-29): same 14 findings (3 moderate, 10
+high, 1 critical), same packages/versions; Milestone 3 added no new frontend
+dependency.
 
 `pip-audit` (backend) reports pre-existing advisories in `starlette` (0.46.2,
 pulled in transitively by the Milestone-0-pinned `fastapi>=0.115,<0.116`) and
@@ -864,14 +930,20 @@ recorded against the same unchanged `starlette` version (`pip-audit` lists 7 dis
 advisories against it rather than fewer previously), but the underlying constraint —
 `fastapi==0.115.14` pins `starlette<0.47.0`, and every fix version is `>=0.47.0` — is
 unchanged, so this remains the same accepted, unproven-jump-out-of-scope deferral, not
-a new or worsened finding.
+a new or worsened finding. Re-verified at Milestone 3 closeout (2026-07-29): same
+`fastapi==0.115.14`/`starlette==0.46.2`/`pytest==8.3.5` versions (`pip-audit` now
+lists 10 CVE IDs across both packages combined rather than 7, all against the same
+unchanged versions); Milestone 3 added no new backend dependency.
 
 ## Next recommended tasks
 
-Implement Milestone 3 per the committed plan, starting with the Suppliers backend
-slice (schema, CRUD, certifications, performance records), then Products, then both
-frontends, then closeout — test-first, in small independently-committable vertical
-slices, following the same pattern used for Milestones 1 and 2.
+Plan and implement Milestone 4 (NCR) per [Roadmap.md](Roadmap.md#m4-ncr) and TODO
+Task 17: write a documentation-first implementation plan under
+[.hermes/plans/](../.hermes/plans/) (schema, API, permissions, configurable
+prefixes, the Open → Investigate → Containment → Corrective Action → Verification →
+Close workflow, 5 Why/Fishbone/8D/10D tools, PDF export), following the same
+plan-then-implement-in-vertical-slices pattern used for Milestones 1–3, before
+writing any NCR code.
 
 Note on local tooling: this backend was developed using a repository-local `uv`
 install and virtual environment under `.tools/` (git-ignored) because `uv` was not
