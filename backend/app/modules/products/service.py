@@ -11,6 +11,7 @@ directly.
 import uuid
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.documents.service import DocumentNotFoundError, get_document
@@ -197,7 +198,17 @@ async def create_product(
         updated_by_id=created_by_id,
     )
     session.add(product)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        # Belt-and-braces alongside the check above: two concurrent creates for the
+        # same part_number can both pass _assert_part_number_available before either
+        # commits. The uq_products_org_part_number constraint catches it; map that to
+        # the same clean conflict the normal check-path raises, not a raw 500.
+        await session.rollback()
+        raise ProductPartNumberConflictError(
+            f"A product with part number {part_number!r} already exists in this organisation"
+        ) from exc
     await session.refresh(product)
     return product
 
@@ -277,7 +288,14 @@ async def update_product(
     product.type = type
     product.manufacturing_notes = manufacturing_notes
     product.updated_by_id = updated_by_id
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        # Same race as create_product's belt-and-braces catch above.
+        await session.rollback()
+        raise ProductPartNumberConflictError(
+            f"A product with part number {part_number!r} already exists in this organisation"
+        ) from exc
     await session.refresh(product)
     return product
 
@@ -295,20 +313,13 @@ async def delete_product(
 # --- Product-document links --------------------------------------------------------
 
 
-async def create_product_document_link(
+async def _assert_product_document_link_available(
     session: AsyncSession,
     *,
-    organisation_id: uuid.UUID,
     product_id: uuid.UUID,
     document_id: uuid.UUID,
     relationship_type: ProductDocumentRelationshipType,
-) -> ProductDocument:
-    await get_product(session, organisation_id=organisation_id, product_id=product_id)
-    try:
-        await get_document(session, organisation_id=organisation_id, document_id=document_id)
-    except DocumentNotFoundError as exc:
-        raise ProductDocumentNotFoundError(str(exc)) from exc
-
+) -> None:
     existing = (
         await session.execute(
             select(ProductDocument).where(
@@ -323,11 +334,44 @@ async def create_product_document_link(
             "This document is already linked to the product under this relationship type"
         )
 
+
+async def create_product_document_link(
+    session: AsyncSession,
+    *,
+    organisation_id: uuid.UUID,
+    product_id: uuid.UUID,
+    document_id: uuid.UUID,
+    relationship_type: ProductDocumentRelationshipType,
+) -> ProductDocument:
+    await get_product(session, organisation_id=organisation_id, product_id=product_id)
+    try:
+        await get_document(session, organisation_id=organisation_id, document_id=document_id)
+    except DocumentNotFoundError as exc:
+        raise ProductDocumentNotFoundError(str(exc)) from exc
+
+    await _assert_product_document_link_available(
+        session,
+        product_id=product_id,
+        document_id=document_id,
+        relationship_type=relationship_type,
+    )
+
     link = ProductDocument(
         product_id=product_id, document_id=document_id, relationship_type=relationship_type
     )
     session.add(link)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        # Belt-and-braces alongside the check above: two concurrent link requests for
+        # the same (product, document, relationship_type) can both pass the check
+        # before either commits. The uq_product_documents_product_document_type
+        # constraint catches it; map that to the same clean conflict the normal
+        # check-path raises, not a raw 500.
+        await session.rollback()
+        raise ProductDocumentLinkAlreadyExistsError(
+            "This document is already linked to the product under this relationship type"
+        ) from exc
     await session.refresh(link)
     return link
 
@@ -381,6 +425,23 @@ async def delete_product_document_link(
 # --- Product-supplier links ---------------------------------------------------------
 
 
+async def _assert_product_supplier_link_available(
+    session: AsyncSession, *, product_id: uuid.UUID, supplier_id: uuid.UUID
+) -> None:
+    existing = (
+        await session.execute(
+            select(ProductSupplierLink).where(
+                ProductSupplierLink.product_id == product_id,
+                ProductSupplierLink.supplier_id == supplier_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise ProductSupplierLinkAlreadyExistsError(
+            "This supplier is already linked to the product"
+        )
+
+
 async def create_product_supplier_link(
     session: AsyncSession,
     *,
@@ -395,24 +456,25 @@ async def create_product_supplier_link(
     except SupplierNotFoundError as exc:
         raise ProductSupplierNotFoundError(str(exc)) from exc
 
-    existing = (
-        await session.execute(
-            select(ProductSupplierLink).where(
-                ProductSupplierLink.product_id == product_id,
-                ProductSupplierLink.supplier_id == supplier_id,
-            )
-        )
-    ).scalar_one_or_none()
-    if existing is not None:
-        raise ProductSupplierLinkAlreadyExistsError(
-            "This supplier is already linked to the product"
-        )
+    await _assert_product_supplier_link_available(
+        session, product_id=product_id, supplier_id=supplier_id
+    )
 
     link = ProductSupplierLink(
         product_id=product_id, supplier_id=supplier_id, is_preferred=is_preferred
     )
     session.add(link)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        # Belt-and-braces alongside the check above: two concurrent link requests for
+        # the same (product, supplier) can both pass the check before either commits.
+        # The uq_product_supplier_links_product_supplier constraint catches it; map
+        # that to the same clean conflict the normal check-path raises, not a raw 500.
+        await session.rollback()
+        raise ProductSupplierLinkAlreadyExistsError(
+            "This supplier is already linked to the product"
+        ) from exc
     await session.refresh(link)
     return link
 

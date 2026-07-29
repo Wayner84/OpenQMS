@@ -7,6 +7,7 @@ category "still referenced" delete guard (`409`), and `document_id`/`supplier_id
 cross-organisation validation on the link endpoints.
 """
 
+import asyncio
 import os
 import subprocess
 import sys
@@ -325,6 +326,28 @@ async def test_create_product_allows_same_part_number_in_different_organisations
     assert response.status_code == 201, response.text
 
 
+async def test_concurrent_create_with_same_part_number_cannot_both_succeed(
+    context: Context,
+) -> None:
+    """Independent review finding: `_assert_part_number_available` is a check-then-
+    insert with no row lock, unlike Document Management's version-number/category-
+    tree races (which this milestone's own migration explicitly follows the
+    precedent of). Two concurrent creates with the same `part_number` can both pass
+    the check before either commits; without catching the resulting `IntegrityError`
+    from the `uq_products_org_part_number` constraint, the loser gets a bare 500
+    instead of the documented 409. Only real concurrent transactions against a
+    database that enforces the unique constraint (Postgres) can exercise this."""
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        body = {"part_number": "PN-RACE", "description": "A widget", "type": "purchased"}
+        results = await asyncio.gather(
+            client.post("/api/v1/products", headers=context.org_a_headers, json=body),
+            client.post("/api/v1/products", headers=context.org_a_headers, json=body),
+        )
+
+    assert sorted(response.status_code for response in results) == [201, 409]
+
+
 async def test_get_update_delete_product_returns_404_for_another_organisations_product(
     context: Context,
 ) -> None:
@@ -447,6 +470,30 @@ async def test_product_document_link_lifecycle_and_cross_org_document_validation
         assert final_list_response.json()["total"] == 1
 
 
+async def test_concurrent_duplicate_document_link_cannot_both_succeed(context: Context) -> None:
+    """Same TOCTOU class as test_concurrent_create_with_same_part_number_cannot_both_succeed,
+    for the duplicate-link check in create_product_document_link."""
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        product_id = await _create_product(client, context.org_a_headers)
+        document_response = await client.post(
+            "/api/v1/documents", headers=context.org_a_headers, json={"title": "Widget Drawing"}
+        )
+        document_id = document_response.json()["id"]
+        body = {"document_id": document_id, "relationship_type": "drawing"}
+
+        results = await asyncio.gather(
+            client.post(
+                f"/api/v1/products/{product_id}/documents", headers=context.org_a_headers, json=body
+            ),
+            client.post(
+                f"/api/v1/products/{product_id}/documents", headers=context.org_a_headers, json=body
+            ),
+        )
+
+    assert sorted(response.status_code for response in results) == [201, 409]
+
+
 # --- Product-supplier links ---------------------------------------------------------
 
 
@@ -500,6 +547,28 @@ async def test_product_supplier_link_lifecycle_and_cross_org_supplier_validation
             f"/api/v1/products/{product_id}/suppliers", headers=context.org_a_headers
         )
         assert final_list_response.json()["total"] == 0
+
+
+async def test_concurrent_duplicate_supplier_link_cannot_both_succeed(context: Context) -> None:
+    """Same TOCTOU class as test_concurrent_create_with_same_part_number_cannot_both_succeed,
+    for the duplicate-link check in create_product_supplier_link."""
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        product_id = await _create_product(client, context.org_a_headers)
+        company_id = await _create_company(client, context.org_a_headers)
+        supplier_id = await _create_supplier(client, context.org_a_headers, company_id)
+        body = {"supplier_id": supplier_id}
+
+        results = await asyncio.gather(
+            client.post(
+                f"/api/v1/products/{product_id}/suppliers", headers=context.org_a_headers, json=body
+            ),
+            client.post(
+                f"/api/v1/products/{product_id}/suppliers", headers=context.org_a_headers, json=body
+            ),
+        )
+
+    assert sorted(response.status_code for response in results) == [201, 409]
 
 
 async def test_product_endpoints_require_authentication(context: Context) -> None:

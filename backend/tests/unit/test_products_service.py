@@ -278,6 +278,44 @@ async def test_create_product_rejects_duplicate_part_number_in_same_organisation
             )
 
 
+async def test_create_product_maps_integrity_error_to_conflict_when_the_check_is_raced(
+    session_maker: SessionMaker, organisation_id: uuid.UUID, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Independent review finding: `_assert_part_number_available` is a check-then-
+    insert with no row lock. Two concurrent creates can both pass the check before
+    either commits; the loser's commit then hits the `uq_products_org_part_number`
+    unique constraint. Simulate that race deterministically (rather than relying on
+    real concurrency, which can't be forced to interleave reliably in a test) by
+    monkeypatching the check to a no-op, so the second create reaches `commit()`
+    with a real duplicate already present -- it must be mapped to the same
+    `ProductPartNumberConflictError` the normal check-path raises, not propagate a
+    raw `IntegrityError`."""
+    import app.modules.products.service as products_service
+    from app.modules.products.models import ProductType
+    from app.modules.products.service import ProductPartNumberConflictError, create_product
+
+    await _create_product(session_maker, organisation_id=organisation_id, part_number="PN-RACE")
+
+    async def _no_op_check(*args: object, **kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(products_service, "_assert_part_number_available", _no_op_check)
+
+    async with session_maker() as session:
+        with pytest.raises(ProductPartNumberConflictError):
+            await create_product(
+                session,
+                organisation_id=organisation_id,
+                part_number="PN-RACE",
+                description="Another widget",
+                revision="A",
+                category_id=None,
+                type=ProductType.PURCHASED,
+                manufacturing_notes=None,
+                created_by_id=None,
+            )
+
+
 async def test_create_product_allows_same_part_number_in_different_organisations(
     session_maker: SessionMaker, organisation_id: uuid.UUID, other_organisation_id: uuid.UUID
 ) -> None:
@@ -543,6 +581,49 @@ async def test_create_product_document_link_rejects_duplicate_relationship_type(
             )
 
 
+async def test_create_product_document_link_maps_integrity_error_to_conflict_when_raced(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    document_id: uuid.UUID,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Same TOCTOU class as
+    test_create_product_maps_integrity_error_to_conflict_when_the_check_is_raced, for
+    the duplicate-link check in create_product_document_link."""
+    import app.modules.products.service as products_service
+    from app.modules.products.models import ProductDocumentRelationshipType
+    from app.modules.products.service import (
+        ProductDocumentLinkAlreadyExistsError,
+        create_product_document_link,
+    )
+
+    product_id = await _create_product(session_maker, organisation_id=organisation_id)
+
+    async with session_maker() as session:
+        await create_product_document_link(
+            session,
+            organisation_id=organisation_id,
+            product_id=product_id,
+            document_id=document_id,
+            relationship_type=ProductDocumentRelationshipType.DRAWING,
+        )
+
+    async def _no_op_check(*args: object, **kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(products_service, "_assert_product_document_link_available", _no_op_check)
+
+    async with session_maker() as session:
+        with pytest.raises(ProductDocumentLinkAlreadyExistsError):
+            await create_product_document_link(
+                session,
+                organisation_id=organisation_id,
+                product_id=product_id,
+                document_id=document_id,
+                relationship_type=ProductDocumentRelationshipType.DRAWING,
+            )
+
+
 async def test_same_document_can_be_linked_under_two_relationship_types(
     session_maker: SessionMaker, organisation_id: uuid.UUID, document_id: uuid.UUID
 ) -> None:
@@ -642,6 +723,48 @@ async def test_create_product_supplier_link_rejects_duplicate(
             supplier_id=supplier_id,
             is_preferred=False,
         )
+
+    async with session_maker() as session:
+        with pytest.raises(ProductSupplierLinkAlreadyExistsError):
+            await create_product_supplier_link(
+                session,
+                organisation_id=organisation_id,
+                product_id=product_id,
+                supplier_id=supplier_id,
+                is_preferred=True,
+            )
+
+
+async def test_create_product_supplier_link_maps_integrity_error_to_conflict_when_raced(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    supplier_id: uuid.UUID,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Same TOCTOU class as
+    test_create_product_maps_integrity_error_to_conflict_when_the_check_is_raced, for
+    the duplicate-link check in create_product_supplier_link."""
+    import app.modules.products.service as products_service
+    from app.modules.products.service import (
+        ProductSupplierLinkAlreadyExistsError,
+        create_product_supplier_link,
+    )
+
+    product_id = await _create_product(session_maker, organisation_id=organisation_id)
+
+    async with session_maker() as session:
+        await create_product_supplier_link(
+            session,
+            organisation_id=organisation_id,
+            product_id=product_id,
+            supplier_id=supplier_id,
+            is_preferred=False,
+        )
+
+    async def _no_op_check(*args: object, **kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(products_service, "_assert_product_supplier_link_available", _no_op_check)
 
     async with session_maker() as session:
         with pytest.raises(ProductSupplierLinkAlreadyExistsError):

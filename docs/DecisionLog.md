@@ -955,6 +955,67 @@ test hook or direct transaction-level barrier could make the regression test its
 deterministic. Retrofitting equivalent coverage onto the approval slice's deferred
 gap remains a reasonable future improvement, out of scope for this pass.
 
+## 2026-07-29 — Milestone 3 closeout: Products check-then-insert races mapped to clean conflicts
+
+**Problem:** An independent security/tenant-isolation review of the Suppliers and
+Products backend (run as part of Milestone 3 closeout, a fresh reviewer with no
+prior session context) found no cross-organisation leaks, client-controlled
+`organisation_id`, or path-traversal issues, but flagged that three check-then-insert
+sequences in `app/modules/products/service.py` had neither a row lock nor an
+`IntegrityError`-to-`409` mapping, despite each having a real DB unique constraint:
+`create_product`/`update_product` (`_assert_part_number_available` then insert/
+update against `uq_products_org_part_number`), `create_product_document_link`
+(duplicate-link check then insert against
+`uq_product_documents_product_document_type`), and `create_product_supplier_link`
+(duplicate-link check then insert against
+`uq_product_supplier_links_product_supplier`). Two concurrent requests could both
+pass the check before either committed; the loser's commit would then raise a raw,
+uncaught `IntegrityError` — a bare `500` instead of the documented `409` — under
+concurrency. This is the same TOCTOU class already fixed for Document Management's
+version-number allocation, acknowledgement idempotency, and category-tree cycle
+check (see the entries above); Products reintroduced it in three new places without
+the equivalent fix.
+
+**Fix:** matching the existing `IntegrityError` belt-and-braces pattern used for
+document version upload and acknowledgements
+(`app/modules/documents/service.py`), each of the four call sites now wraps its
+`session.commit()` in `try`/`except IntegrityError`, rolls back, and raises the same
+domain exception the normal check-path already raises
+(`ProductPartNumberConflictError`, `ProductDocumentLinkAlreadyExistsError`,
+`ProductSupplierLinkAlreadyExistsError`) — already mapped to a clean `409` in
+`router.py`, so no router change was needed. The two inline duplicate-link checks
+were extracted into named helpers (`_assert_product_document_link_available`,
+`_assert_product_supplier_link_available`), mirroring the existing
+`_assert_part_number_available` shape, both for readability and so tests can
+monkeypatch the check independently of the commit path.
+
+**Testing:** real concurrent `asyncio.gather` HTTP requests against PostgreSQL
+(`backend/tests/integration/test_products.py`,
+`test_concurrent_create_with_same_part_number_cannot_both_succeed` and two
+equivalent tests for the link endpoints) proved unreliable at reproducing the race
+deterministically in practice — consistent with the same scheduler-dependency
+caveat already recorded in the category-tree TOCTOU entry above, both requests
+reaching the check before either committed is not guaranteed by `asyncio.gather`
+alone. They are kept as documentation of the intended concurrent behaviour
+(`sorted([201, 409])`), but the real regression coverage is three new deterministic
+unit tests (`backend/tests/unit/test_products_service.py`) that monkeypatch the
+relevant `_assert_*_available` helper to a no-op, forcing the second call to reach
+`commit()` against an already-duplicate row and asserting it raises the clean domain
+exception rather than a raw `IntegrityError`.
+
+**Also verified during this closeout, no code change required:** `delete_category`
+in both Products and Document Management has the same unlocked count-then-delete
+shape (a product/document could be created against a category between the count and
+the delete), but the FK has no `ON DELETE` behaviour, so PostgreSQL itself rejects
+the delete with an `IntegrityError` rather than silently corrupting data — a `500`
+under a narrow concurrency window, not a data-integrity bug, and pre-existing in
+Document Management rather than a Products regression. `list_company_ids_matching_name`
+(`app/modules/people/service.py`, added for Suppliers' company-name search) has no
+`LIMIT`, bounded only by the caller's own organisation size — noted as a minor
+inconsistency with every other list endpoint's pagination, not fixed in this pass.
+Both are tracked here rather than silently ignored; revisit if either becomes a real
+problem under production data volumes.
+
 **Finding 2 — async state not fully scoped to route/prop changes.**
 `DocumentDetailPage` and `VersionComparePanel` can be reused by their parent
 across a navigation to a *different* document (React only remounts on a `key`
