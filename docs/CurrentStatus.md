@@ -1,6 +1,6 @@
 # Current Status
 
-_Last updated: 2026-07-28 (Milestone 3: Products and Suppliers planned)_
+_Last updated: 2026-07-29 (Milestone 3: Suppliers backend implemented)_
 
 This document is kept truthful and current in the same commit as any work that
 changes it, per [Contributing.md](Contributing.md). It must never describe
@@ -14,10 +14,11 @@ for the exact scope, schema/API/permissions decisions, and acceptance criteria, 
 [Roadmap.md](Roadmap.md#m3-products-and-suppliers) for how it fits the overall
 delivery order.
 
-**Milestone 3 is in progress.** The implementation plan is written and committed; no
-implementation exists yet. M0 (Platform Foundation), M1 (Authentication,
-Organisations, People), and M2 (Document Management) are all complete and verified —
-see "Completed work" below for details and findings.
+**Milestone 3 is in progress.** The Suppliers backend (schema, CRUD, certifications,
+performance records) is implemented and tested; Products and both frontends are not
+yet built. M0 (Platform Foundation), M1 (Authentication, Organisations, People), and
+M2 (Document Management) are all complete and verified — see "Completed work" below
+for details and findings.
 
 ## Completed work
 
@@ -676,11 +677,54 @@ see "Completed work" below for details and findings.
 
 **Milestone 2 (Document Management) is complete.**
 
+- **Milestone 3 — Suppliers backend** (schema, certifications, performance records):
+  - Suppliers module (`backend/app/modules/suppliers/`): `suppliers`,
+    `supplier_certifications`, `supplier_performance_records` tables
+    (`backend/alembic/versions/d47b9e2c1a05_add_suppliers_certifications_and_.py`),
+    router mounted at `/api/v1/suppliers`, per
+    [API.md](API.md#suppliers-module-milestone-3-in-progress) and
+    [docs/modules/Suppliers.md](modules/Suppliers.md). Every operation requires only
+    authentication (any active user), scoped to the caller's own organisation, per
+    the Milestone 3 plan's design decision 2 (Suppliers is collaborative reference
+    data, not admin-gated like Document Management's categories/tags).
+  - `company_id` (on suppliers) and `certificate_document_id` (on certifications) are
+    validated against the People and Document Management modules' own service
+    layers respectively — never their models directly, per the module-isolation
+    rule — and `404` (never a cross-organisation leak) if not in the caller's
+    organisation. A new `list_company_ids_matching_name` helper was added to
+    `backend/app/modules/people/service.py` for this (Suppliers' company-name
+    `search` filter needs it without importing the `Company` model directly).
+  - `GET /api/v1/suppliers/certifications/expiring?within_days=` reads a new
+    `supplier_certification_reminder_window_days` `configuration` row (seeded by
+    the migration, default 30 days), per design decision 5 — read-only; no
+    notification is actually sent (no notification infrastructure exists yet).
+  - Migration verified with a real upgrade → downgrade → upgrade cycle against a
+    disposable local PostgreSQL 16 database, in addition to the integration suite
+    running `alembic upgrade head` itself.
+  - 236 backend tests passing (up from 209 at Milestone 2 closeout): 13 new unit
+    tests (organisation scoping, cross-module `company_id`/`certificate_document_id`
+    validation, the certification-expiry window calculation with both the
+    configured-default and explicit-`within_days` cases) and 8 new integration
+    tests against real PostgreSQL (full CRUD round trip, cross-organisation `404`s
+    for suppliers/certifications/performance, the expiring-certifications endpoint
+    scoped correctly per organisation, append-only performance-record ordering,
+    the authentication requirement). All written test-first (RED confirmed against
+    the already-drafted-but-uncommitted service/schema/model code from an
+    interrupted prior session, then GREEN against the new router/migration/tests
+    added this batch).
+  - Gates pass: `ruff format --check`, `ruff check`, `mypy --strict` (91 source
+    files), full `pytest` suite (236 tests: unit + integration against real
+    PostgreSQL 16).
+  - Docs updated in this slice: [API.md](API.md#suppliers-module-milestone-3-in-progress),
+    [Database.md](Database.md#suppliers-and-related-tables-milestone-3-in-progress),
+    [docs/modules/Suppliers.md](modules/Suppliers.md) (`Status: Implemented
+    (backend)`).
+
 ## Work in progress
 
-Milestone 3 (Products and Suppliers): plan committed
-([.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md](../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md)).
-No implementation exists yet.
+Milestone 3 (Products and Suppliers): Suppliers backend implemented and tested (see
+above). Not yet done: Products (schema/API), and the Suppliers/Products frontends.
+Plan: [.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md](../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md).
 
 ## Known bugs
 

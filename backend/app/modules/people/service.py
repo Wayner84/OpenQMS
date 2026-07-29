@@ -137,6 +137,23 @@ async def delete_company(
     await session.commit()
 
 
+async def list_company_ids_matching_name(
+    session: AsyncSession, *, organisation_id: uuid.UUID, search: str
+) -> list[uuid.UUID]:
+    """Return every company id in `organisation_id` whose name matches `search`
+    (case-insensitive substring). For other modules (e.g. Suppliers) that need to
+    filter their own records by a linked company's name without importing the
+    `Company` model directly, per the module-isolation rule
+    (docs/CodingStandards.md#backend-python)."""
+    result = await session.execute(
+        select(Company.id).where(
+            Company.organisation_id == organisation_id,
+            Company.name.ilike(f"%{search}%"),
+        )
+    )
+    return list(result.scalars().all())
+
+
 async def list_company_people(
     session: AsyncSession,
     *,

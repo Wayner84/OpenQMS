@@ -115,7 +115,7 @@ Full scope and acceptance criteria:
     Complexity: **L**. Status: In Progress (plan committed; no implementation yet).
 16. **Suppliers module** — see [docs/modules/Suppliers.md](modules/Suppliers.md).
     Dependencies: Milestone 1, Task 13 (people/contacts). Complexity: **M**.
-    Status: In Progress (plan committed; no implementation yet).
+    Status: In Progress (backend implemented and tested; frontend not yet built).
 
 ## Low Priority — Later modules (Milestones 4–9)
 17. **NCR module** — see [docs/modules/NCR.md](modules/NCR.md). Dependencies:

@@ -381,6 +381,74 @@ different document in the same organisation also `404`s, not just a different
 organisation's). `500` (logged server-side, generic message to the client) if a
 version's file is unexpectedly missing from storage.
 
+## Suppliers module (Milestone 3, in progress)
+
+Per [docs/modules/Suppliers.md](modules/Suppliers.md) and the
+[Milestone 3 plan](../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md).
+Every endpoint below requires authentication only (any active user) — Suppliers is
+collaborative reference data, not admin-gated, matching the People module's
+precedent (design decision 2 in the plan). Products (in progress within this same
+milestone) is not documented here yet.
+
+### `POST /api/v1/suppliers` / `PATCH /api/v1/suppliers/{id}`
+
+Create/full-update a supplier. Body: `company_id` (must belong to the caller's own
+organisation — `404` otherwise, matching the module-isolation-validated pattern
+already used for `owner_id`/`category_id` in Document Management),
+`approval_status` (`approved`/`pending`/`suspended`, default `pending`),
+`risk_rating` (`low`/`medium`/`high`, optional, operator-set — not an auto-computed
+score, see design decision 3), `is_preferred` (default `false`), `notes` (optional).
+
+### `GET /api/v1/suppliers` / `GET /api/v1/suppliers/{id}`
+
+List (paginated, per [Pagination](#pagination)) or fetch one supplier. List
+filters: `approval_status`, `risk_rating`, `is_preferred` (exact match), `search`
+(case-insensitive substring across the linked company's name). `404` for a
+cross-organisation `{id}`.
+
+### `DELETE /api/v1/suppliers/{id}`
+
+Hard delete (certifications/performance records cascade at the DB level — suppliers
+carry no audit-significant history of their own beyond those child records, unlike
+`documents`' soft delete). `404` for a cross-organisation id.
+
+### `POST /api/v1/suppliers/{id}/certifications` / `PATCH .../certifications/{certification_id}`
+
+Create/full-update a certification. Body: `certification_type` (free text — an
+open-ended, operator-defined list, not a fixed enum), `certificate_document_id`
+(optional, must belong to the caller's own organisation as a Document Management
+record — `404` otherwise), `issued_date`, `expiry_date` (both optional dates).
+
+### `GET /api/v1/suppliers/{id}/certifications`
+
+Paginated list of a supplier's certifications. `404` for a cross-organisation
+supplier `{id}`.
+
+### `DELETE /api/v1/suppliers/{id}/certifications/{certification_id}`
+
+`404` if the certification or its parent supplier isn't in the caller's organisation.
+
+### `GET /api/v1/suppliers/certifications/expiring?within_days=`
+
+Certifications expiring within `within_days` days (soonest first), across every
+supplier in the caller's organisation. Defaults to the organisation's configured
+`supplier_certification_reminder_window_days` value (a `configuration` row, per
+[Database.md](Database.md#configuration-table); built-in fallback 30 days) if
+`within_days` is omitted. Read-only — see design decision 5: no reminder is actually
+sent, since openQMS has no notification infrastructure yet.
+
+### `POST /api/v1/suppliers/{id}/performance`
+
+Record a performance entry. Body: `period` (free text, e.g. `"2026-Q3"`), `score`
+(operator-entered numeric value — not an auto-computed score, see design decision 4),
+`notes` (optional). Append-only: there is no update/delete route, matching
+`document_versions`/`document_approvals`'s existing immutable-history pattern.
+
+### `GET /api/v1/suppliers/{id}/performance`
+
+Paginated list of a supplier's performance records, newest first. `404` for a
+cross-organisation supplier `{id}`.
+
 ## Health and readiness endpoints (Milestone 0)
 
 These are the only endpoints Milestone 0 implements:
@@ -412,12 +480,12 @@ Response `503` (database unreachable):
 ## Module endpoint prefixes
 
 `/api/v1/auth`, `/api/v1/users`, `/api/v1/people`, `/api/v1/companies`,
-`/api/v1/document-categories`, `/api/v1/document-tags`, and `/api/v1/documents` are
-implemented (see "Authentication", "User management", "People module", and "Document
-Management" above). The rest are reserved prefixes for future modules, so routing
-collisions are avoided as modules land per the [Roadmap](Roadmap.md). Each will get
-full documentation in its `docs/modules/<Module>.md` "Planned APIs" section as it is
-implemented:
+`/api/v1/document-categories`, `/api/v1/document-tags`, `/api/v1/documents`, and
+`/api/v1/suppliers` are implemented (see "Authentication", "User management", "People
+module", "Document Management", and "Suppliers module" above). The rest are reserved
+prefixes for future modules, so routing collisions are avoided as modules land per the
+[Roadmap](Roadmap.md). Each will get full documentation in its
+`docs/modules/<Module>.md` "Planned APIs" section as it is implemented:
 
 | Prefix | Module |
 |---|---|
@@ -425,8 +493,8 @@ implemented:
 | `/api/v1/users` | User management (Milestone 1) — implemented |
 | `/api/v1/people`, `/api/v1/companies` | People (Milestone 1) — implemented |
 | `/api/v1/documents`, `/api/v1/document-categories`, `/api/v1/document-tags` | Document Management (Milestone 2) — implemented |
-| `/api/v1/products` | Products |
-| `/api/v1/suppliers` | Suppliers |
+| `/api/v1/suppliers` | Suppliers (Milestone 3) — implemented |
+| `/api/v1/products` | Products (Milestone 3, in progress) |
 | `/api/v1/ncr` | NCR |
 | `/api/v1/calibration` | Calibration and Asset Management |
 | `/api/v1/maintenance` | Maintenance |

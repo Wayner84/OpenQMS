@@ -309,6 +309,45 @@ use it). See `backend/app/modules/documents/numbering.py`. The second seeded row
 key `document_upload_policy`, is consumed by the upload endpoint — see "Upload
 policy" below.
 
+### Suppliers and related tables (Milestone 3, in progress)
+
+Per [docs/modules/Suppliers.md](modules/Suppliers.md) and the
+[Milestone 3 plan](../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md).
+All three tables carry `organisation_id`.
+
+- **`suppliers`** — `company_id` (FK → `companies.id`, not null; name/address/
+  contact data lives on the shared `companies` row, not duplicated here, matching
+  the module's stated design), `approval_status` (native enum `approved`/`pending`/
+  `suspended`, default `pending`), `risk_rating` (nullable native enum `low`/
+  `medium`/`high` — a plain operator-set field, not an auto-computed score; the
+  shared risk-scoring engine research question, TODO Task 37, is unresolved and
+  deliberately not answered here), `is_preferred` (boolean, default `false`),
+  `notes`, `created_by_id`/`updated_by_id`, `created_at`/`updated_at`. Hard delete
+  (unlike `documents`): a supplier carries no audit-significant history of its own
+  beyond its certifications/performance records, which cascade
+  (`ON DELETE CASCADE`) — matching the existing `companies`/`people` hard-delete
+  precedent, not a new one.
+- **`supplier_certifications`** — `supplier_id` (FK, cascade delete),
+  `certification_type` (free text, not an enum — an open-ended, operator-defined
+  list), `certificate_document_id` (nullable FK → `documents.id`), `issued_date`/
+  `expiry_date` (nullable dates), `created_at`/`updated_at`.
+- **`supplier_performance_records`** — `supplier_id` (FK, cascade delete), `period`
+  (free text, e.g. `"2026-Q3"`), `score` (numeric, operator-entered — same reasoning
+  as `risk_rating` above), `notes`, `created_by_id`, `created_at`. Append-only from
+  the API's perspective (no update/delete route), matching `document_versions`/
+  `document_approvals`'s existing immutable-history pattern.
+
+#### Certification expiry reminder window
+
+A `configuration` row per organisation, key
+`supplier_certification_reminder_window_days`, value `{"days": 30}` — seeded by the
+suppliers migration for the existing default organisation. Read (never seeded on
+read; a missing row falls back to the built-in default) by
+`GET /api/v1/suppliers/certifications/expiring` via
+`backend/app/modules/suppliers/reminder_config.py`. Actually sending a reminder is
+out of scope for this milestone — no notification/email infrastructure exists yet;
+this row only drives the read-only "expiring soon" list endpoint.
+
 ## Soft delete and audit trail
 
 Milestone 0 deferred this until "the first module that needs it (Document

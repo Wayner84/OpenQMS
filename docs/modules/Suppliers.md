@@ -1,11 +1,13 @@
 # Suppliers
 
-**Status: In Progress.** [Milestone 3](../Roadmap.md#m3-products-and-suppliers) is
-underway — see [docs/CurrentStatus.md](../CurrentStatus.md) and the
+**Status: Implemented (backend).** [Milestone 3](../Roadmap.md#m3-products-and-suppliers)
+is underway — see [docs/CurrentStatus.md](../CurrentStatus.md) and the
 [Milestone 3 plan](../../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md)
-for exactly what is and isn't implemented yet. No code exists yet; the plan is
-committed. Built first within this milestone (before Products), since it has no
-dependency on Products and Products' `product_supplier_links` depends on it.
+for exactly what is and isn't implemented yet. The backend (schema, migration, CRUD,
+certifications, performance records, the expiring-certifications endpoint) is
+implemented and tested against real PostgreSQL; the frontend is not yet built. Built
+first within this milestone (before Products), since it has no dependency on Products
+and Products' `product_supplier_links` depends on it.
 
 ## Purpose
 
@@ -71,11 +73,15 @@ Per [ProductSpecification.md](../ProductSpecification.md#module-relationships):
 
 ## Known issues / status
 
-Planned only; no schema, API, or UI exists yet. Depends on
-[People](People.md) (for the `companies`/contact model) existing first. The exact
-risk-scoring formula is an open research question shared with
+Backend schema, migration, and API are implemented and tested (unit + real-PostgreSQL
+integration); the frontend is not yet built — see the
+[Milestone 3 plan](../../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md).
+`GET /api/v1/suppliers/{id}/ncr-history` is deferred to Milestone 4, when the NCR
+module's `ncr_records.supplier_id` actually exists (plan design decision 6). The exact
+risk-scoring formula remains an open research question shared with
 [NCR](NCR.md) and [Health and Safety: Risk Assessments](HealthAndSafetyRiskAssessments.md)
-— see [TODO.md](../TODO.md#research-required).
+— see [TODO.md](../TODO.md#research-required); `risk_rating`/performance `score` are
+plain operator-entered fields for now.
 
 ## Related documents
 
