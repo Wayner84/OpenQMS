@@ -1,10 +1,12 @@
 # NCR
 
-**Status: Planned.** Not yet implemented — targeted for
-[Milestone 4](../Roadmap.md#m4-ncr). No code exists for this module yet; see
-[docs/CurrentStatus.md](../CurrentStatus.md). This is one of the two "major modules"
-named in the spec (with [SPC](SPC.md)) and is expected to span multiple
-implementation batches.
+**Status: Planned.** Implementation starting in
+[Milestone 4](../Roadmap.md#m4-ncr) — full scope, schema, API, and design decisions
+in the
+[Milestone 4 plan](../../.hermes/plans/2026-07-29-milestone-4-ncr.md). No code
+exists for this module yet; see [docs/CurrentStatus.md](../CurrentStatus.md). This
+is one of the two "major modules" named in the spec (with [SPC](SPC.md)) and is
+expected to span multiple implementation batches.
 
 ## Purpose
 
@@ -38,7 +40,13 @@ All tables carry `organisation_id` per [Database.md](../Database.md#multi-tenanc
 - **`ncr_attachments`** — `id`, `ncr_id`, `document_id` →
   [Document Management](DocumentManagement.md), `description`.
 - **`ncr_status_history`** — `id`, `ncr_id`, `from_status`, `to_status`,
-  `changed_by_id` → `people`, `changed_at`, `comments` — full audit trail of the
+  `changed_by_id` → `users.id` (a workflow transition is an action performed by an
+  authenticated API caller, attributed to `current_user` — matching the same
+  `document_approvals`/`document_acknowledgements` reasoning in
+  [DecisionLog.md](../DecisionLog.md#2026-07-26-document-management-schema-numbering-and-the-deferred-audit_log-table);
+  see the
+  [Milestone 4 plan](../../.hermes/plans/2026-07-29-milestone-4-ncr.md#design-decisions-made-in-this-plan-refining-the-planned-module-doc)
+  for the full reasoning), `changed_at`, `comments` — full audit trail of the
   workflow.
 
 ## Planned APIs
@@ -90,12 +98,16 @@ open, per the spec's explicit rule.
 Planned only; no schema, API, or UI exists yet. As the largest single module in the
 roadmap, implementation is expected to be split across several commits/batches per
 [Contributing.md](../Contributing.md#branching-and-commits) rather than one large
-change. Depends on [People](People.md), [Products](Products.md),
-[Suppliers](Suppliers.md) and [Document Management](DocumentManagement.md) existing
-first (see [Roadmap.md](../Roadmap.md)).
+change — see the
+[Milestone 4 plan](../../.hermes/plans/2026-07-29-milestone-4-ncr.md)'s suggested
+commit boundaries. Depends on [People](People.md), [Products](Products.md),
+[Suppliers](Suppliers.md) and [Document Management](DocumentManagement.md), all of
+which are now implemented (see [docs/CurrentStatus.md](../CurrentStatus.md)).
 
 ## Related documents
 
 - [Roadmap.md](../Roadmap.md#m4-ncr)
+- [Milestone 4 plan](../../.hermes/plans/2026-07-29-milestone-4-ncr.md) — full
+  schema, API, and design decisions for this implementation.
 - [TODO.md](../TODO.md#research-required) — shared risk-scoring research item.
 - [DecisionLog.md](../DecisionLog.md)

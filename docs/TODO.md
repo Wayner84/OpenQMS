@@ -128,9 +128,16 @@ workflow through `docker compose up --build`, surviving a `down`/`up` restart. S
 [DecisionLog.md](DecisionLog.md#2026-07-29-milestone-3-closeout-products-check-then-insert-races-mapped-to-clean-conflicts)
 for full detail. Next: Milestone 4 (NCR) — see below.
 
-## Low Priority — Later modules (Milestones 4–9)
+## Medium Priority — Milestone 4 (NCR) — IN PROGRESS
+
+Full scope and acceptance criteria:
+[.hermes/plans/2026-07-29-milestone-4-ncr.md](../.hermes/plans/2026-07-29-milestone-4-ncr.md).
+
 17. **NCR module** — see [docs/modules/NCR.md](modules/NCR.md). Dependencies:
-    Tasks 13, 14, 15, 16. Complexity: **XL**. Status: Not Started.
+    Tasks 13, 14, 15, 16 (all complete). Complexity: **XL**. Status: In Progress
+    (plan committed; no code yet).
+
+## Low Priority — Later modules (Milestones 5–9)
 18. **Calibration and Asset Management module** — see
     [docs/modules/CalibrationAndAssetManagement.md](modules/CalibrationAndAssetManagement.md).
     Dependencies: Tasks 13, 14. Complexity: **L**. Status: Not Started.

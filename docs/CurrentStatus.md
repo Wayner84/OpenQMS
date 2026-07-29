@@ -1,6 +1,6 @@
 # Current Status
 
-_Last updated: 2026-07-29 (Milestone 3: Products and Suppliers complete and closed out)_
+_Last updated: 2026-07-29 (Milestone 4 planned; implementation starting)_
 
 This document is kept truthful and current in the same commit as any work that
 changes it, per [Contributing.md](Contributing.md). It must never describe
@@ -8,11 +8,15 @@ in-progress or planned work as complete.
 
 ## Current milestone
 
-**M4 — NCR**, not yet started. M0 (Platform Foundation), M1 (Authentication,
-Organisations, People), M2 (Document Management), and M3 (Products and Suppliers)
-are all complete and verified — see "Completed work" below for details and
-findings. See [Roadmap.md](Roadmap.md#m4-ncr) and [TODO.md](TODO.md) for what's
-next.
+**M4 — NCR.** See
+[.hermes/plans/2026-07-29-milestone-4-ncr.md](../.hermes/plans/2026-07-29-milestone-4-ncr.md)
+for the exact scope, schema/API/permissions decisions, and acceptance criteria, and
+[Roadmap.md](Roadmap.md#m4-ncr) for how it fits the overall delivery order.
+
+**Milestone 4 is in progress.** The implementation plan is committed; no NCR code
+exists yet. M0 (Platform Foundation), M1 (Authentication, Organisations, People),
+M2 (Document Management), and M3 (Products and Suppliers) are all complete and
+verified — see "Completed work" below for details and findings.
 
 ## Completed work
 
@@ -887,8 +891,9 @@ next.
 
 ## Work in progress
 
-None. Milestone 3 is closed out (see above). Next: Milestone 4 (NCR) — see
-[Roadmap.md](Roadmap.md#m4-ncr) and [TODO.md](TODO.md).
+Milestone 4 (NCR): the implementation plan is committed (this batch). Not yet
+started: any schema, API, or frontend code. Plan:
+[.hermes/plans/2026-07-29-milestone-4-ncr.md](../.hermes/plans/2026-07-29-milestone-4-ncr.md).
 
 ## Known bugs
 
@@ -937,13 +942,12 @@ unchanged versions); Milestone 3 added no new backend dependency.
 
 ## Next recommended tasks
 
-Plan and implement Milestone 4 (NCR) per [Roadmap.md](Roadmap.md#m4-ncr) and TODO
-Task 17: write a documentation-first implementation plan under
-[.hermes/plans/](../.hermes/plans/) (schema, API, permissions, configurable
-prefixes, the Open → Investigate → Containment → Corrective Action → Verification →
-Close workflow, 5 Why/Fishbone/8D/10D tools, PDF export), following the same
-plan-then-implement-in-vertical-slices pattern used for Milestones 1–3, before
-writing any NCR code.
+Implement Milestone 4 per the committed plan, starting with the `ncrs`/
+`ncr_status_history` schema, numbering, CRUD, and the transition workflow (the
+plan's suggested commit 2), then actions, investigation tools, attachments and
+supplier NCR history, PDF export, frontend, then closeout — test-first, in small
+independently-committable vertical slices, following the same pattern used for
+Milestones 1–3.
 
 Note on local tooling: this backend was developed using a repository-local `uv`
 install and virtual environment under `.tools/` (git-ignored) because `uv` was not
