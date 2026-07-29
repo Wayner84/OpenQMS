@@ -1,10 +1,11 @@
 # Products
 
-**Status: In Progress.** [Milestone 3](../Roadmap.md#m3-products-and-suppliers) is
-underway — see [docs/CurrentStatus.md](../CurrentStatus.md) and the
+**Status: Implemented (backend).** [Milestone 3](../Roadmap.md#m3-products-and-suppliers)
+is underway — see [docs/CurrentStatus.md](../CurrentStatus.md) and the
 [Milestone 3 plan](../../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md)
-for exactly what is and isn't implemented yet. No code exists yet; the plan is
-committed.
+for exactly what is and isn't implemented yet. The backend (schema, migration, CRUD,
+category admin, document/supplier links) is implemented and tested against real
+PostgreSQL; the frontend is not yet built.
 
 ## Purpose
 
@@ -66,12 +67,11 @@ Per [ProductSpecification.md](../ProductSpecification.md#module-relationships):
 
 ## Known issues / status
 
-Planned only; no schema, API, or UI exists yet. Depends on
-[Document Management](DocumentManagement.md) existing first for drawing/spec links to
-be meaningful, and on [Suppliers](Suppliers.md) existing first for
-`product_supplier_links` (built first within Milestone 3 — see the
-[Milestone 3 plan](../../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md)'s
-design decision 1) (see [Roadmap.md](../Roadmap.md)).
+Backend schema, migration, and API are implemented and tested (unit + real-PostgreSQL
+integration); the frontend is not yet built — see the
+[Milestone 3 plan](../../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md).
+NCR/FAIR/SPC references to `products.id` will be added when those later milestones'
+own schemas are built (see [Roadmap.md](../Roadmap.md)); nothing here blocks them.
 
 ## Related documents
 

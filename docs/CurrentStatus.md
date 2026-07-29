@@ -1,6 +1,6 @@
 # Current Status
 
-_Last updated: 2026-07-29 (Milestone 3: Suppliers backend implemented)_
+_Last updated: 2026-07-29 (Milestone 3: Suppliers and Products backends implemented)_
 
 This document is kept truthful and current in the same commit as any work that
 changes it, per [Contributing.md](Contributing.md). It must never describe
@@ -15,10 +15,11 @@ for the exact scope, schema/API/permissions decisions, and acceptance criteria, 
 delivery order.
 
 **Milestone 3 is in progress.** The Suppliers backend (schema, CRUD, certifications,
-performance records) is implemented and tested; Products and both frontends are not
-yet built. M0 (Platform Foundation), M1 (Authentication, Organisations, People), and
-M2 (Document Management) are all complete and verified — see "Completed work" below
-for details and findings.
+performance records) and the Products backend (schema, CRUD, category admin,
+document/supplier links) are both implemented and tested; both frontends are not yet
+built. M0 (Platform Foundation), M1 (Authentication, Organisations, People), and M2
+(Document Management) are all complete and verified — see "Completed work" below for
+details and findings.
 
 ## Completed work
 
@@ -682,7 +683,7 @@ for details and findings.
     `supplier_certifications`, `supplier_performance_records` tables
     (`backend/alembic/versions/d47b9e2c1a05_add_suppliers_certifications_and_.py`),
     router mounted at `/api/v1/suppliers`, per
-    [API.md](API.md#suppliers-module-milestone-3-in-progress) and
+    [API.md](API.md#suppliers-module-milestone-3) and
     [docs/modules/Suppliers.md](modules/Suppliers.md). Every operation requires only
     authentication (any active user), scoped to the caller's own organisation, per
     the Milestone 3 plan's design decision 2 (Suppliers is collaborative reference
@@ -715,15 +716,64 @@ for details and findings.
   - Gates pass: `ruff format --check`, `ruff check`, `mypy --strict` (91 source
     files), full `pytest` suite (236 tests: unit + integration against real
     PostgreSQL 16).
-  - Docs updated in this slice: [API.md](API.md#suppliers-module-milestone-3-in-progress),
-    [Database.md](Database.md#suppliers-and-related-tables-milestone-3-in-progress),
+  - Docs updated in this slice: [API.md](API.md#suppliers-module-milestone-3),
+    [Database.md](Database.md#suppliers-and-related-tables-milestone-3),
     [docs/modules/Suppliers.md](modules/Suppliers.md) (`Status: Implemented
+    (backend)`).
+- **Milestone 3 — Products backend** (categories, products, document/supplier links):
+  - Products module (`backend/app/modules/products/`): `product_categories`,
+    `products`, `product_documents`, `product_supplier_links` tables
+    (`backend/alembic/versions/a6c2d94f7e13_add_product_categories_products_and_.py`),
+    router mounted at `/api/v1/product-categories` and `/api/v1/products`, per
+    [API.md](API.md#products-module-milestone-3) and
+    [docs/modules/Products.md](modules/Products.md). Built after Suppliers within
+    this same milestone (per the plan's design decision 1), since
+    `product_supplier_links` references `suppliers.id`. Every operation requires
+    only authentication (any active user), matching Suppliers/People's precedent,
+    per design decision 2.
+  - `part_number` is unique per organisation, enforced at the service layer with a
+    clean `409` (`_assert_part_number_available` in
+    `backend/app/modules/products/service.py`), matching `document_tags.name`'s
+    existing precedent, backed by a DB-level `UniqueConstraint` as defence in depth.
+    Product category deletion is guarded (`409`) while any product still references
+    it, matching `document_categories`' existing guard.
+  - `category_id` is validated within the Products module itself;
+    `document_id` (on product-document links) and `supplier_id` (on
+    product-supplier links) are validated against the Document Management and
+    Suppliers modules' own service layers respectively — never their models
+    directly, per the module-isolation rule — and `404` (never a cross-organisation
+    leak) if not in the caller's organisation. Duplicate links (`(product_id,
+    document_id, relationship_type)` or `(product_id, supplier_id)`) are rejected
+    with a clean `409`, not a raw `IntegrityError`.
+  - Migration verified with a real upgrade → downgrade → upgrade cycle against a
+    disposable local PostgreSQL 16 database — both individually (one revision at a
+    time) and together (both new Milestone 3 revisions in one downgrade/upgrade
+    pass) — in addition to the integration suite running `alembic upgrade head`
+    itself.
+  - 268 backend tests passing (up from 236 after the Suppliers backend slice): 32
+    new unit tests (organisation scoping, the `part_number` conflict `409` including
+    the same-part-number-different-organisation non-conflict case, the category
+    in-use `409`, cross-module `document_id`/`supplier_id` validation, duplicate-link
+    rejection, a document linked under two different relationship types) and 12 new
+    integration tests against real PostgreSQL (full CRUD round trips for categories/
+    products/both link types, cross-organisation `404`s, the `part_number` `409`
+    through the real HTTP API, the category delete guard, the authentication
+    requirement). All written test-first (RED confirmed against the already-planned
+    but not-yet-written router/migration/tests, then GREEN).
+  - Gates pass: `ruff format --check`, `ruff check`, `mypy --strict` (99 source
+    files), full `pytest` suite (268 tests: unit + integration against real
+    PostgreSQL 16).
+  - Docs updated in this slice: [API.md](API.md#products-module-milestone-3),
+    [Database.md](Database.md#products-and-related-tables-milestone-3),
+    [docs/modules/Products.md](modules/Products.md) (`Status: Implemented
     (backend)`).
 
 ## Work in progress
 
-Milestone 3 (Products and Suppliers): Suppliers backend implemented and tested (see
-above). Not yet done: Products (schema/API), and the Suppliers/Products frontends.
+Milestone 3 (Products and Suppliers): Suppliers and Products backends both
+implemented and tested (see above). Not yet done: the Suppliers and Products
+frontends, and final Milestone 3 closeout verification (full Docker Compose
+browser-driven smoke test, dependency audits re-run, plan acceptance checkboxes).
 Plan: [.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md](../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md).
 
 ## Known bugs

@@ -381,14 +381,13 @@ different document in the same organisation also `404`s, not just a different
 organisation's). `500` (logged server-side, generic message to the client) if a
 version's file is unexpectedly missing from storage.
 
-## Suppliers module (Milestone 3, in progress)
+## Suppliers module (Milestone 3)
 
 Per [docs/modules/Suppliers.md](modules/Suppliers.md) and the
 [Milestone 3 plan](../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md).
 Every endpoint below requires authentication only (any active user) — Suppliers is
 collaborative reference data, not admin-gated, matching the People module's
-precedent (design decision 2 in the plan). Products (in progress within this same
-milestone) is not documented here yet.
+precedent (design decision 2 in the plan).
 
 ### `POST /api/v1/suppliers` / `PATCH /api/v1/suppliers/{id}`
 
@@ -449,6 +448,81 @@ Record a performance entry. Body: `period` (free text, e.g. `"2026-Q3"`), `score
 Paginated list of a supplier's performance records, newest first. `404` for a
 cross-organisation supplier `{id}`.
 
+## Products module (Milestone 3)
+
+Per [docs/modules/Products.md](modules/Products.md) and the
+[Milestone 3 plan](../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md).
+Every endpoint below requires authentication only (any active user), matching
+Suppliers/People's precedent — not admin-gated, per design decision 2.
+
+### `POST /api/v1/product-categories` / `PATCH /api/v1/product-categories/{id}`
+
+Create/full-update a flat (non-hierarchical) product category. Body: `name`.
+
+### `GET /api/v1/product-categories` / `GET /api/v1/product-categories/{id}`
+
+Paginated list (alphabetical by name) or fetch one category. `404` for a
+cross-organisation `{id}`.
+
+### `DELETE /api/v1/product-categories/{id}`
+
+`404` for a cross-organisation id; `409` if any product in the caller's organisation
+still references this category.
+
+### `POST /api/v1/products` / `PATCH /api/v1/products/{id}`
+
+Create/full-update a product. Body: `part_number` (unique per organisation — `409`
+on conflict, checked server-side, not just a DB constraint), `description`,
+`revision` (default `"A"`), `category_id` (optional, must belong to the caller's own
+organisation — `404` otherwise), `type` (`internal`/`purchased`/`assembly`/
+`component`), `manufacturing_notes` (optional).
+
+### `GET /api/v1/products` / `GET /api/v1/products/{id}`
+
+List (paginated) or fetch one product. List filters: `category_id`, `type` (exact
+match), `search` (case-insensitive substring across `part_number`/`description`).
+`404` for a cross-organisation `{id}`.
+
+### `DELETE /api/v1/products/{id}`
+
+Hard delete (linked document/supplier link rows cascade at the DB level — a product
+record itself has no workflow/approval history to preserve, unlike documents). `404`
+for a cross-organisation id.
+
+### `POST /api/v1/products/{id}/documents`
+
+Link a Document Management record to a product. Body: `document_id` (must belong to
+the caller's own organisation — `404` otherwise), `relationship_type` (`drawing`/
+`specification`/`cad`). `409` if this exact `(document_id, relationship_type)` pair
+is already linked to the product — the same document may still be linked under a
+*different* relationship type.
+
+### `GET /api/v1/products/{id}/documents`
+
+Paginated list of a product's linked documents. `404` for a cross-organisation
+product `{id}`.
+
+### `DELETE /api/v1/products/{id}/documents/{link_id}`
+
+Unlink a document (does not affect the underlying Document Management record).
+`404` if the link or its parent product isn't in the caller's organisation.
+
+### `POST /api/v1/products/{id}/suppliers`
+
+Link an approved supplier to a product. Body: `supplier_id` (must belong to the
+caller's own organisation — `404` otherwise), `is_preferred` (default `false`).
+`409` if this supplier is already linked to the product.
+
+### `GET /api/v1/products/{id}/suppliers`
+
+Paginated list of a product's linked suppliers. `404` for a cross-organisation
+product `{id}`.
+
+### `DELETE /api/v1/products/{id}/suppliers/{link_id}`
+
+Unlink a supplier. `404` if the link or its parent product isn't in the caller's
+organisation.
+
 ## Health and readiness endpoints (Milestone 0)
 
 These are the only endpoints Milestone 0 implements:
@@ -480,9 +554,10 @@ Response `503` (database unreachable):
 ## Module endpoint prefixes
 
 `/api/v1/auth`, `/api/v1/users`, `/api/v1/people`, `/api/v1/companies`,
-`/api/v1/document-categories`, `/api/v1/document-tags`, `/api/v1/documents`, and
-`/api/v1/suppliers` are implemented (see "Authentication", "User management", "People
-module", "Document Management", and "Suppliers module" above). The rest are reserved
+`/api/v1/document-categories`, `/api/v1/document-tags`, `/api/v1/documents`,
+`/api/v1/suppliers`, `/api/v1/products`, and `/api/v1/product-categories` are
+implemented (see "Authentication", "User management", "People module", "Document
+Management", "Suppliers module", and "Products module" above). The rest are reserved
 prefixes for future modules, so routing collisions are avoided as modules land per the
 [Roadmap](Roadmap.md). Each will get full documentation in its
 `docs/modules/<Module>.md` "Planned APIs" section as it is implemented:
@@ -494,7 +569,7 @@ prefixes for future modules, so routing collisions are avoided as modules land p
 | `/api/v1/people`, `/api/v1/companies` | People (Milestone 1) — implemented |
 | `/api/v1/documents`, `/api/v1/document-categories`, `/api/v1/document-tags` | Document Management (Milestone 2) — implemented |
 | `/api/v1/suppliers` | Suppliers (Milestone 3) — implemented |
-| `/api/v1/products` | Products (Milestone 3, in progress) |
+| `/api/v1/products`, `/api/v1/product-categories` | Products (Milestone 3) — implemented (backend) |
 | `/api/v1/ncr` | NCR |
 | `/api/v1/calibration` | Calibration and Asset Management |
 | `/api/v1/maintenance` | Maintenance |

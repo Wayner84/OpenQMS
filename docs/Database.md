@@ -309,7 +309,7 @@ use it). See `backend/app/modules/documents/numbering.py`. The second seeded row
 key `document_upload_policy`, is consumed by the upload endpoint — see "Upload
 policy" below.
 
-### Suppliers and related tables (Milestone 3, in progress)
+### Suppliers and related tables (Milestone 3)
 
 Per [docs/modules/Suppliers.md](modules/Suppliers.md) and the
 [Milestone 3 plan](../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md).
@@ -347,6 +347,33 @@ read; a missing row falls back to the built-in default) by
 `backend/app/modules/suppliers/reminder_config.py`. Actually sending a reminder is
 out of scope for this milestone — no notification/email infrastructure exists yet;
 this row only drives the read-only "expiring soon" list endpoint.
+
+### Products and related tables (Milestone 3)
+
+Per [docs/modules/Products.md](modules/Products.md) and the
+[Milestone 3 plan](../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md).
+All four tables carry `organisation_id` except the two link tables, which are scoped
+transitively through their parent `product_id`.
+
+- **`product_categories`** — flat (non-hierarchical), unlike Document Management's
+  tree-shaped `document_categories`: `name`, `created_at`/`updated_at`.
+- **`products`** — `part_number` (text, not null; unique per organisation via
+  `UniqueConstraint(organisation_id, part_number)` as a DB-level backstop, but the
+  clean `409` on conflict is enforced at the service layer first, matching
+  `document_tags.name`'s existing precedent — not a raw `IntegrityError` leaking to
+  the client), `description`, `revision` (default `"A"`), `category_id` (nullable FK
+  → `product_categories.id`), `type` (native enum `internal`/`purchased`/
+  `assembly`/`component`), `manufacturing_notes`, `created_by_id`/`updated_by_id`,
+  `created_at`/`updated_at`. Hard delete, matching `suppliers`' precedent — a product
+  record itself has no workflow/approval history to preserve.
+- **`product_documents`** — `product_id` (FK, cascade delete), `document_id` (FK →
+  `documents.id`, not null), `relationship_type` (native enum `drawing`/
+  `specification`/`cad`). Composite uniqueness on `(product_id, document_id,
+  relationship_type)` — the same document can be linked under more than one
+  relationship type, but not twice under the identical type.
+- **`product_supplier_links`** — `product_id` (FK, cascade delete), `supplier_id`
+  (FK → `suppliers.id`, not null), `is_preferred` (boolean, default `false`).
+  Composite uniqueness on `(product_id, supplier_id)`.
 
 ## Soft delete and audit trail
 
