@@ -14,7 +14,7 @@ import datetime
 import enum
 import uuid
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Text, UniqueConstraint, func
+from sqlalchemy import Date, DateTime, Enum, ForeignKey, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -118,3 +118,43 @@ class NcrStatusHistory(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     comments: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class NcrActionStatus(str, enum.Enum):
+    """Whether a corrective/preventive action for an NCR is still outstanding.
+    An NCR cannot close (design decision 4) while any of its actions are `open`."""
+
+    OPEN = "open"
+    COMPLETE = "complete"
+
+
+class NcrAction(Base):
+    """A containment/corrective/preventive action tracked against an NCR.
+    `owner_id` is an organisational assignment (who is responsible for fixing it)
+    that can validly name someone without a login, matching `ncrs.raised_by_id`'s
+    precedent -- see the plan's design decision 1."""
+
+    __tablename__ = "ncr_actions"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    ncr_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("ncrs.id", ondelete="CASCADE"), nullable=False
+    )
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("people.id"), nullable=True)
+    due_date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[NcrActionStatus] = mapped_column(
+        _ncr_enum_column(NcrActionStatus, "ncr_action_status"),
+        nullable=False,
+        default=NcrActionStatus.OPEN,
+    )
+    completed_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )

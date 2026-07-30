@@ -19,6 +19,10 @@ from app.core.db import get_session
 from app.core.deps import CurrentAdmin, CurrentUser
 from app.modules.ncr.models import NcrStatus, NcrType
 from app.modules.ncr.schemas import (
+    NcrActionCreateRequest,
+    NcrActionListResponse,
+    NcrActionRead,
+    NcrActionUpdateRequest,
     NcrCreateRequest,
     NcrListResponse,
     NcrRead,
@@ -29,16 +33,23 @@ from app.modules.ncr.schemas import (
 )
 from app.modules.ncr.service import (
     InvalidNcrTransitionError,
+    NcrActionNotFoundError,
+    NcrActionOwnerNotFoundError,
+    NcrActionsFrozenError,
+    NcrCloseBlockedByOpenActionsError,
     NcrNotFoundError,
     NcrProductNotFoundError,
     NcrRaisedByNotFoundError,
     NcrSupplierNotFoundError,
+    create_action,
     create_ncr,
     delete_ncr,
     get_ncr,
+    list_actions,
     list_ncrs,
     list_status_history,
     transition_ncr,
+    update_action,
     update_ncr,
 )
 
@@ -186,6 +197,8 @@ async def transition_ncr_endpoint(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="NCR not found") from exc
     except InvalidNcrTransitionError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except NcrCloseBlockedByOpenActionsError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return NcrRead.model_validate(ncr)
 
 
@@ -213,3 +226,90 @@ async def list_status_history_endpoint(
         limit=limit,
         offset=offset,
     )
+
+
+# --- Actions -----------------------------------------------------------------
+
+
+@router.post("/{ncr_id}/actions", status_code=status.HTTP_201_CREATED)
+async def create_action_endpoint(
+    ncr_id: uuid.UUID,
+    payload: NcrActionCreateRequest,
+    current_user: CurrentUser,
+    session: SessionDependency,
+) -> NcrActionRead:
+    try:
+        action = await create_action(
+            session,
+            organisation_id=current_user.organisation_id,
+            ncr_id=ncr_id,
+            description=payload.description,
+            owner_id=payload.owner_id,
+            due_date=payload.due_date,
+            created_by_id=current_user.id,
+        )
+    except NcrNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="NCR not found") from exc
+    except NcrActionOwnerNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Person not found"
+        ) from exc
+    except NcrActionsFrozenError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return NcrActionRead.model_validate(action)
+
+
+@router.get("/{ncr_id}/actions")
+async def list_actions_endpoint(
+    ncr_id: uuid.UUID,
+    current_user: CurrentUser,
+    session: SessionDependency,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> NcrActionListResponse:
+    try:
+        actions, total = await list_actions(
+            session,
+            organisation_id=current_user.organisation_id,
+            ncr_id=ncr_id,
+            limit=limit,
+            offset=offset,
+        )
+    except NcrNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="NCR not found") from exc
+    return NcrActionListResponse(
+        items=[NcrActionRead.model_validate(a) for a in actions],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.patch("/actions/{action_id}")
+async def update_action_endpoint(
+    action_id: uuid.UUID,
+    payload: NcrActionUpdateRequest,
+    current_user: CurrentUser,
+    session: SessionDependency,
+) -> NcrActionRead:
+    try:
+        action = await update_action(
+            session,
+            organisation_id=current_user.organisation_id,
+            action_id=action_id,
+            description=payload.description,
+            owner_id=payload.owner_id,
+            due_date=payload.due_date,
+            status=payload.status,
+        )
+    except NcrActionNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Action not found"
+        ) from exc
+    except NcrActionOwnerNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Person not found"
+        ) from exc
+    except NcrActionsFrozenError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return NcrActionRead.model_validate(action)

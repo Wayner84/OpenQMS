@@ -5,10 +5,6 @@ caller's organisation; `product_id`, `supplier_id`, and `raised_by_id` are valid
 against the Products, Suppliers, and People modules' own service layers (module
 boundary rule -- see docs/CodingStandards.md#backend-python), never queried
 directly.
-
-The close-blocked-while-actions-open guard (design decision 4) is added in the
-`ncr_actions` slice, once that table exists -- this slice implements the workflow
-sequence and its row-locking, but not that guard.
 """
 
 import datetime
@@ -17,7 +13,15 @@ import uuid
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.ncr.models import NCR_STATUS_SEQUENCE, Ncr, NcrStatus, NcrStatusHistory, NcrType
+from app.modules.ncr.models import (
+    NCR_STATUS_SEQUENCE,
+    Ncr,
+    NcrAction,
+    NcrActionStatus,
+    NcrStatus,
+    NcrStatusHistory,
+    NcrType,
+)
 from app.modules.ncr.numbering import generate_ncr_number
 from app.modules.people.service import PersonNotFoundError, get_person
 from app.modules.products.service import ProductNotFoundError, get_product
@@ -44,6 +48,28 @@ class NcrRaisedByNotFoundError(Exception):
 class InvalidNcrTransitionError(Exception):
     """Raised when a transition's `to_status` is not exactly the next status in the
     fixed sequence for the NCR's current status."""
+
+
+class NcrCloseBlockedByOpenActionsError(Exception):
+    """Raised when transitioning to `closed` while any of the NCR's actions are
+    still `open` (design decision 4)."""
+
+
+class NcrActionNotFoundError(Exception):
+    """Raised when an action id doesn't exist for the given NCR."""
+
+
+class NcrActionsFrozenError(Exception):
+    """Raised when adding or editing an action on an NCR that is already
+    `closed`. Extends the spirit of design decision 4 (closing is blocked while
+    actions are open): once closed, an NCR's actions must stay exactly as they
+    were at close time, or the close-blocked-while-actions-open guard could be
+    defeated after the fact by reopening a completed action post-closure."""
+
+
+class NcrActionOwnerNotFoundError(Exception):
+    """Raised when an action's `owner_id` doesn't exist in the caller's
+    organisation."""
 
 
 async def _validate_links(
@@ -277,6 +303,24 @@ async def transition_ncr(
             f" {expected_next.value}, not {to_status.value}"
         )
 
+    if to_status == NcrStatus.CLOSED:
+        # Design decision 4: closing is blocked while any action is still open.
+        # Checked inside this same locked transaction (the lock was already
+        # acquired above, before this read) so a concurrent "add an open action"
+        # and "close the NCR" can't race past each other -- whichever commits
+        # first is what the other observes.
+        open_actions = (
+            await session.execute(
+                select(func.count())
+                .select_from(NcrAction)
+                .where(NcrAction.ncr_id == ncr.id, NcrAction.status == NcrActionStatus.OPEN)
+            )
+        ).scalar_one()
+        if open_actions > 0:
+            raise NcrCloseBlockedByOpenActionsError(
+                f"NCR {ncr_id} cannot close while {open_actions} action(s) are still open"
+            )
+
     from_status = ncr.status
     ncr.status = to_status
     ncr.updated_by_id = changed_by_id
@@ -322,3 +366,132 @@ async def list_status_history(
         .offset(offset)
     )
     return list(result.scalars().all()), total
+
+
+# --- Actions -----------------------------------------------------------------
+
+
+async def _validate_action_owner(
+    session: AsyncSession, *, organisation_id: uuid.UUID, owner_id: uuid.UUID | None
+) -> None:
+    if owner_id is None:
+        return
+    try:
+        await get_person(session, organisation_id=organisation_id, person_id=owner_id)
+    except PersonNotFoundError as exc:
+        raise NcrActionOwnerNotFoundError(str(exc)) from exc
+
+
+async def create_action(
+    session: AsyncSession,
+    *,
+    organisation_id: uuid.UUID,
+    ncr_id: uuid.UUID,
+    description: str,
+    owner_id: uuid.UUID | None,
+    due_date: datetime.date | None,
+    created_by_id: uuid.UUID,
+) -> NcrAction:
+    ncr = await get_ncr(session, organisation_id=organisation_id, ncr_id=ncr_id)
+    # Lock the parent NCR row (same lock transition_ncr's close guard takes)
+    # before adding a new open action -- otherwise a concurrent "close the NCR"
+    # request's open-actions count could run (and see zero) before this insert
+    # commits, letting the NCR close with an action that is about to become open.
+    # An independent security review found this gap; see docs/DecisionLog.md.
+    await _lock_ncr(session, ncr)
+    if ncr.status == NcrStatus.CLOSED:
+        raise NcrActionsFrozenError(f"NCR {ncr_id} is closed; its actions cannot be edited")
+    await _validate_action_owner(session, organisation_id=organisation_id, owner_id=owner_id)
+
+    action = NcrAction(
+        ncr_id=ncr_id,
+        description=description,
+        owner_id=owner_id,
+        due_date=due_date,
+        status=NcrActionStatus.OPEN,
+        created_by_id=created_by_id,
+    )
+    session.add(action)
+    await session.commit()
+    await session.refresh(action)
+    return action
+
+
+async def list_actions(
+    session: AsyncSession,
+    *,
+    organisation_id: uuid.UUID,
+    ncr_id: uuid.UUID,
+    limit: int,
+    offset: int,
+) -> tuple[list[NcrAction], int]:
+    await get_ncr(session, organisation_id=organisation_id, ncr_id=ncr_id)
+
+    total = (
+        await session.execute(
+            select(func.count()).select_from(NcrAction).where(NcrAction.ncr_id == ncr_id)
+        )
+    ).scalar_one()
+    result = await session.execute(
+        select(NcrAction)
+        .where(NcrAction.ncr_id == ncr_id)
+        .order_by(NcrAction.created_at)
+        .limit(limit)
+        .offset(offset)
+    )
+    return list(result.scalars().all()), total
+
+
+async def update_action(
+    session: AsyncSession,
+    *,
+    organisation_id: uuid.UUID,
+    action_id: uuid.UUID,
+    description: str,
+    owner_id: uuid.UUID | None,
+    due_date: datetime.date | None,
+    status: NcrActionStatus,
+) -> NcrAction:
+    """Looked up directly by `action_id` (matching the plan's
+    `PATCH /api/v1/ncr/actions/{id}` shape, not nested under a specific NCR id),
+    but still scoped to the caller's organisation via a join through `ncrs` so a
+    cross-organisation action id 404s rather than leaking."""
+    action = (
+        await session.execute(
+            select(NcrAction)
+            .join(Ncr, Ncr.id == NcrAction.ncr_id)
+            .where(
+                NcrAction.id == action_id,
+                Ncr.organisation_id == organisation_id,
+                Ncr.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if action is None:
+        raise NcrActionNotFoundError(f"No action {action_id} in this organisation")
+
+    # Same lock as create_action, for the same reason: without it, a concurrent
+    # transition_ncr close-guard count could run in between this read and this
+    # commit and miss a status flip happening right now (e.g. this call reopening
+    # an action while a transition-to-closed request is simultaneously counting
+    # open actions as zero).
+    ncr = await get_ncr(session, organisation_id=organisation_id, ncr_id=action.ncr_id)
+    await _lock_ncr(session, ncr)
+    if ncr.status == NcrStatus.CLOSED:
+        raise NcrActionsFrozenError(f"NCR {ncr.id} is closed; its actions cannot be edited")
+
+    await _validate_action_owner(session, organisation_id=organisation_id, owner_id=owner_id)
+
+    was_open = action.status == NcrActionStatus.OPEN
+    action.description = description
+    action.owner_id = owner_id
+    action.due_date = due_date
+    action.status = status
+    if status == NcrActionStatus.COMPLETE and was_open:
+        action.completed_at = datetime.datetime.now(datetime.UTC)
+    elif status == NcrActionStatus.OPEN:
+        action.completed_at = None
+
+    await session.commit()
+    await session.refresh(action)
+    return action

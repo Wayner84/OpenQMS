@@ -81,6 +81,7 @@ async def context(database_url: str, monkeypatch: pytest.MonkeyPatch) -> AsyncIt
     from app.models.organisation import Organisation
     from app.models.user import User, UserRole
     from app.modules.documents.models import Document
+    from app.modules.ncr.models import Ncr
     from app.modules.people.models import Company
     from app.modules.suppliers.models import Supplier
 
@@ -99,7 +100,10 @@ async def context(database_url: str, monkeypatch: pytest.MonkeyPatch) -> AsyncIt
         ).scalar_one()
 
         # Shared, persistent dev database: reset the default organisation's rows so
-        # earlier local runs don't affect these assertions.
+        # earlier local runs don't affect these assertions. ncrs.supplier_id
+        # references suppliers.id, so any leftover NCR row must be cleared first or
+        # the Supplier delete below fails on a foreign key violation.
+        await session.execute(delete(Ncr).where(Ncr.organisation_id == org_a.id))
         await session.execute(delete(Supplier).where(Supplier.organisation_id == org_a.id))
         await session.execute(delete(Document).where(Document.organisation_id == org_a.id))
         await session.execute(delete(Company).where(Company.organisation_id == org_a.id))

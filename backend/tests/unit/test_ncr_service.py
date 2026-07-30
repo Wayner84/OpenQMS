@@ -872,3 +872,637 @@ async def test_update_ncr_rejects_an_ncr_deleted_after_the_initial_fetch(
                 description="Updated while a concurrent delete raced in",
                 root_cause_summary=None,
             )
+
+
+# --- Actions -------------------------------------------------------------------
+
+
+async def test_create_action_defaults_to_open(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.models import NcrActionStatus
+    from app.modules.ncr.service import create_action
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+
+    async with session_maker() as session:
+        action = await create_action(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            description="Retrain operator",
+            owner_id=raised_by_id,
+            due_date=None,
+            created_by_id=user_id,
+        )
+
+    assert action.status == NcrActionStatus.OPEN
+    assert action.completed_at is None
+    assert action.owner_id == raised_by_id
+
+
+async def test_create_action_locks_the_parent_ncr(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Independent review finding: without locking the parent NCR row the same way
+    transition_ncr's close guard does, a concurrent create_action and
+    transition-to-closed could race -- the close guard's open-actions count could
+    run and see zero before this insert commits. Assert the lock is actually taken
+    (a spy on _lock_ncr), since SQLite (used by this unit-test suite) has no real
+    row-level locking to prove the race is closed end-to-end -- that's covered by
+    a real-concurrency integration test instead."""
+    import app.modules.ncr.service as ncr_service
+    from app.modules.ncr.service import create_action
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+
+    locked_ncr_ids: list[uuid.UUID] = []
+    original_lock_ncr = ncr_service._lock_ncr
+
+    async def _spy_lock_ncr(session: object, ncr: object) -> None:
+        locked_ncr_ids.append(ncr.id)  # type: ignore[attr-defined]
+        await original_lock_ncr(session, ncr)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(ncr_service, "_lock_ncr", _spy_lock_ncr)
+
+    async with session_maker() as session:
+        await create_action(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            description="Retrain operator",
+            owner_id=None,
+            due_date=None,
+            created_by_id=user_id,
+        )
+
+    assert locked_ncr_ids == [ncr_id]
+
+
+async def test_update_action_locks_the_parent_ncr(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Same reasoning as test_create_action_locks_the_parent_ncr, for update_action
+    (e.g. reopening an action concurrently with a close)."""
+    import app.modules.ncr.service as ncr_service
+    from app.modules.ncr.models import NcrActionStatus
+    from app.modules.ncr.service import create_action, update_action
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+    async with session_maker() as session:
+        action = await create_action(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            description="Retrain operator",
+            owner_id=None,
+            due_date=None,
+            created_by_id=user_id,
+        )
+
+    locked_ncr_ids: list[uuid.UUID] = []
+    original_lock_ncr = ncr_service._lock_ncr
+
+    async def _spy_lock_ncr(session: object, ncr: object) -> None:
+        locked_ncr_ids.append(ncr.id)  # type: ignore[attr-defined]
+        await original_lock_ncr(session, ncr)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(ncr_service, "_lock_ncr", _spy_lock_ncr)
+
+    async with session_maker() as session:
+        await update_action(
+            session,
+            organisation_id=organisation_id,
+            action_id=action.id,
+            description="Retrain operator",
+            owner_id=None,
+            due_date=None,
+            status=NcrActionStatus.COMPLETE,
+        )
+
+    assert locked_ncr_ids == [ncr_id]
+
+
+async def test_create_action_raises_not_found_for_cross_organisation_ncr(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    other_organisation_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.service import NcrNotFoundError, create_action
+
+    other_raised_by_id = await _create_person(session_maker, organisation_id=other_organisation_id)
+    other_ncr_id = await _create_ncr(
+        session_maker,
+        organisation_id=other_organisation_id,
+        raised_by_id=other_raised_by_id,
+        user_id=user_id,
+    )
+
+    async with session_maker() as session:
+        with pytest.raises(NcrNotFoundError):
+            await create_action(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=other_ncr_id,
+                description="Should not be created",
+                owner_id=None,
+                due_date=None,
+                created_by_id=user_id,
+            )
+
+
+async def test_create_action_rejects_owner_in_another_organisation(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    other_org_person_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.service import NcrActionOwnerNotFoundError, create_action
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+
+    async with session_maker() as session:
+        with pytest.raises(NcrActionOwnerNotFoundError):
+            await create_action(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=ncr_id,
+                description="Should not be created",
+                owner_id=other_org_person_id,
+                due_date=None,
+                created_by_id=user_id,
+            )
+
+
+async def test_list_actions_raises_not_found_for_cross_organisation_ncr(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    other_organisation_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.service import NcrNotFoundError, list_actions
+
+    other_raised_by_id = await _create_person(session_maker, organisation_id=other_organisation_id)
+    other_ncr_id = await _create_ncr(
+        session_maker,
+        organisation_id=other_organisation_id,
+        raised_by_id=other_raised_by_id,
+        user_id=user_id,
+    )
+
+    async with session_maker() as session:
+        with pytest.raises(NcrNotFoundError):
+            await list_actions(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=other_ncr_id,
+                limit=50,
+                offset=0,
+            )
+
+
+async def test_update_action_marks_complete_and_stamps_completed_at(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.models import NcrActionStatus
+    from app.modules.ncr.service import create_action, update_action
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+    async with session_maker() as session:
+        action = await create_action(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            description="Retrain operator",
+            owner_id=None,
+            due_date=None,
+            created_by_id=user_id,
+        )
+
+    async with session_maker() as session:
+        updated = await update_action(
+            session,
+            organisation_id=organisation_id,
+            action_id=action.id,
+            description="Retrain operator",
+            owner_id=None,
+            due_date=None,
+            status=NcrActionStatus.COMPLETE,
+        )
+
+    assert updated.status == NcrActionStatus.COMPLETE
+    assert updated.completed_at is not None
+
+
+async def test_update_action_reopening_clears_completed_at(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.models import NcrActionStatus
+    from app.modules.ncr.service import create_action, update_action
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+    async with session_maker() as session:
+        action = await create_action(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            description="Retrain operator",
+            owner_id=None,
+            due_date=None,
+            created_by_id=user_id,
+        )
+    async with session_maker() as session:
+        await update_action(
+            session,
+            organisation_id=organisation_id,
+            action_id=action.id,
+            description="Retrain operator",
+            owner_id=None,
+            due_date=None,
+            status=NcrActionStatus.COMPLETE,
+        )
+
+    async with session_maker() as session:
+        reopened = await update_action(
+            session,
+            organisation_id=organisation_id,
+            action_id=action.id,
+            description="Retrain operator",
+            owner_id=None,
+            due_date=None,
+            status=NcrActionStatus.OPEN,
+        )
+
+    assert reopened.status == NcrActionStatus.OPEN
+    assert reopened.completed_at is None
+
+
+async def test_update_action_raises_not_found_for_cross_organisation_action(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    other_organisation_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.models import NcrActionStatus
+    from app.modules.ncr.service import NcrActionNotFoundError, create_action, update_action
+
+    other_raised_by_id = await _create_person(session_maker, organisation_id=other_organisation_id)
+    other_ncr_id = await _create_ncr(
+        session_maker,
+        organisation_id=other_organisation_id,
+        raised_by_id=other_raised_by_id,
+        user_id=user_id,
+    )
+    async with session_maker() as session:
+        action = await create_action(
+            session,
+            organisation_id=other_organisation_id,
+            ncr_id=other_ncr_id,
+            description="Org B action",
+            owner_id=None,
+            due_date=None,
+            created_by_id=user_id,
+        )
+
+    async with session_maker() as session:
+        with pytest.raises(NcrActionNotFoundError):
+            await update_action(
+                session,
+                organisation_id=organisation_id,
+                action_id=action.id,
+                description="Hijacked",
+                owner_id=None,
+                due_date=None,
+                status=NcrActionStatus.OPEN,
+            )
+
+
+# --- Close-blocked-while-actions-open guard (design decision 4) -----------------
+
+
+async def test_transition_to_closed_is_blocked_while_an_action_is_open(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.models import NcrStatus
+    from app.modules.ncr.service import (
+        NcrCloseBlockedByOpenActionsError,
+        create_action,
+        transition_ncr,
+    )
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+    async with session_maker() as session:
+        await create_action(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            description="Still outstanding",
+            owner_id=None,
+            due_date=None,
+            created_by_id=user_id,
+        )
+
+    for to_status in [
+        NcrStatus.INVESTIGATE,
+        NcrStatus.CONTAINMENT,
+        NcrStatus.CORRECTIVE_ACTION,
+        NcrStatus.VERIFICATION,
+    ]:
+        async with session_maker() as session:
+            await transition_ncr(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=ncr_id,
+                to_status=to_status,
+                changed_by_id=user_id,
+                comments=None,
+            )
+
+    async with session_maker() as session:
+        with pytest.raises(NcrCloseBlockedByOpenActionsError):
+            await transition_ncr(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=ncr_id,
+                to_status=NcrStatus.CLOSED,
+                changed_by_id=user_id,
+                comments=None,
+            )
+
+
+async def test_transition_to_closed_succeeds_once_the_action_is_complete(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.models import NcrActionStatus, NcrStatus
+    from app.modules.ncr.service import create_action, transition_ncr, update_action
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+    async with session_maker() as session:
+        action = await create_action(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            description="Will be completed",
+            owner_id=None,
+            due_date=None,
+            created_by_id=user_id,
+        )
+
+    for to_status in [
+        NcrStatus.INVESTIGATE,
+        NcrStatus.CONTAINMENT,
+        NcrStatus.CORRECTIVE_ACTION,
+        NcrStatus.VERIFICATION,
+    ]:
+        async with session_maker() as session:
+            await transition_ncr(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=ncr_id,
+                to_status=to_status,
+                changed_by_id=user_id,
+                comments=None,
+            )
+
+    async with session_maker() as session:
+        await update_action(
+            session,
+            organisation_id=organisation_id,
+            action_id=action.id,
+            description="Will be completed",
+            owner_id=None,
+            due_date=None,
+            status=NcrActionStatus.COMPLETE,
+        )
+
+    async with session_maker() as session:
+        closed = await transition_ncr(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            to_status=NcrStatus.CLOSED,
+            changed_by_id=user_id,
+            comments=None,
+        )
+
+    assert closed.status == NcrStatus.CLOSED
+    assert closed.closed_at is not None
+
+
+async def test_transition_to_closed_ignores_actions_from_other_ncrs(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    """An open action on a *different* NCR must never block this one from closing --
+    the guard is scoped by ncr_id, not organisation-wide."""
+    from app.modules.ncr.models import NcrStatus
+    from app.modules.ncr.service import create_action, transition_ncr
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+    other_ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+    async with session_maker() as session:
+        await create_action(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=other_ncr_id,
+            description="Open action on a different NCR",
+            owner_id=None,
+            due_date=None,
+            created_by_id=user_id,
+        )
+
+    for to_status in [
+        NcrStatus.INVESTIGATE,
+        NcrStatus.CONTAINMENT,
+        NcrStatus.CORRECTIVE_ACTION,
+        NcrStatus.VERIFICATION,
+    ]:
+        async with session_maker() as session:
+            await transition_ncr(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=ncr_id,
+                to_status=to_status,
+                changed_by_id=user_id,
+                comments=None,
+            )
+
+    async with session_maker() as session:
+        closed = await transition_ncr(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            to_status=NcrStatus.CLOSED,
+            changed_by_id=user_id,
+            comments=None,
+        )
+
+    assert closed.status == NcrStatus.CLOSED
+
+
+# --- Actions frozen once an NCR is closed ---------------------------------------
+
+
+async def _close_ncr(
+    session_maker: SessionMaker,
+    *,
+    organisation_id: uuid.UUID,
+    ncr_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.models import NcrStatus
+    from app.modules.ncr.service import transition_ncr
+
+    for to_status in [
+        NcrStatus.INVESTIGATE,
+        NcrStatus.CONTAINMENT,
+        NcrStatus.CORRECTIVE_ACTION,
+        NcrStatus.VERIFICATION,
+        NcrStatus.CLOSED,
+    ]:
+        async with session_maker() as session:
+            await transition_ncr(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=ncr_id,
+                to_status=to_status,
+                changed_by_id=user_id,
+                comments=None,
+            )
+
+
+async def test_create_action_rejects_adding_to_a_closed_ncr(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    """A closed NCR's actions are frozen -- extending the spirit of design
+    decision 4 (an independent security review found that, without this, a
+    completed action could still be reopened after closure, undermining the
+    close-blocked-while-actions-open guard's own guarantee)."""
+    from app.modules.ncr.service import NcrActionsFrozenError, create_action
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+    await _close_ncr(session_maker, organisation_id=organisation_id, ncr_id=ncr_id, user_id=user_id)
+
+    async with session_maker() as session:
+        with pytest.raises(NcrActionsFrozenError):
+            await create_action(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=ncr_id,
+                description="Should not be added",
+                owner_id=None,
+                due_date=None,
+                created_by_id=user_id,
+            )
+
+
+async def test_update_action_rejects_reopening_on_a_closed_ncr(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.models import NcrActionStatus
+    from app.modules.ncr.service import (
+        NcrActionsFrozenError,
+        create_action,
+        list_actions,
+        update_action,
+    )
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+    async with session_maker() as session:
+        action = await create_action(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            description="Will be completed then frozen",
+            owner_id=None,
+            due_date=None,
+            created_by_id=user_id,
+        )
+    async with session_maker() as session:
+        await update_action(
+            session,
+            organisation_id=organisation_id,
+            action_id=action.id,
+            description="Will be completed then frozen",
+            owner_id=None,
+            due_date=None,
+            status=NcrActionStatus.COMPLETE,
+        )
+
+    await _close_ncr(session_maker, organisation_id=organisation_id, ncr_id=ncr_id, user_id=user_id)
+
+    async with session_maker() as session:
+        with pytest.raises(NcrActionsFrozenError):
+            await update_action(
+                session,
+                organisation_id=organisation_id,
+                action_id=action.id,
+                description="Will be completed then frozen",
+                owner_id=None,
+                due_date=None,
+                status=NcrActionStatus.OPEN,
+            )
+
+    # Confirm the reopen attempt really was rejected outright, not silently applied.
+    async with session_maker() as session:
+        actions, _total = await list_actions(
+            session, organisation_id=organisation_id, ncr_id=ncr_id, limit=50, offset=0
+        )
+    assert actions[0].status == NcrActionStatus.COMPLETE

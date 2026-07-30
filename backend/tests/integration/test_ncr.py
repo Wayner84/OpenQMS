@@ -536,3 +536,211 @@ async def test_ncr_endpoints_require_authentication(context: Context) -> None:
         response = await client.get("/api/v1/ncr")
 
     assert response.status_code == 401
+
+
+# --- Actions -----------------------------------------------------------------
+
+
+async def test_action_lifecycle_and_cross_org_owner_validation(context: Context) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        raised_by_id = await _create_person(client, context.org_a_headers)
+        ncr_id = await _create_ncr(client, context.org_a_headers, raised_by_id)
+
+        org_b_person_id = await _create_person(client, context.org_b_headers)
+        cross_org_response = await client.post(
+            f"/api/v1/ncr/{ncr_id}/actions",
+            headers=context.org_a_headers,
+            json={"description": "Should fail", "owner_id": org_b_person_id},
+        )
+        assert cross_org_response.status_code == 404
+
+        create_response = await client.post(
+            f"/api/v1/ncr/{ncr_id}/actions",
+            headers=context.org_a_headers,
+            json={"description": "Retrain operator", "owner_id": raised_by_id},
+        )
+        assert create_response.status_code == 201, create_response.text
+        action_id = create_response.json()["id"]
+        assert create_response.json()["status"] == "open"
+
+        list_response = await client.get(
+            f"/api/v1/ncr/{ncr_id}/actions", headers=context.org_a_headers
+        )
+        assert list_response.status_code == 200
+        assert list_response.json()["total"] == 1
+
+        complete_response = await client.patch(
+            f"/api/v1/ncr/actions/{action_id}",
+            headers=context.org_a_headers,
+            json={
+                "description": "Retrain operator",
+                "owner_id": raised_by_id,
+                "status": "complete",
+            },
+        )
+        assert complete_response.status_code == 200, complete_response.text
+        assert complete_response.json()["status"] == "complete"
+        assert complete_response.json()["completed_at"] is not None
+
+
+async def test_create_action_returns_404_for_another_organisations_ncr(context: Context) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        org_b_raised_by_id = await _create_person(client, context.org_b_headers)
+        ncr_id = await _create_ncr(client, context.org_b_headers, org_b_raised_by_id)
+
+        response = await client.post(
+            f"/api/v1/ncr/{ncr_id}/actions",
+            headers=context.org_a_headers,
+            json={"description": "Should not be created"},
+        )
+
+    assert response.status_code == 404
+
+
+async def test_update_action_returns_404_for_another_organisations_action(context: Context) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        org_b_raised_by_id = await _create_person(client, context.org_b_headers)
+        org_b_ncr_id = await _create_ncr(client, context.org_b_headers, org_b_raised_by_id)
+        action_response = await client.post(
+            f"/api/v1/ncr/{org_b_ncr_id}/actions",
+            headers=context.org_b_headers,
+            json={"description": "Org B action"},
+        )
+        assert action_response.status_code == 201, action_response.text
+        action_id = action_response.json()["id"]
+
+        response = await client.patch(
+            f"/api/v1/ncr/actions/{action_id}",
+            headers=context.org_a_headers,
+            json={"description": "Hijacked", "status": "open"},
+        )
+
+    assert response.status_code == 404
+
+
+# --- Close-blocked-while-actions-open guard (design decision 4) -----------------
+
+
+async def test_closing_is_blocked_while_an_action_is_open_then_unblocked(
+    context: Context,
+) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        raised_by_id = await _create_person(client, context.org_a_headers)
+        ncr_id = await _create_ncr(client, context.org_a_headers, raised_by_id)
+
+        action_response = await client.post(
+            f"/api/v1/ncr/{ncr_id}/actions",
+            headers=context.org_a_headers,
+            json={"description": "Still outstanding"},
+        )
+        assert action_response.status_code == 201, action_response.text
+        action_id = action_response.json()["id"]
+
+        for to_status in ["investigate", "containment", "corrective_action", "verification"]:
+            response = await client.post(
+                f"/api/v1/ncr/{ncr_id}/transition",
+                headers=context.org_a_headers,
+                json={"to_status": to_status},
+            )
+            assert response.status_code == 200, response.text
+
+        blocked_response = await client.post(
+            f"/api/v1/ncr/{ncr_id}/transition",
+            headers=context.org_a_headers,
+            json={"to_status": "closed"},
+        )
+        assert blocked_response.status_code == 409
+
+        complete_response = await client.patch(
+            f"/api/v1/ncr/actions/{action_id}",
+            headers=context.org_a_headers,
+            json={"description": "Still outstanding", "status": "complete"},
+        )
+        assert complete_response.status_code == 200, complete_response.text
+
+        unblocked_response = await client.post(
+            f"/api/v1/ncr/{ncr_id}/transition",
+            headers=context.org_a_headers,
+            json={"to_status": "closed"},
+        )
+        assert unblocked_response.status_code == 200, unblocked_response.text
+        assert unblocked_response.json()["status"] == "closed"
+
+
+async def test_concurrent_reopen_action_and_close_cannot_both_succeed(context: Context) -> None:
+    """Independent review finding: create_action/update_action didn't lock the
+    parent NCR row the same way transition_ncr's close guard does, so a concurrent
+    action mutation and a close request could race -- the close guard's
+    open-actions count could run and see zero right as an action flips back to
+    open. Fixed by having create_action/update_action take the same per-NCR lock.
+    Real concurrent requests against Postgres can exercise this -- kept as
+    documentation of intended behaviour, not a guaranteed deterministic
+    reproduction (same caveat as the other concurrency tests in this file)."""
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        raised_by_id = await _create_person(client, context.org_a_headers)
+        ncr_id = await _create_ncr(client, context.org_a_headers, raised_by_id)
+
+        action_response = await client.post(
+            f"/api/v1/ncr/{ncr_id}/actions",
+            headers=context.org_a_headers,
+            json={"description": "Will be reopened"},
+        )
+        assert action_response.status_code == 201, action_response.text
+        action_id = action_response.json()["id"]
+
+        for to_status in ["investigate", "containment", "corrective_action", "verification"]:
+            response = await client.post(
+                f"/api/v1/ncr/{ncr_id}/transition",
+                headers=context.org_a_headers,
+                json={"to_status": to_status},
+            )
+            assert response.status_code == 200, response.text
+
+        complete_response = await client.patch(
+            f"/api/v1/ncr/actions/{action_id}",
+            headers=context.org_a_headers,
+            json={"description": "Will be reopened", "status": "complete"},
+        )
+        assert complete_response.status_code == 200, complete_response.text
+
+        results = await asyncio.gather(
+            client.patch(
+                f"/api/v1/ncr/actions/{action_id}",
+                headers=context.org_a_headers,
+                json={"description": "Will be reopened", "status": "open"},
+            ),
+            client.post(
+                f"/api/v1/ncr/{ncr_id}/transition",
+                headers=context.org_a_headers,
+                json={"to_status": "closed"},
+            ),
+        )
+
+        reopen_response, close_response = results
+
+        final_ncr_response = await client.get(
+            f"/api/v1/ncr/{ncr_id}", headers=context.org_a_headers
+        )
+        final_action_response = await client.get(
+            f"/api/v1/ncr/{ncr_id}/actions", headers=context.org_a_headers
+        )
+        final_action = final_action_response.json()["items"][0]
+        # Whichever request reached the per-NCR lock first, exactly one of the two
+        # valid orderings must hold -- the two must never disagree with each other:
+        # (a) reopen won: the action is open and closing was correctly rejected;
+        # (b) close won: the NCR is closed, the reopen was correctly rejected (an
+        #     NCR's actions freeze once closed), and the action never changed.
+        if reopen_response.status_code == 200:
+            assert final_action["status"] == "open"
+            assert close_response.status_code == 409
+            assert final_ncr_response.json()["status"] != "closed"
+        else:
+            assert reopen_response.status_code == 409
+            assert final_action["status"] == "complete"
+            assert close_response.status_code == 200
+            assert final_ncr_response.json()["status"] == "closed"

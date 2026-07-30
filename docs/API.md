@@ -531,10 +531,10 @@ work (create, view, edit, transition) requires authentication only (any active
 user), matching People/Products/Suppliers' precedent — not admin-gated, per design
 decision 2. Deleting an NCR is admin-only (design decision 2), since an NCR is an
 audit-significant record with a full status history, unlike Suppliers/Products'
-pure reference data. This section covers the schema/CRUD/workflow slice only;
-actions, investigation tools, attachments, PDF export, and supplier NCR history are
-added in later slices (see the plan's suggested commit boundaries) and documented
-here as they land.
+pure reference data. This section covers the schema/CRUD/workflow/actions slices;
+investigation tools, attachments, PDF export, and supplier NCR history are added in
+later slices (see the plan's suggested commit boundaries) and documented here as
+they land.
 
 ### `POST /api/v1/ncr` / `PATCH /api/v1/ncr/{id}`
 
@@ -566,9 +566,12 @@ Body: `to_status`, `comments` (optional). Moves the NCR to exactly the next stat
 in the fixed sequence `open` → `investigate` → `containment` → `corrective_action` →
 `verification` → `closed` — `409` if `to_status` is not that next status (no
 skipping stages, no moving backward, no transitioning once already `closed`, per
-design decision 3). Race-safe under concurrent requests via a per-NCR row lock.
-Records an immutable `ncr_status_history` entry. `404` for a cross-organisation
-`{id}`.
+design decision 3), or if transitioning to `closed` while any of the NCR's actions
+are still `open` (`409`, per design decision 4). Race-safe under concurrent
+requests via a per-NCR row lock — the open-actions check runs inside the same
+locked transaction, so a concurrent "add an open action" and "close the NCR"
+cannot race past each other. Records an immutable `ncr_status_history` entry.
+`404` for a cross-organisation `{id}`.
 
 ### `GET /api/v1/ncr/{id}/status-history`
 
@@ -583,6 +586,29 @@ NCR `{id}`.
 independent prefixes/sequences — default `NCR-0001`, `NCR-0002`, ... for
 `type: internal` and `SNCR-0001`, `SNCR-0002`, ... for `type: supplier` — per design
 decision 6. Never a hard-coded prefix in application code.
+
+### `POST /api/v1/ncr/{id}/actions`
+
+Create a containment/corrective/preventive action against an NCR. Body:
+`description`, `owner_id` (optional, a People record — must belong to the caller's
+own organisation, `404` otherwise), `due_date` (optional). Always starts `open`.
+`404` for a cross-organisation NCR `{id}`; `409` if the NCR is already `closed` —
+a closed NCR's actions are frozen (extends design decision 4's spirit; see
+[DecisionLog.md](DecisionLog.md#2026-07-30-ncr-actions-slice-a-close-guard-lock-gap-and-a-new-frozen-actions-rule)).
+
+### `GET /api/v1/ncr/{id}/actions`
+
+Paginated list of an NCR's actions. `404` for a cross-organisation NCR `{id}`.
+
+### `PATCH /api/v1/ncr/actions/{id}`
+
+Full-update an action (not nested under a specific NCR id, matching the plan's
+shape). Body: `description`, `owner_id` (optional), `due_date` (optional),
+`status` (`open`/`complete`). Setting `status: complete` stamps `completed_at`;
+setting it back to `open` clears `completed_at`. `404` if the action (or its
+parent NCR) isn't in the caller's own organisation; `409` if the parent NCR is
+already `closed` — a closed NCR's actions are frozen, so even reopening a
+completed action is rejected once the NCR itself has closed.
 
 ## Health and readiness endpoints (Milestone 0)
 

@@ -379,10 +379,10 @@ transitively through their parent `product_id`.
 
 Per [docs/modules/NCR.md](modules/NCR.md) and the
 [Milestone 4 plan](../.hermes/plans/2026-07-29-milestone-4-ncr.md). This section
-covers the schema/CRUD/workflow slice only; `ncr_actions`,
-`ncr_investigation_tools`, and `ncr_attachments` are added in later slices and
-documented here as they land. Both tables below carry `organisation_id` directly
-(`ncr_status_history` transitively, through its parent `ncr_id`).
+covers the schema/CRUD/workflow/actions slices; `ncr_investigation_tools` and
+`ncr_attachments` are added in later slices and documented here as they land.
+`ncrs` carries `organisation_id` directly; the other tables below carry it
+transitively, through their parent `ncr_id`.
 
 - **`ncrs`** — `number` (server-generated, see "NCR numbering" below), `type`
   (native enum `internal`/`supplier`), `product_id` (nullable FK → `products.id`),
@@ -408,14 +408,28 @@ documented here as they land. Both tables below carry `organisation_id` directly
   originally sketched; see the plan's design decision 1), `changed_at`, `comments`
   (nullable). Immutable — no update/delete route, matching `document_versions`'s
   existing precedent.
+- **`ncr_actions`** — `ncr_id` (FK, cascade delete), `description` (not null),
+  `owner_id` (nullable FK → `people.id` — an organisational assignment, can
+  validly name someone without a login, matching `ncrs.raised_by_id`'s
+  precedent), `due_date` (nullable date), `status` (native enum `open`/
+  `complete`, default `open`), `completed_at` (nullable, stamped when `status`
+  becomes `complete`, cleared if reopened), `created_by_id` (FK → `users.id`,
+  not null), `created_at`/`updated_at`.
 
 The one-directional transition workflow (`open` → `investigate` → `containment` →
 `corrective_action` → `verification` → `closed`, no skipping stages, no moving
 backward) is enforced in `backend/app/modules/ncr/service.py::transition_ncr`,
 race-safe under concurrent requests via a per-NCR `SELECT ... FOR UPDATE` row lock
-(`_lock_ncr`, mirroring `documents.service._lock_document`). The
-close-blocked-while-actions-open guard from the module doc is added once
-`ncr_actions` exists, in a later slice.
+(`_lock_ncr`, mirroring `documents.service._lock_document`). Transitioning to
+`closed` is additionally blocked (`409`) while any `ncr_actions` row for the NCR
+is still `open` (design decision 4), checked inside that same locked transaction
+so a concurrent "add an open action" and "close the NCR" cannot race past each
+other. `create_action`/`update_action` take the same `_lock_ncr` lock before
+touching an `ncr_actions` row, and both reject (`409`) editing or adding an
+action once the parent NCR is `closed` — an independent security review found
+that without this, a completed action could be silently reopened after closure,
+undermining the close guard's own guarantee; see
+[DecisionLog.md](DecisionLog.md#2026-07-30-ncr-actions-slice-a-close-guard-lock-gap-and-a-new-frozen-actions-rule).
 
 #### NCR numbering
 

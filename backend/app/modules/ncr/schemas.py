@@ -6,7 +6,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from app.modules.ncr.models import NcrStatus, NcrType
+from app.modules.ncr.models import NcrActionStatus, NcrStatus, NcrType
 
 
 class NcrCreateRequest(BaseModel):
@@ -102,6 +102,48 @@ class NcrStatusHistoryListResponse(BaseModel):
     """GET /api/v1/ncr/{id}/status-history response body."""
 
     items: list[NcrStatusHistoryRead]
+    total: int
+    limit: int
+    offset: int
+
+
+class NcrActionCreateRequest(BaseModel):
+    """POST /api/v1/ncr/{id}/actions request body. `status` always starts `open`."""
+
+    description: str
+    owner_id: uuid.UUID | None = None
+    due_date: datetime.date | None = None
+
+
+class NcrActionUpdateRequest(BaseModel):
+    """PATCH /api/v1/ncr/actions/{id} request body (full replace, matching the
+    established WriteRequest pattern)."""
+
+    description: str
+    owner_id: uuid.UUID | None = None
+    due_date: datetime.date | None = None
+    status: NcrActionStatus
+
+
+class NcrActionRead(BaseModel):
+    """An action's public shape."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    ncr_id: uuid.UUID
+    description: str
+    owner_id: uuid.UUID | None
+    due_date: datetime.date | None
+    status: NcrActionStatus
+    completed_at: datetime.datetime | None
+    created_by_id: uuid.UUID
+
+
+class NcrActionListResponse(BaseModel):
+    """GET /api/v1/ncr/{id}/actions response body."""
+
+    items: list[NcrActionRead]
     total: int
     limit: int
     offset: int

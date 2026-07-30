@@ -961,6 +961,59 @@ work" below for details and findings.
     [docs/modules/NCR.md](modules/NCR.md) (`Status: Implemented
     (schema/CRUD/workflow only)`),
     [DecisionLog.md](DecisionLog.md#2026-07-29-ncr-schemacrudworkflow-slice-a-soft-deletetransition-race-and-a-missing-number-uniqueness-backstop).
+- **Milestone 4 — NCR actions** (backend slice, 2026-07-30): `ncr_actions` table
+  (`backend/alembic/versions/d1b578c4df71_add_ncr_actions.py`), containment/
+  corrective/preventive actions with an optional `owner_id` (validated against
+  People, never queried directly) and `due_date`, managed via
+  `POST/GET /api/v1/ncr/{id}/actions` and `PATCH /api/v1/ncr/actions/{id}` (full
+  update, not nested under a specific NCR id, matching the plan's shape but still
+  scoped to the caller's organisation via a join through `ncrs`). The
+  close-blocked-while-actions-open guard (design decision 4) is now enforced in
+  `transition_ncr`: transitioning to `closed` is rejected (`409`) while any of the
+  NCR's actions are still `open`.
+  - Migration verified with a real upgrade → downgrade → upgrade cycle against a
+    disposable local PostgreSQL 16 database.
+  - **Independent security/tenant-isolation review** (a fresh agent with no prior
+    session context) found no cross-organisation leaks, owner validation gaps, or
+    reassignment bypasses, but found a real concurrency defect, fixed test-first
+    before being committed: `create_action`/`update_action` never took the same
+    per-NCR row lock (`_lock_ncr`) `transition_ncr`'s close guard already locks
+    before counting open actions, so nothing serialised an action mutation against
+    a concurrent close — a completed action could be reopened at the same moment
+    an NCR closed with zero open actions counted, leaving the NCR `closed` with an
+    action simultaneously `open`. Fixed by having both functions take the same
+    lock. Validating that fix surfaced a second-order gap: once correctly
+    serialised, whichever request loses the race sees the winner's already-
+    committed result — for a reopen losing to a close, that meant reopening an
+    action on an already-`closed` NCR, which nothing was stopping (not a race at
+    that point, just a missing rule). Fixed with a new `NcrActionsFrozenError`
+    (`409`): a closed NCR's actions can no longer be added to or edited at all,
+    extending design decision 4's spirit. Full reasoning in
+    [DecisionLog.md](DecisionLog.md#2026-07-30-ncr-actions-slice-a-close-guard-lock-gap-and-a-new-frozen-actions-rule).
+  - 19 new backend tests (326 total, up from 307): 14 unit tests (defaults,
+    cross-org/owner validation, two lock-spy regression tests proving
+    `create_action`/`update_action` actually acquire `_lock_ncr`, the
+    close-blocked-while-open guard and its "ignores other NCRs' actions" edge
+    case, and two frozen-actions regression tests) and 5 integration tests against
+    real PostgreSQL (the full action lifecycle through the real HTTP API,
+    cross-org `404`s, the closing-blocked-then-unblocked flow, and a
+    real-concurrency reopen-vs-close race kept as documentation of intended
+    behaviour — same scheduler-dependency caveat as every other test in this
+    style, but re-run repeatedly and confirmed non-flaky after the frozen-actions
+    fix). All written test-first. This slice also fixed a cross-file test-hygiene
+    gap it exposed: `test_people.py`, `test_products.py`, and `test_suppliers.py`
+    now also delete leftover `ncrs` rows for the shared default organisation
+    before deleting the People/Products/Suppliers rows those NCRs reference,
+    since `ncrs` now carries foreign keys into all three and a leftover NCR row
+    was blocking those other test files' own cleanup.
+  - Gates pass: `ruff format --check`, `ruff check`, `mypy --strict` (109 source
+    files), full `pytest` suite (326 tests: unit + integration against real
+    PostgreSQL 16), re-run twice end-to-end with no flakiness.
+  - Docs updated in this slice: [API.md](API.md#ncr-module-milestone-4-in-progress),
+    [Database.md](Database.md#ncr-and-related-tables-milestone-4-in-progress),
+    [docs/modules/NCR.md](modules/NCR.md) (`Status: Implemented
+    (schema/CRUD/workflow/actions only)`),
+    [DecisionLog.md](DecisionLog.md#2026-07-30-ncr-actions-slice-a-close-guard-lock-gap-and-a-new-frozen-actions-rule).
 
 ## Work in progress
 

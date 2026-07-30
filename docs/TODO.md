@@ -135,9 +135,10 @@ Full scope and acceptance criteria:
 
 17. **NCR module** — see [docs/modules/NCR.md](modules/NCR.md). Dependencies:
     Tasks 13, 14, 15, 16 (all complete). Complexity: **XL**. Status: In Progress
-    (schema, CRUD, and the transition workflow implemented and tested, backend
-    only; actions, investigation tools, attachments, PDF export, supplier NCR
-    history, and the frontend not yet started).
+    (schema, CRUD, the transition workflow, and actions with the
+    close-blocked-while-actions-open guard implemented and tested, backend only;
+    investigation tools, attachments, PDF export, supplier NCR history, and the
+    frontend not yet started).
 
 ## Low Priority — Later modules (Milestones 5–9)
 18. **Calibration and Asset Management module** — see

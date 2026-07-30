@@ -1106,3 +1106,51 @@ a duplicate pair.
 
 Full reasoning for the slice itself in the
 [Milestone 4 plan](../.hermes/plans/2026-07-29-milestone-4-ncr.md).
+
+## 2026-07-30 — NCR actions slice: a close-guard lock gap and a new frozen-actions rule
+
+**Problem:** An independent security review of the `ncr_actions` slice (`create_action`,
+`update_action`, and the new close-blocked-while-actions-open guard in
+`transition_ncr`) found that the guard was not actually race-safe: `transition_ncr`'s
+close guard locks the `ncrs` row (`_lock_ncr`) before counting open actions, but
+`create_action`/`update_action` never took that same lock before inserting/updating
+an `ncr_actions` row. Nothing serialised the two operations against each other — a
+concurrent "reopen a completed action" and "close the NCR" could both read a
+pre-mutation state and both commit, leaving an NCR `closed` with an action that is
+simultaneously `open`, defeating design decision 4's whole purpose. (`create_action`'s
+plain `INSERT` happened to get partial protection from Postgres's own FK-constraint
+row lock on the parent — an undocumented side effect, not this codebase's declared
+locking convention — but `update_action` had no protection at all.)
+
+**Fix:** both `create_action` and `update_action` now call `_lock_ncr` on the parent
+NCR before touching an `NcrAction` row, exactly mirroring `transition_ncr`'s own
+locking. Regression-covered two ways: a deterministic unit test per function that
+spies on `_lock_ncr` and asserts it was actually called (SQLite, used by the unit
+suite, has no real row-level locking to prove the race is closed end-to-end); and a
+real-concurrency integration test (`test_concurrent_reopen_action_and_close_cannot_both_succeed`)
+racing a reopen against a close via `asyncio.gather` against real PostgreSQL — kept
+as documentation of intended behaviour, same scheduler-dependency caveat as every
+other test in this style.
+
+**Second-order finding, caught while validating the above fix:** once both
+operations correctly lock the same row, whichever request loses the race no longer
+sees stale state — it sees the *other* request's already-committed result. For
+`update_action` reopening an action after `transition_ncr` already closed the NCR,
+that means the reopen now runs against a `status: closed` NCR with nothing stopping
+it, which would let an NCR's actions be edited (including reopened) after closure —
+not a race at all at that point, just a missing business rule. **Fix:** a new
+`NcrActionsFrozenError` (`409`), raised by both `create_action` and `update_action`
+whenever the locked parent NCR's `status` is `closed`, extending the spirit of
+design decision 4 rather than the letter of it: closing being blocked while actions
+are open only means something if actions can't be silently un-blocked again after
+the fact. Regression-covered by two deterministic unit tests
+(`test_create_action_rejects_adding_to_a_closed_ncr`,
+`test_update_action_rejects_reopening_on_a_closed_ncr`) and folded into the
+concurrency integration test above, which now asserts both valid race outcomes
+(reopen-wins vs. close-wins) rather than assuming reopen always succeeds.
+
+Not addressed by this fix, and not required by the plan: `docs/DecisionLog.md`
+already records `delete_category`'s and similar unlocked-count patterns as
+accepted low-severity gaps elsewhere in this codebase; this entry does not
+introduce a new instance of that class, since the close guard's count now runs
+under the same lock actions are written under.
