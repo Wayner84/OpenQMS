@@ -531,10 +531,10 @@ work (create, view, edit, transition) requires authentication only (any active
 user), matching People/Products/Suppliers' precedent — not admin-gated, per design
 decision 2. Deleting an NCR is admin-only (design decision 2), since an NCR is an
 audit-significant record with a full status history, unlike Suppliers/Products'
-pure reference data. This section covers the schema/CRUD/workflow/actions slices;
-investigation tools, attachments, PDF export, and supplier NCR history are added in
-later slices (see the plan's suggested commit boundaries) and documented here as
-they land.
+pure reference data. This section covers the schema/CRUD/workflow/actions/
+investigation-tools slices; attachments, PDF export, and supplier NCR history are
+added in later slices (see the plan's suggested commit boundaries) and documented
+here as they land.
 
 ### `POST /api/v1/ncr` / `PATCH /api/v1/ncr/{id}`
 
@@ -609,6 +609,23 @@ setting it back to `open` clears `completed_at`. `404` if the action (or its
 parent NCR) isn't in the caller's own organisation; `409` if the parent NCR is
 already `closed` — a closed NCR's actions are frozen, so even reopening a
 completed action is rejected once the NCR itself has closed.
+
+### `GET /api/v1/ncr/{id}/tools/{tool_type}`
+
+Read a structured investigation tool's `data` (`tool_type` one of `five_why`/
+`fishbone`/`eight_d`/`ten_d` — `422` for any other value). `404` for a
+cross-organisation NCR `{id}`. A tool that has never been saved returns a default
+empty payload (`data: {}`, `id: null`) rather than `404` — "not started" is a
+normal state for an optional aid, per design decision 7.
+
+### `PUT /api/v1/ncr/{id}/tools/{tool_type}`
+
+Create-or-replace a tool's `data` (an arbitrary JSON object — each tool's
+structure differs enough that it isn't modelled further at the API layer). `404`
+for a cross-organisation NCR `{id}`; `422` for an invalid `tool_type`; `409` if
+the NCR is already `closed` — a closed NCR's investigation tools are frozen the
+same way its actions are (reads via `GET` above are unaffected — a closed NCR's
+worksheets must still be readable).
 
 ## Health and readiness endpoints (Milestone 0)
 

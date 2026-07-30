@@ -744,3 +744,152 @@ async def test_concurrent_reopen_action_and_close_cannot_both_succeed(context: C
             assert final_action["status"] == "complete"
             assert close_response.status_code == 200
             assert final_ncr_response.json()["status"] == "closed"
+
+
+# --- Investigation tools -----------------------------------------------------------
+
+
+async def test_get_investigation_tool_returns_default_when_not_started(context: Context) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        raised_by_id = await _create_person(client, context.org_a_headers)
+        ncr_id = await _create_ncr(client, context.org_a_headers, raised_by_id)
+
+        response = await client.get(
+            f"/api/v1/ncr/{ncr_id}/tools/five_why", headers=context.org_a_headers
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["data"] == {}
+    assert response.json()["id"] is None
+
+
+async def test_get_investigation_tool_returns_404_for_another_organisations_ncr(
+    context: Context,
+) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        org_b_raised_by_id = await _create_person(client, context.org_b_headers)
+        ncr_id = await _create_ncr(client, context.org_b_headers, org_b_raised_by_id)
+
+        response = await client.get(
+            f"/api/v1/ncr/{ncr_id}/tools/five_why", headers=context.org_a_headers
+        )
+
+    assert response.status_code == 404
+
+
+async def test_get_investigation_tool_rejects_an_invalid_tool_type(context: Context) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        raised_by_id = await _create_person(client, context.org_a_headers)
+        ncr_id = await _create_ncr(client, context.org_a_headers, raised_by_id)
+
+        response = await client.get(
+            f"/api/v1/ncr/{ncr_id}/tools/not-a-real-tool", headers=context.org_a_headers
+        )
+
+    assert response.status_code == 422
+
+
+async def test_upsert_investigation_tool_creates_then_replaces_through_the_api(
+    context: Context,
+) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        raised_by_id = await _create_person(client, context.org_a_headers)
+        ncr_id = await _create_ncr(client, context.org_a_headers, raised_by_id)
+
+        create_response = await client.put(
+            f"/api/v1/ncr/{ncr_id}/tools/fishbone",
+            headers=context.org_a_headers,
+            json={"data": {"categories": ["Machine", "Method"]}},
+        )
+        assert create_response.status_code == 200, create_response.text
+        assert create_response.json()["data"] == {"categories": ["Machine", "Method"]}
+        tool_id = create_response.json()["id"]
+        assert tool_id is not None
+
+        replace_response = await client.put(
+            f"/api/v1/ncr/{ncr_id}/tools/fishbone",
+            headers=context.org_a_headers,
+            json={"data": {"categories": ["Machine", "Method", "Material"]}},
+        )
+        assert replace_response.status_code == 200, replace_response.text
+        assert replace_response.json()["id"] == tool_id
+        assert replace_response.json()["data"] == {"categories": ["Machine", "Method", "Material"]}
+
+        get_response = await client.get(
+            f"/api/v1/ncr/{ncr_id}/tools/fishbone", headers=context.org_a_headers
+        )
+        assert get_response.status_code == 200
+        assert get_response.json()["data"] == {"categories": ["Machine", "Method", "Material"]}
+
+        # A different tool_type on the same NCR is independent.
+        other_get_response = await client.get(
+            f"/api/v1/ncr/{ncr_id}/tools/eight_d", headers=context.org_a_headers
+        )
+        assert other_get_response.status_code == 200
+        assert other_get_response.json()["data"] == {}
+
+
+async def test_upsert_investigation_tool_returns_404_for_another_organisations_ncr(
+    context: Context,
+) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        org_b_raised_by_id = await _create_person(client, context.org_b_headers)
+        ncr_id = await _create_ncr(client, context.org_b_headers, org_b_raised_by_id)
+
+        response = await client.put(
+            f"/api/v1/ncr/{ncr_id}/tools/ten_d",
+            headers=context.org_a_headers,
+            json={"data": {"team": "Should not be saved"}},
+        )
+
+    assert response.status_code == 404
+
+
+async def test_upsert_investigation_tool_rejects_editing_a_closed_ncr(context: Context) -> None:
+    """Independent security review found this slice had no equivalent to actions'
+    frozen-once-closed rule -- a closed NCR's investigation worksheet could be
+    silently rewritten after closure."""
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        raised_by_id = await _create_person(client, context.org_a_headers)
+        ncr_id = await _create_ncr(client, context.org_a_headers, raised_by_id)
+
+        create_response = await client.put(
+            f"/api/v1/ncr/{ncr_id}/tools/five_why",
+            headers=context.org_a_headers,
+            json={"data": {"why_1": "Original"}},
+        )
+        assert create_response.status_code == 200, create_response.text
+
+        for to_status in [
+            "investigate",
+            "containment",
+            "corrective_action",
+            "verification",
+            "closed",
+        ]:
+            response = await client.post(
+                f"/api/v1/ncr/{ncr_id}/transition",
+                headers=context.org_a_headers,
+                json={"to_status": to_status},
+            )
+            assert response.status_code == 200, response.text
+
+        rewrite_response = await client.put(
+            f"/api/v1/ncr/{ncr_id}/tools/five_why",
+            headers=context.org_a_headers,
+            json={"data": {"why_1": "Tampered after closure"}},
+        )
+        assert rewrite_response.status_code == 409
+
+        # Reads must still work on a closed NCR (e.g. for a future PDF export).
+        get_response = await client.get(
+            f"/api/v1/ncr/{ncr_id}/tools/five_why", headers=context.org_a_headers
+        )
+        assert get_response.status_code == 200
+        assert get_response.json()["data"] == {"why_1": "Original"}

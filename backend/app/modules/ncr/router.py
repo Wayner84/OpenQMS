@@ -17,13 +17,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.core.deps import CurrentAdmin, CurrentUser
-from app.modules.ncr.models import NcrStatus, NcrType
+from app.modules.ncr.models import NcrInvestigationToolType, NcrStatus, NcrType
 from app.modules.ncr.schemas import (
     NcrActionCreateRequest,
     NcrActionListResponse,
     NcrActionRead,
     NcrActionUpdateRequest,
     NcrCreateRequest,
+    NcrInvestigationToolRead,
+    NcrInvestigationToolUpsertRequest,
     NcrListResponse,
     NcrRead,
     NcrStatusHistoryListResponse,
@@ -37,6 +39,7 @@ from app.modules.ncr.service import (
     NcrActionOwnerNotFoundError,
     NcrActionsFrozenError,
     NcrCloseBlockedByOpenActionsError,
+    NcrInvestigationToolFrozenError,
     NcrNotFoundError,
     NcrProductNotFoundError,
     NcrRaisedByNotFoundError,
@@ -44,6 +47,7 @@ from app.modules.ncr.service import (
     create_action,
     create_ncr,
     delete_ncr,
+    get_investigation_tool,
     get_ncr,
     list_actions,
     list_ncrs,
@@ -51,6 +55,7 @@ from app.modules.ncr.service import (
     transition_ncr,
     update_action,
     update_ncr,
+    upsert_investigation_tool,
 )
 
 router = APIRouter(prefix="/ncr", tags=["ncr"])
@@ -313,3 +318,52 @@ async def update_action_endpoint(
     except NcrActionsFrozenError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return NcrActionRead.model_validate(action)
+
+
+# --- Investigation tools -----------------------------------------------------
+
+
+@router.get("/{ncr_id}/tools/{tool_type}")
+async def get_investigation_tool_endpoint(
+    ncr_id: uuid.UUID,
+    tool_type: NcrInvestigationToolType,
+    current_user: CurrentUser,
+    session: SessionDependency,
+) -> NcrInvestigationToolRead:
+    try:
+        tool = await get_investigation_tool(
+            session,
+            organisation_id=current_user.organisation_id,
+            ncr_id=ncr_id,
+            tool_type=tool_type,
+        )
+    except NcrNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="NCR not found") from exc
+    if tool is None:
+        # "Not started" is a normal state for an optional aid, not a 404.
+        return NcrInvestigationToolRead(ncr_id=ncr_id, tool_type=tool_type, data={})
+    return NcrInvestigationToolRead.model_validate(tool)
+
+
+@router.put("/{ncr_id}/tools/{tool_type}")
+async def upsert_investigation_tool_endpoint(
+    ncr_id: uuid.UUID,
+    tool_type: NcrInvestigationToolType,
+    payload: NcrInvestigationToolUpsertRequest,
+    current_user: CurrentUser,
+    session: SessionDependency,
+) -> NcrInvestigationToolRead:
+    try:
+        tool = await upsert_investigation_tool(
+            session,
+            organisation_id=current_user.organisation_id,
+            ncr_id=ncr_id,
+            tool_type=tool_type,
+            data=payload.data,
+            updated_by_id=current_user.id,
+        )
+    except NcrNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="NCR not found") from exc
+    except NcrInvestigationToolFrozenError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return NcrInvestigationToolRead.model_validate(tool)

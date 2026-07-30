@@ -1506,3 +1506,264 @@ async def test_update_action_rejects_reopening_on_a_closed_ncr(
             session, organisation_id=organisation_id, ncr_id=ncr_id, limit=50, offset=0
         )
     assert actions[0].status == NcrActionStatus.COMPLETE
+
+
+# --- Investigation tools ---------------------------------------------------------
+
+
+async def test_get_investigation_tool_returns_none_when_not_started(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.models import NcrInvestigationToolType
+    from app.modules.ncr.service import get_investigation_tool
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+
+    async with session_maker() as session:
+        tool = await get_investigation_tool(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            tool_type=NcrInvestigationToolType.FIVE_WHY,
+        )
+
+    assert tool is None
+
+
+async def test_get_investigation_tool_raises_not_found_for_cross_organisation_ncr(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    other_organisation_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.models import NcrInvestigationToolType
+    from app.modules.ncr.service import NcrNotFoundError, get_investigation_tool
+
+    other_raised_by_id = await _create_person(session_maker, organisation_id=other_organisation_id)
+    other_ncr_id = await _create_ncr(
+        session_maker,
+        organisation_id=other_organisation_id,
+        raised_by_id=other_raised_by_id,
+        user_id=user_id,
+    )
+
+    async with session_maker() as session:
+        with pytest.raises(NcrNotFoundError):
+            await get_investigation_tool(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=other_ncr_id,
+                tool_type=NcrInvestigationToolType.FIVE_WHY,
+            )
+
+
+async def test_upsert_investigation_tool_creates_then_replaces(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.models import NcrInvestigationToolType
+    from app.modules.ncr.service import get_investigation_tool, upsert_investigation_tool
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+
+    async with session_maker() as session:
+        created = await upsert_investigation_tool(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            tool_type=NcrInvestigationToolType.FIVE_WHY,
+            data={"why_1": "The bolt sheared"},
+            updated_by_id=user_id,
+        )
+
+    assert created.data == {"why_1": "The bolt sheared"}
+    assert created.created_by_id == user_id
+    first_id = created.id
+
+    async with session_maker() as session:
+        replaced = await upsert_investigation_tool(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            tool_type=NcrInvestigationToolType.FIVE_WHY,
+            data={"why_1": "The bolt sheared", "why_2": "Wrong torque spec"},
+            updated_by_id=user_id,
+        )
+
+    # Same row, replaced -- not a second row for the same (ncr_id, tool_type).
+    assert replaced.id == first_id
+    assert replaced.data == {"why_1": "The bolt sheared", "why_2": "Wrong torque spec"}
+
+    async with session_maker() as session:
+        fetched = await get_investigation_tool(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            tool_type=NcrInvestigationToolType.FIVE_WHY,
+        )
+    assert fetched is not None
+    assert fetched.data == {"why_1": "The bolt sheared", "why_2": "Wrong torque spec"}
+
+
+async def test_upsert_investigation_tool_keeps_tool_types_independent(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.models import NcrInvestigationToolType
+    from app.modules.ncr.service import upsert_investigation_tool
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+
+    async with session_maker() as session:
+        await upsert_investigation_tool(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            tool_type=NcrInvestigationToolType.FIVE_WHY,
+            data={"why_1": "A"},
+            updated_by_id=user_id,
+        )
+    async with session_maker() as session:
+        fishbone = await upsert_investigation_tool(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            tool_type=NcrInvestigationToolType.FISHBONE,
+            data={"categories": ["Machine", "Method"]},
+            updated_by_id=user_id,
+        )
+
+    assert fishbone.data == {"categories": ["Machine", "Method"]}
+
+
+async def test_upsert_investigation_tool_raises_not_found_for_cross_organisation_ncr(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    other_organisation_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.models import NcrInvestigationToolType
+    from app.modules.ncr.service import NcrNotFoundError, upsert_investigation_tool
+
+    other_raised_by_id = await _create_person(session_maker, organisation_id=other_organisation_id)
+    other_ncr_id = await _create_ncr(
+        session_maker,
+        organisation_id=other_organisation_id,
+        raised_by_id=other_raised_by_id,
+        user_id=user_id,
+    )
+
+    async with session_maker() as session:
+        with pytest.raises(NcrNotFoundError):
+            await upsert_investigation_tool(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=other_ncr_id,
+                tool_type=NcrInvestigationToolType.FIVE_WHY,
+                data={},
+                updated_by_id=user_id,
+            )
+
+
+async def test_upsert_investigation_tool_rejects_editing_a_closed_ncr(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    """Independent security review found this slice had no equivalent to
+    create_action/update_action's frozen-once-closed rule, which would let a
+    closed NCR's investigation worksheet be silently rewritten after closure."""
+    from app.modules.ncr.models import NcrInvestigationToolType
+    from app.modules.ncr.service import (
+        NcrInvestigationToolFrozenError,
+        get_investigation_tool,
+        upsert_investigation_tool,
+    )
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+    async with session_maker() as session:
+        await upsert_investigation_tool(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            tool_type=NcrInvestigationToolType.FIVE_WHY,
+            data={"why_1": "Original"},
+            updated_by_id=user_id,
+        )
+
+    await _close_ncr(session_maker, organisation_id=organisation_id, ncr_id=ncr_id, user_id=user_id)
+
+    async with session_maker() as session:
+        with pytest.raises(NcrInvestigationToolFrozenError):
+            await upsert_investigation_tool(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=ncr_id,
+                tool_type=NcrInvestigationToolType.FIVE_WHY,
+                data={"why_1": "Tampered after closure"},
+                updated_by_id=user_id,
+            )
+
+    # Confirm the rewrite attempt really was rejected outright, not silently applied.
+    async with session_maker() as session:
+        fetched = await get_investigation_tool(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            tool_type=NcrInvestigationToolType.FIVE_WHY,
+        )
+    assert fetched is not None
+    assert fetched.data == {"why_1": "Original"}
+
+
+async def test_get_investigation_tool_still_readable_on_a_closed_ncr(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    """Only writes are frozen once an NCR is closed -- reading a closed NCR's
+    investigation tools (e.g. for the PDF export slice) must still work."""
+    from app.modules.ncr.models import NcrInvestigationToolType
+    from app.modules.ncr.service import get_investigation_tool, upsert_investigation_tool
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+    async with session_maker() as session:
+        await upsert_investigation_tool(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            tool_type=NcrInvestigationToolType.FIVE_WHY,
+            data={"why_1": "Root cause"},
+            updated_by_id=user_id,
+        )
+
+    await _close_ncr(session_maker, organisation_id=organisation_id, ncr_id=ncr_id, user_id=user_id)
+
+    async with session_maker() as session:
+        fetched = await get_investigation_tool(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            tool_type=NcrInvestigationToolType.FIVE_WHY,
+        )
+    assert fetched is not None
+    assert fetched.data == {"why_1": "Root cause"}

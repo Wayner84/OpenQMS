@@ -6,7 +6,12 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from app.modules.ncr.models import NcrActionStatus, NcrStatus, NcrType
+from app.modules.ncr.models import (
+    NcrActionStatus,
+    NcrInvestigationToolType,
+    NcrStatus,
+    NcrType,
+)
 
 
 class NcrCreateRequest(BaseModel):
@@ -147,3 +152,28 @@ class NcrActionListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class NcrInvestigationToolUpsertRequest(BaseModel):
+    """PUT /api/v1/ncr/{id}/tools/{tool_type} request body. `data`'s shape is
+    deliberately not modelled further -- see NcrInvestigationTool's docstring."""
+
+    data: dict[str, object]
+
+
+class NcrInvestigationToolRead(BaseModel):
+    """A tool's public shape. `id`/`created_by_id`/`updated_by_id`/`created_at`/
+    `updated_at` are all `None` for a tool that has never been saved yet -- a
+    GET for a "not started" tool returns a default empty payload, not a `404`
+    (see docs/API.md), since "not started" is a normal state for an optional
+    aid."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID | None = None
+    ncr_id: uuid.UUID
+    tool_type: NcrInvestigationToolType
+    data: dict[str, object]
+    created_by_id: uuid.UUID | None = None
+    updated_by_id: uuid.UUID | None = None
+    updated_at: datetime.datetime | None = None

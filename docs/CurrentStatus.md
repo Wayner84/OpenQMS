@@ -1014,12 +1014,69 @@ work" below for details and findings.
     [docs/modules/NCR.md](modules/NCR.md) (`Status: Implemented
     (schema/CRUD/workflow/actions only)`),
     [DecisionLog.md](DecisionLog.md#2026-07-30-ncr-actions-slice-a-close-guard-lock-gap-and-a-new-frozen-actions-rule).
+- **Milestone 4 — NCR investigation tools** (backend slice, 2026-07-30):
+  `ncr_investigation_tools` table
+  (`backend/alembic/versions/2df37403d75c_add_ncr_investigation_tools.py`), one
+  evolving JSONB worksheet per `(ncr_id, tool_type)` for the four structured aids
+  (`five_why`/`fishbone`/`eight_d`/`ten_d`), managed via
+  `GET/PUT /api/v1/ncr/{id}/tools/{tool_type}` (design decision 7). `PUT`
+  creates-or-replaces rather than requiring a separate create/update
+  distinction, using the same idempotent-write pattern as
+  `documents.service.acknowledge_document_version`. `GET` for a tool that has
+  never been saved returns a default empty payload (`data: {}`, `id: null`)
+  rather than `404` — "not started" is a normal state for an optional aid;
+  only a nonexistent/cross-org NCR itself `404`s, and an invalid `tool_type`
+  is rejected with `422` by FastAPI's own enum path-parameter validation.
+  - Migration verified with a real upgrade → downgrade → upgrade cycle against a
+    disposable local PostgreSQL 16 database.
+  - **Independent security/tenant-isolation review** (a fresh agent with no
+    prior session context) found no cross-organisation leaks, `organisation_id`
+    provenance issues, or TOCTOU races in the upsert's create-or-replace logic,
+    but found one real gap, fixed test-first before being committed: this slice
+    had no equivalent to the `ncr_actions` slice's frozen-once-closed rule, so a
+    closed NCR's investigation worksheet could still be silently rewritten
+    after closure. Fixed with a new `NcrInvestigationToolFrozenError` (`409`),
+    exactly mirroring `NcrActionsFrozenError`, raised only by the `PUT`
+    (upsert) path — reads stay unfrozen, since a closed NCR's worksheets must
+    remain readable (needed by the future PDF export slice). A second,
+    informational-only observation — the `data` JSONB column has no dedicated
+    size cap beyond the global request-body-size middleware — was verified as
+    matching `configuration.value`'s existing precedent, not a new gap, and left
+    unchanged. Full reasoning in
+    [DecisionLog.md](DecisionLog.md#2026-07-30-ncr-investigation-tools-slice-extending-the-frozen-once-closed-rule).
+  - 13 new backend tests (339 total, up from 326 after the actions slice): 7
+    unit tests (not-started returns `None`, cross-org `404`,
+    create-then-replace, tool-type independence, cross-org upsert `404`, the
+    frozen-rewrite-rejected regression test, and the still-readable-when-closed
+    regression test) and 6 integration tests against real PostgreSQL (the
+    default-payload response, cross-org `404`, the `422` invalid-`tool_type`
+    case, create-then-replace through the real HTTP API including verifying a
+    different `tool_type` on the same NCR stays independent, cross-org upsert
+    `404`, and the closed-NCR rewrite-rejected-but-still-readable flow). All
+    written test-first.
+  - Gates pass: `ruff format --check`, `ruff check`, `mypy --strict` (110 source
+    files), full `pytest` suite (339 tests: unit + integration against real
+    PostgreSQL 16). Note: the full combined unit+integration suite showed
+    intermittent, non-reproducible `test_documents.py` failures under this
+    session's Windows/asyncpg environment when run immediately back-to-back
+    several times in a row — confirmed, by repeated isolated re-runs, to be
+    pre-existing test-infrastructure flakiness (connection/engine teardown
+    timing under load across 113 integration tests each creating and disposing
+    their own engine) unrelated to this slice's code: `pytest tests/integration`
+    run alone passed 113/113 cleanly on two separate occasions, and the full
+    suite subsequently passed 339/339 cleanly on retry with no code changes.
+    Recorded here rather than silently ignored; see "Known bugs" below.
+  - Docs updated in this slice: [API.md](API.md#ncr-module-milestone-4-in-progress),
+    [Database.md](Database.md#ncr-and-related-tables-milestone-4-in-progress),
+    [docs/modules/NCR.md](modules/NCR.md) (`Status: Implemented
+    (schema/CRUD/workflow/actions/investigation tools only)`),
+    [DecisionLog.md](DecisionLog.md#2026-07-30-ncr-investigation-tools-slice-extending-the-frozen-once-closed-rule).
 
 ## Work in progress
 
-Milestone 4 (NCR): the `ncrs`/`ncr_status_history` schema, CRUD, and transition
-workflow are implemented and tested (see above). Not yet done: `ncr_actions` (and
-the close-blocked-while-actions-open guard), `ncr_investigation_tools`,
+Milestone 4 (NCR): the `ncrs`/`ncr_status_history`/`ncr_actions`/
+`ncr_investigation_tools` schema, CRUD, transition workflow, actions, and
+investigation tools are implemented and tested (see above). Not yet done:
 `ncr_attachments`, PDF export, `GET /api/v1/suppliers/{id}/ncr-history`, and the
 frontend. Plan:
 [.hermes/plans/2026-07-29-milestone-4-ncr.md](../.hermes/plans/2026-07-29-milestone-4-ncr.md).

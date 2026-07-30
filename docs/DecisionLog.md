@@ -1154,3 +1154,35 @@ already records `delete_category`'s and similar unlocked-count patterns as
 accepted low-severity gaps elsewhere in this codebase; this entry does not
 introduce a new instance of that class, since the close guard's count now runs
 under the same lock actions are written under.
+
+## 2026-07-30 — NCR investigation tools slice: extending the frozen-once-closed rule
+
+**Problem:** An independent security review of the `ncr_investigation_tools` slice
+(`get_investigation_tool`, `upsert_investigation_tool`, and the new `GET`/`PUT
+/api/v1/ncr/{id}/tools/{tool_type}` endpoints) found no cross-organisation leaks,
+`organisation_id` provenance issues, or TOCTOU races in the upsert's create-or-
+replace logic (which correctly mirrors `documents.service.acknowledge_document_version`'s
+idempotent-write pattern). It did find that this slice had no equivalent to the
+`ncr_actions` slice's frozen-once-closed rule
+([DecisionLog.md](DecisionLog.md#2026-07-30-ncr-actions-slice-a-close-guard-lock-gap-and-a-new-frozen-actions-rule)):
+`upsert_investigation_tool` never checked `ncr.status`, so a closed NCR's 5-Why/
+Fishbone/8D/10D worksheet could still be silently rewritten after closure — the
+same audit-integrity problem the actions rule exists to prevent, in a part of the
+schema that rule doesn't reach.
+
+**Fix:** a new `NcrInvestigationToolFrozenError` (`409`), raised by
+`upsert_investigation_tool` whenever the parent NCR's `status` is `closed`,
+exactly mirroring `NcrActionsFrozenError`. Reads (`get_investigation_tool`) are
+deliberately *not* frozen — a closed NCR's investigation tools must still be
+readable (the eventual PDF export slice needs to read a closed NCR's completed
+worksheets). Regression-covered by a deterministic unit test pair (rewrite
+rejected with `409`, and the pre-closure data confirmed unchanged afterward; plus
+a separate test confirming reads still work) and one integration test exercising
+the same flow through the real HTTP API, including the read-still-works check.
+
+**Also verified during this review, no code change required:** the `data` JSONB
+column has no dedicated size cap beyond the global request-body-size middleware —
+this matches `configuration.value`'s existing precedent (also uncapped flexible
+JSONB) rather than being a new gap introduced by this slice; worth a future pass
+across all flexible-JSON columns if it ever becomes a real problem, not scoped to
+NCR alone.

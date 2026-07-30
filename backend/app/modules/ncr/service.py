@@ -11,6 +11,7 @@ import datetime
 import uuid
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.ncr.models import (
@@ -18,6 +19,8 @@ from app.modules.ncr.models import (
     Ncr,
     NcrAction,
     NcrActionStatus,
+    NcrInvestigationTool,
+    NcrInvestigationToolType,
     NcrStatus,
     NcrStatusHistory,
     NcrType,
@@ -70,6 +73,12 @@ class NcrActionsFrozenError(Exception):
 class NcrActionOwnerNotFoundError(Exception):
     """Raised when an action's `owner_id` doesn't exist in the caller's
     organisation."""
+
+
+class NcrInvestigationToolFrozenError(Exception):
+    """Raised when upserting an investigation tool on an NCR that is already
+    `closed`. Same reasoning as `NcrActionsFrozenError`: a closed NCR's
+    investigation worksheets must stay exactly as they were at close time."""
 
 
 async def _validate_links(
@@ -495,3 +504,97 @@ async def update_action(
     await session.commit()
     await session.refresh(action)
     return action
+
+
+# --- Investigation tools ----------------------------------------------------------
+
+
+async def get_investigation_tool(
+    session: AsyncSession,
+    *,
+    organisation_id: uuid.UUID,
+    ncr_id: uuid.UUID,
+    tool_type: NcrInvestigationToolType,
+) -> NcrInvestigationTool | None:
+    """Returns `None` if this tool has never been saved for this NCR -- "not
+    started" is a normal state for an optional aid, not a `404` (the caller
+    constructs a default empty payload). Still raises `NcrNotFoundError` if the
+    NCR itself doesn't exist in the caller's organisation."""
+    await get_ncr(session, organisation_id=organisation_id, ncr_id=ncr_id)
+    return (
+        await session.execute(
+            select(NcrInvestigationTool).where(
+                NcrInvestigationTool.ncr_id == ncr_id,
+                NcrInvestigationTool.tool_type == tool_type,
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def upsert_investigation_tool(
+    session: AsyncSession,
+    *,
+    organisation_id: uuid.UUID,
+    ncr_id: uuid.UUID,
+    tool_type: NcrInvestigationToolType,
+    data: dict[str, object],
+    updated_by_id: uuid.UUID,
+) -> NcrInvestigationTool:
+    """Create-or-replace `data` for `(ncr_id, tool_type)` -- see the plan's design
+    decision 7. Two concurrent `PUT`s racing to create the same pair are resolved
+    by the DB's own unique constraint plus a fallback update, matching `PUT`'s
+    replace semantics (last write wins), not an error -- the same
+    idempotent-write pattern already used by
+    `documents.service.acknowledge_document_version`. Rejects (`409`) once the
+    parent NCR is `closed` -- matching `create_action`/`update_action`'s
+    frozen-once-closed rule (design decision 4's spirit): an independent security
+    review found this slice had no equivalent guard, which would otherwise let a
+    closed NCR's investigation worksheet be silently rewritten after closure."""
+    ncr = await get_ncr(session, organisation_id=organisation_id, ncr_id=ncr_id)
+    if ncr.status == NcrStatus.CLOSED:
+        raise NcrInvestigationToolFrozenError(
+            f"NCR {ncr_id} is closed; its investigation tools cannot be edited"
+        )
+
+    existing = (
+        await session.execute(
+            select(NcrInvestigationTool).where(
+                NcrInvestigationTool.ncr_id == ncr_id,
+                NcrInvestigationTool.tool_type == tool_type,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        existing.data = data
+        existing.updated_by_id = updated_by_id
+        await session.commit()
+        await session.refresh(existing)
+        return existing
+
+    tool = NcrInvestigationTool(
+        ncr_id=ncr_id,
+        tool_type=tool_type,
+        data=data,
+        created_by_id=updated_by_id,
+        updated_by_id=updated_by_id,
+    )
+    session.add(tool)
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        existing = (
+            await session.execute(
+                select(NcrInvestigationTool).where(
+                    NcrInvestigationTool.ncr_id == ncr_id,
+                    NcrInvestigationTool.tool_type == tool_type,
+                )
+            )
+        ).scalar_one()
+        existing.data = data
+        existing.updated_by_id = updated_by_id
+        await session.commit()
+        await session.refresh(existing)
+        return existing
+    await session.refresh(tool)
+    return tool

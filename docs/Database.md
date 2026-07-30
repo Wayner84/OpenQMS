@@ -379,8 +379,8 @@ transitively through their parent `product_id`.
 
 Per [docs/modules/NCR.md](modules/NCR.md) and the
 [Milestone 4 plan](../.hermes/plans/2026-07-29-milestone-4-ncr.md). This section
-covers the schema/CRUD/workflow/actions slices; `ncr_investigation_tools` and
-`ncr_attachments` are added in later slices and documented here as they land.
+covers the schema/CRUD/workflow/actions/investigation-tools slices;
+`ncr_attachments` is added in a later slice and documented here as it lands.
 `ncrs` carries `organisation_id` directly; the other tables below carry it
 transitively, through their parent `ncr_id`.
 
@@ -415,6 +415,15 @@ transitively, through their parent `ncr_id`.
   `complete`, default `open`), `completed_at` (nullable, stamped when `status`
   becomes `complete`, cleared if reopened), `created_by_id` (FK → `users.id`,
   not null), `created_at`/`updated_at`.
+- **`ncr_investigation_tools`** — `ncr_id` (FK, cascade delete), `tool_type`
+  (native enum `five_why`/`fishbone`/`eight_d`/`ten_d`), `data` (JSONB, not
+  null, default `{}` — each tool's structure differs enough that a flexible
+  column is preferable to one table per tool type, matching
+  `configuration.value`'s established precedent), `created_by_id`/
+  `updated_by_id` (FK → `users.id`, not null), `created_at`/`updated_at`.
+  `UniqueConstraint(ncr_id, tool_type)` — one evolving worksheet per pair,
+  upserted via `PUT` rather than a separate create/update distinction (design
+  decision 7).
 
 The one-directional transition workflow (`open` → `investigate` → `containment` →
 `corrective_action` → `verification` → `closed`, no skipping stages, no moving
@@ -430,6 +439,12 @@ action once the parent NCR is `closed` — an independent security review found
 that without this, a completed action could be silently reopened after closure,
 undermining the close guard's own guarantee; see
 [DecisionLog.md](DecisionLog.md#2026-07-30-ncr-actions-slice-a-close-guard-lock-gap-and-a-new-frozen-actions-rule).
+`upsert_investigation_tool` rejects (`409`) the same way once the parent NCR is
+`closed` — an equivalent gap the actions-slice review didn't cover, found and
+fixed in this slice's own review; see
+[DecisionLog.md](DecisionLog.md#2026-07-30-ncr-investigation-tools-slice-extending-the-frozen-once-closed-rule).
+Reads (`get_investigation_tool`) are not frozen — a closed NCR's worksheets must
+still be readable.
 
 #### NCR numbering
 

@@ -14,10 +14,16 @@ import datetime
 import enum
 import uuid
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, Text, UniqueConstraint, func
+from sqlalchemy import JSON, Date, DateTime, Enum, ForeignKey, Text, UniqueConstraint, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
+
+# JSONB on PostgreSQL (production/Docker); plain JSON on SQLite (fast unit tests
+# only), matching app/models/configuration.py's established pattern -- see
+# docs/Database.md#engines.
+_JsonValue = JSONB().with_variant(JSON(), "sqlite")
 
 
 class NcrType(str, enum.Enum):
@@ -152,6 +158,48 @@ class NcrAction(Base):
         DateTime(timezone=True), nullable=True
     )
     created_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class NcrInvestigationToolType(str, enum.Enum):
+    """The fixed set of structured investigation aids, per design decision 7 --
+    optional aids attached during the Investigate/Corrective Action stages, not
+    mandatory gates."""
+
+    FIVE_WHY = "five_why"
+    FISHBONE = "fishbone"
+    EIGHT_D = "eight_d"
+    TEN_D = "ten_d"
+
+
+class NcrInvestigationTool(Base):
+    """One evolving worksheet per `(ncr_id, tool_type)`, upserted via `PUT` rather
+    than a separate create/update distinction -- see the plan's design decision 7.
+    `data`'s shape is intentionally not modelled further at the database layer:
+    each tool's structure differs enough that a flexible JSONB column is
+    preferable to one table per tool type, matching `configuration.value`'s
+    established precedent for flexible structured data."""
+
+    __tablename__ = "ncr_investigation_tools"
+    __table_args__ = (
+        UniqueConstraint("ncr_id", "tool_type", name="uq_ncr_investigation_tools_ncr_tool_type"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    ncr_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("ncrs.id", ondelete="CASCADE"), nullable=False
+    )
+    tool_type: Mapped[NcrInvestigationToolType] = mapped_column(
+        _ncr_enum_column(NcrInvestigationToolType, "ncr_investigation_tool_type"), nullable=False
+    )
+    data: Mapped[dict[str, object]] = mapped_column(_JsonValue, nullable=False)
+    created_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    updated_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
