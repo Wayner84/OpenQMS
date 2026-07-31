@@ -380,6 +380,9 @@ transitively through their parent `product_id`.
 Per [docs/modules/NCR.md](modules/NCR.md) and the
 [Milestone 4 plan](../.hermes/plans/2026-07-29-milestone-4-ncr.md). This section
 covers the schema/CRUD/workflow/actions/investigation-tools/attachments slices.
+PDF export (`GET /api/v1/ncr/{id}/export`) adds no new table — it's a
+computed, on-the-fly rendering of the existing tables below via `reportlab`,
+per design decision 8.
 `ncrs` carries `organisation_id` directly; the other tables below carry it
 transitively, through their parent `ncr_id`.
 

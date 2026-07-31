@@ -1,6 +1,6 @@
 # Current Status
 
-_Last updated: 2026-07-30 (Milestone 4: NCR attachments and supplier NCR history slice implemented)_
+_Last updated: 2026-07-30 (Milestone 4: NCR PDF export slice implemented)_
 
 This document is kept truthful and current in the same commit as any work that
 changes it, per [Contributing.md](Contributing.md). It must never describe
@@ -15,9 +15,9 @@ for the exact scope, schema/API/permissions decisions, and acceptance criteria, 
 
 **Milestone 4 is in progress.** The `ncrs`/`ncr_status_history` schema, CRUD, the
 full transition workflow, containment/corrective/preventive actions, the four
-structured investigation tools, document attachments, and the Suppliers
-`ncr-history` read endpoint are implemented and tested (backend only) — see
-"Completed work" below. Not yet implemented: PDF export and the frontend. M0
+structured investigation tools, document attachments, the Suppliers
+`ncr-history` read endpoint, and PDF export are implemented and tested (backend
+only) — see "Completed work" below. Not yet implemented: the frontend. M0
 (Platform Foundation), M1 (Authentication, Organisations, People), M2 (Document
 Management), and M3 (Products and Suppliers) are all complete and verified —
 see "Completed work" below for details and findings.
@@ -1133,13 +1133,80 @@ see "Completed work" below for details and findings.
     [docs/modules/NCR.md](modules/NCR.md) (`Status: Implemented
     (schema/CRUD/workflow/actions/investigation
     tools/attachments/supplier history only)`).
+- **Milestone 4 — NCR PDF export** (backend slice, 2026-07-30):
+  `GET /api/v1/ncr/{id}/export` renders an NCR as a PDF via `reportlab`
+  (`>=4.2,<5.0`, a new dependency; pure-Python, no native system libraries, per
+  design decision 8 — `WeasyPrint`/a headless browser were rejected for the
+  build/runtime complexity they'd add). No new database table: the export is
+  computed on the fly from the existing `ncrs`/`ncr_status_history`/
+  `ncr_actions`/`ncr_investigation_tools`/`ncr_attachments` rows.
+  - `app/modules/ncr/export.py`: `gather_ncr_export_data` (async, resolves
+    human-readable labels for `raised_by`/action `owner` via
+    `people.service.get_person`, `product` via `products.service.get_product`,
+    `supplier`+company via `suppliers.service.get_supplier` +
+    `people.service.get_company`, and attachment `document` titles via
+    `documents.service.get_document` — never any other module's model
+    directly, per the module-isolation rule) and `render_ncr_pdf` (a pure
+    function, data in, PDF bytes out, so it's unit-testable without a
+    database). An incomplete NCR (`status != closed`) still renders every
+    section, with a placeholder line for the parts that aren't finished yet
+    (root cause summary, each investigation tool not yet started, no
+    `closed_at`), per the spec's "export incomplete NCRs with blank printable
+    sections" requirement; a closed NCR renders as a fully-populated report.
+  - An attachment whose `document_id` was independently soft-deleted after
+    being attached (the Document Management module has no awareness of NCR
+    attachments, so nothing blocks this, unlike `product_id`/`supplier_id`/
+    `raised_by_id`/`owner_id`, which are protected by a plain FK with no `ON
+    DELETE`) falls back to a placeholder label rather than failing the whole
+    export.
+  - **Independent security review** (a fresh agent with no prior session
+    context) found no tenant-isolation, module-isolation, or auth gaps, but
+    confirmed a real bug I had already found and fixed proactively while
+    writing the code (both independently converged on the same root cause):
+    `render_ncr_pdf` interpolated user-controlled free text (NCR description,
+    root cause summary, and investigation-tool JSON key/value pairs) directly
+    into `reportlab.platypus.Paragraph`, which parses a constrained
+    HTML-like markup. Ordinary text containing something `reportlab` reads as
+    an unterminated tag (e.g. a literal `<b>` typed as plain text) raised
+    `ValueError` and 500'd the export for that NCR permanently; a
+    deliberately crafted value (e.g. `<a href="...">`/`<font>`) would render
+    as a working hyperlink or styling inside an official QMS report — a
+    content-injection risk, not just a crash. Table cells elsewhere in the
+    same report are unaffected (`reportlab.platypus.Table` draws plain
+    strings literally, with no markup parsing). Fixed by escaping every
+    user-controlled interpolation with `xml.sax.saxutils.escape` before it
+    reaches `Paragraph`. Full reasoning in
+    [DecisionLog.md](DecisionLog.md#2026-07-30-ncr-pdf-export-slice-unescaped-user-text-in-reportlab-paragraph-markup).
+  - 12 new backend tests (256 total, up from 244 after the attachments slice):
+    unit tests (`test_ncr_export.py`) covering label resolution (person,
+    product, supplier+company, attachment document title), cross-org `404`,
+    the soft-deleted-document fallback, placeholder rendering for an
+    incomplete NCR, fully-populated rendering for a closed NCR, and the
+    markup-escaping regression; integration tests (`test_ncr.py`, `# ---
+    Export` section) covering a real PDF response for an open NCR
+    (`Content-Type: application/pdf`, `Content-Disposition: attachment`,
+    `%PDF` magic bytes), cross-org `404`, `422` for an unsupported `format`,
+    and a populated PDF for a closed NCR through the real HTTP API.
+  - Gates pass: `ruff format --check`, `ruff check`, `mypy --strict` (100
+    source files, with a new `reportlab.*` `ignore_missing_imports` override
+    added alongside the existing `alembic.*` one, since `reportlab` ships no
+    type stubs), 244 unit tests, and 122 integration tests against real
+    PostgreSQL. `pip-audit` re-run after adding `reportlab`/`pillow`
+    (`pillow` is `reportlab`'s own transitive dependency): same 10
+    pre-existing `starlette`/`pytest` findings as already documented in
+    "Known bugs" below, nothing new from either new package.
+  - Docs updated in this slice: [API.md](API.md#ncr-module-milestone-4-in-progress),
+    [Database.md](Database.md#ncr-and-related-tables-milestone-4-in-progress),
+    [docs/modules/NCR.md](modules/NCR.md) (`Status: Implemented
+    (schema/CRUD/workflow/actions/investigation
+    tools/attachments/supplier history/PDF export only)`).
 
 ## Work in progress
 
 Milestone 4 (NCR): the `ncrs`/`ncr_status_history`/`ncr_actions`/
 `ncr_investigation_tools`/`ncr_attachments` schema, CRUD, transition workflow,
-actions, investigation tools, attachments, and the Suppliers `ncr-history`
-endpoint are implemented and tested (see above). Not yet done: PDF export and
+actions, investigation tools, attachments, the Suppliers `ncr-history`
+endpoint, and PDF export are implemented and tested (see above). Not yet done:
 the frontend. Plan:
 [.hermes/plans/2026-07-29-milestone-4-ncr.md](../.hermes/plans/2026-07-29-milestone-4-ncr.md).
 

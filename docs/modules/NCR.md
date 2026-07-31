@@ -1,21 +1,21 @@
 # NCR
 
 **Status: Implemented (schema/CRUD/workflow/actions/investigation
-tools/attachments/supplier history only).**
+tools/attachments/supplier history/PDF export only).**
 [Milestone 4](../Roadmap.md#m4-ncr) is in progress — full scope, schema, API, and
 design decisions in the
 [Milestone 4 plan](../../.hermes/plans/2026-07-29-milestone-4-ncr.md). NCR
 creation, editing, listing, admin-only soft deletion, the full transition
 workflow, containment/corrective/preventive actions with owners and due dates,
-the four structured investigation tools, document attachments, and the
-Suppliers `ncr-history` read endpoint (`ncrs`, `ncr_status_history`,
+the four structured investigation tools, document attachments, the Suppliers
+`ncr-history` read endpoint, and PDF export (`ncrs`, `ncr_status_history`,
 `ncr_actions`, `ncr_investigation_tools`, `ncr_attachments`), including the
 close-blocked-while-actions-open guard and the closed-NCR
 actions/tools/attachments-frozen rule, are implemented and tested, backend
 only; see [docs/CurrentStatus.md](../CurrentStatus.md) for exactly what is and
-isn't done yet. PDF export and the frontend are not yet implemented. This is
-one of the two "major modules" named in the spec (with [SPC](SPC.md)) and is
-expected to span multiple implementation batches.
+isn't done yet. The frontend is not yet implemented. This is one of the two
+"major modules" named in the spec (with [SPC](SPC.md)) and is expected to span
+multiple implementation batches.
 
 ## Purpose
 
@@ -75,9 +75,11 @@ Under `/api/v1/ncr`:
   `DELETE /api/v1/ncr/{id}/attachments/{attachment_id}` — manage attachments;
   `document_id` is validated to exist and belong to the caller's organisation
   via the Document Management module's own service layer.
-- `GET /api/v1/ncr/{id}/export?format=pdf` — export; an incomplete NCR exports with
-  blank printable sections for the unfinished parts, a closed NCR exports as a
-  polished, fully-populated PDF report.
+- `GET /api/v1/ncr/{id}/export?format=pdf` — export via `reportlab` (design
+  decision 8); an incomplete NCR exports with a placeholder for each unfinished
+  part (root cause summary, investigation tools, closed date), a closed NCR
+  exports as a polished, fully-populated PDF report. `422` for any `format`
+  other than `pdf`; `404` for a cross-organisation NCR `{id}`.
 
 Under `/api/v1/suppliers`:
 
@@ -123,9 +125,23 @@ against the Document Management module's own service layer) are implemented
 and tested against real PostgreSQL. The Suppliers `GET
 /{supplier_id}/ncr-history` read endpoint is also implemented, reusing
 `ncr.service.list_ncrs` rather than querying `Ncr` directly, per the
-module-isolation rule. Not yet implemented: PDF export and the frontend. As
-the largest single module in the roadmap, implementation is split across
-several commits/batches per
+module-isolation rule. PDF export (`GET /api/v1/ncr/{id}/export`) is
+implemented via `reportlab` (design decision 8), resolving human-readable
+labels for `raised_by`/action `owner` (People), `product` (Products),
+`supplier`+company (Suppliers/People), and attachment `document` (Documents)
+through each module's own `service.py`, never their models directly. An
+independent security review found and this slice fixed, test-first, a real
+gap: user-controlled free text (NCR description, root cause summary,
+investigation-tool JSON values) was interpolated unescaped into
+`reportlab.platypus.Paragraph`, which parses a constrained HTML-like markup —
+ordinary text containing something it read as an unterminated tag would 500
+the export, and a deliberately crafted `<a href=...>`/`<font>` value could
+inject a working hyperlink or styling into an official QMS report. Fixed by
+escaping all four user-controlled interpolations with
+`xml.sax.saxutils.escape` before they reach `Paragraph`; see
+[DecisionLog.md](../DecisionLog.md#2026-07-30-ncr-pdf-export-slice-unescaped-user-text-in-reportlab-paragraph-markup).
+Not yet implemented: the frontend. As the largest single module in the
+roadmap, implementation is split across several commits/batches per
 [Contributing.md](../Contributing.md#branching-and-commits) rather than one
 large change — see the
 [Milestone 4 plan](../../.hermes/plans/2026-07-29-milestone-4-ncr.md)'s

@@ -1247,3 +1247,44 @@ other file's cleanup order.
 Products/Suppliers/Documents/Users files, in normal alphabetical order) passes
 cleanly with 0 errors after this change, confirmed on two separate full-suite
 runs. Not a production-code change — test infrastructure only.
+
+## 2026-07-30 — NCR PDF export slice: unescaped user text in reportlab Paragraph markup
+
+**Problem:** `render_ncr_pdf` (`backend/app/modules/ncr/export.py`) builds the
+NCR's description, root cause summary, and each investigation tool's JSON
+key/value pairs into `reportlab.platypus.Paragraph` objects. `Paragraph`
+parses its input string as a constrained HTML-like markup (`<b>`, `<i>`,
+`<font>`, `<a href=...>`, etc.), not as literal text. None of this text is
+escaped before being interpolated. This has two consequences, both verified
+against the installed `reportlab` version: (1) ordinary free text containing
+something `reportlab` reads as an unterminated tag — e.g. a user literally
+typing `<b>` as part of a label, with no matching close tag — raises
+`ValueError` from inside `Paragraph.__init__`, and the router has no
+try/except around `render_ncr_pdf`, so this becomes an unhandled `500` that
+permanently breaks export for that NCR until the offending field is edited;
+(2) a deliberately crafted value such as `<a href="https://evil.example/">click
+here</a>` or `<font color="red">` is honoured as real markup, not neutralised
+— any org member with edit rights on an NCR's description, root cause
+summary, or investigation-tool data (none of which are frozen before
+closure) could inject a working hyperlink or arbitrary styling into an
+official-looking QMS report. `Table` cells used elsewhere in the same report
+(metadata, status history, actions, attachments) are unaffected — `reportlab`
+draws plain-string table cells literally, with no markup parsing; only the
+explicit `Paragraph(...)` calls are in scope.
+
+I found this while writing the export renderer (recognising that `Paragraph`'s
+markup parsing meant free text needed escaping before I finished the first
+draft) and fixed it before the slice's independent security review ran; the
+review, working independently with no visibility into that fix, converged on
+the identical finding and confirmed no other `Paragraph` call site or `Table`
+cell was affected.
+
+**Fix:** every user-controlled string reaching a `Paragraph` — `ncr.description`,
+`ncr.root_cause_summary`, and each investigation tool's JSON `key`/`value`
+pair (rendered as `<b>{key}:</b> {value}`, so both the escaped key and the
+escaped value are substituted back into the hand-authored, trusted `<b>`
+wrapper) — is passed through `xml.sax.saxutils.escape` first. Regression-covered
+by `test_render_pdf_escapes_user_text_that_looks_like_markup`
+(`backend/tests/unit/test_ncr_export.py`), which asserts `render_ncr_pdf` does
+not raise for a description/root-cause-summary/tool-value each containing an
+unterminated `<b>`/`<i>` sequence that reproduced the crash before the fix.

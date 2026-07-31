@@ -12,11 +12,12 @@ value.
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.core.deps import CurrentAdmin, CurrentUser
+from app.modules.ncr.export import gather_ncr_export_data, render_ncr_pdf
 from app.modules.ncr.models import NcrInvestigationToolType, NcrStatus, NcrType
 from app.modules.ncr.schemas import (
     NcrActionCreateRequest,
@@ -240,6 +241,35 @@ async def list_status_history_endpoint(
         total=total,
         limit=limit,
         offset=offset,
+    )
+
+
+@router.get("/{ncr_id}/export")
+async def export_ncr_endpoint(
+    ncr_id: uuid.UUID,
+    current_user: CurrentUser,
+    session: SessionDependency,
+    format: Annotated[str, Query()] = "pdf",
+) -> Response:
+    if format != "pdf":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Only format=pdf is supported",
+        )
+    try:
+        data = await gather_ncr_export_data(
+            session, organisation_id=current_user.organisation_id, ncr_id=ncr_id
+        )
+    except NcrNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="NCR not found") from exc
+    pdf_bytes = render_ncr_pdf(data)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{data.ncr.number}.pdf"',
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 

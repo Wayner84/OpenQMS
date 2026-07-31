@@ -532,9 +532,7 @@ user), matching People/Products/Suppliers' precedent — not admin-gated, per de
 decision 2. Deleting an NCR is admin-only (design decision 2), since an NCR is an
 audit-significant record with a full status history, unlike Suppliers/Products'
 pure reference data. This section covers the schema/CRUD/workflow/actions/
-investigation-tools/attachments/supplier-history slices; PDF export is added in
-a later slice (see the plan's suggested commit boundaries) and documented here
-as it lands.
+investigation-tools/attachments/supplier-history/PDF-export slices.
 
 ### `POST /api/v1/ncr` / `PATCH /api/v1/ncr/{id}`
 
@@ -656,6 +654,26 @@ NCRs with that `supplier_id`). Implemented in the Suppliers module's router,
 reusing `ncr.service.list_ncrs` rather than querying `Ncr` directly, per the
 module-isolation rule. `404` for a cross-organisation supplier `{id}`.
 
+### `GET /api/v1/ncr/{id}/export`
+
+Renders the NCR as a PDF (`Content-Type: application/pdf`,
+`Content-Disposition: attachment`) via `reportlab` — a pure-Python PDF
+library with no native system dependencies, per design decision 8. An
+incomplete NCR (`status != closed`) still renders every section, with a
+placeholder line for the parts that aren't finished yet (root cause summary,
+investigation tools not yet started, no `closed_at`); a closed NCR renders as
+a fully-populated report. Human-readable labels (`raised_by`/action `owner`
+names, `product` part number, `supplier` company name, attachment `document`
+titles) are resolved via each owning module's own `service.py` function,
+never its model directly, per the module-isolation rule; an attachment whose
+document was independently soft-deleted after being attached falls back to a
+placeholder rather than failing the export. `format` accepts only `pdf`
+(`422` for any other value); `404` for a cross-organisation NCR `{id}`.
+User-controlled free text (description, root cause summary, investigation-tool
+JSON values) is escaped before being embedded, since `reportlab`'s `Paragraph`
+parses a constrained HTML-like markup — see
+[DecisionLog.md](DecisionLog.md#2026-07-30-ncr-pdf-export-slice-unescaped-user-text-in-reportlab-paragraph-markup).
+
 ## Health and readiness endpoints (Milestone 0)
 
 These are the only endpoints Milestone 0 implements:
@@ -704,7 +722,7 @@ implemented:
 | `/api/v1/documents`, `/api/v1/document-categories`, `/api/v1/document-tags` | Document Management (Milestone 2) — implemented |
 | `/api/v1/suppliers` | Suppliers (Milestone 3) — implemented |
 | `/api/v1/products`, `/api/v1/product-categories` | Products (Milestone 3) — implemented (backend) |
-| `/api/v1/ncr` | NCR (Milestone 4) — implemented (schema/CRUD/workflow/actions/tools/attachments; PDF export and frontend still in progress) |
+| `/api/v1/ncr` | NCR (Milestone 4) — implemented (schema/CRUD/workflow/actions/tools/attachments/PDF export; frontend still in progress) |
 | `/api/v1/calibration` | Calibration and Asset Management |
 | `/api/v1/maintenance` | Maintenance |
 | `/api/v1/fair` | FAIR |

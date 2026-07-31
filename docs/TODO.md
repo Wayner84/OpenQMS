@@ -137,9 +137,9 @@ Full scope and acceptance criteria:
     Tasks 13, 14, 15, 16 (all complete). Complexity: **XL**. Status: In Progress
     (schema, CRUD, the transition workflow, actions with the
     close-blocked-while-actions-open guard, the four structured investigation
-    tools, document attachments, and the Suppliers `ncr-history` read endpoint
-    implemented and tested, backend only; PDF export and the frontend not yet
-    started).
+    tools, document attachments, the Suppliers `ncr-history` read endpoint, and
+    PDF export (via `reportlab`) implemented and tested, backend only; the
+    frontend not yet started).
 
 ## Low Priority — Later modules (Milestones 5–9)
 18. **Calibration and Asset Management module** — see

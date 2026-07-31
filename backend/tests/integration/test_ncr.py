@@ -1039,6 +1039,89 @@ async def test_attachments_are_frozen_once_the_ncr_is_closed(context: Context) -
         assert list_response.json()["total"] == 1
 
 
+# --- Export --------------------------------------------------------------------
+
+
+async def test_export_returns_a_pdf_for_an_open_ncr(context: Context) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        raised_by_id = await _create_person(client, context.org_a_headers)
+        ncr_id = await _create_ncr(client, context.org_a_headers, raised_by_id)
+
+        response = await client.get(f"/api/v1/ncr/{ncr_id}/export", headers=context.org_a_headers)
+
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "application/pdf"
+    assert "attachment" in response.headers["content-disposition"]
+    assert response.content.startswith(b"%PDF")
+
+
+async def test_export_returns_404_for_another_organisations_ncr(context: Context) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        org_b_raised_by_id = await _create_person(client, context.org_b_headers)
+        ncr_id = await _create_ncr(client, context.org_b_headers, org_b_raised_by_id)
+
+        response = await client.get(f"/api/v1/ncr/{ncr_id}/export", headers=context.org_a_headers)
+
+    assert response.status_code == 404
+
+
+async def test_export_rejects_an_unsupported_format(context: Context) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        raised_by_id = await _create_person(client, context.org_a_headers)
+        ncr_id = await _create_ncr(client, context.org_a_headers, raised_by_id)
+
+        response = await client.get(
+            f"/api/v1/ncr/{ncr_id}/export",
+            headers=context.org_a_headers,
+            params={"format": "docx"},
+        )
+
+    assert response.status_code == 422
+
+
+async def test_export_returns_a_populated_pdf_for_a_closed_ncr(context: Context) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        raised_by_id = await _create_person(client, context.org_a_headers)
+        ncr_id = await _create_ncr(client, context.org_a_headers, raised_by_id)
+
+        update_response = await client.patch(
+            f"/api/v1/ncr/{ncr_id}",
+            headers=context.org_a_headers,
+            json={
+                "type": "internal",
+                "raised_by_id": raised_by_id,
+                "description": "A widget was out of spec",
+                "root_cause_summary": "A worn seal caused the leak",
+            },
+        )
+        assert update_response.status_code == 200, update_response.text
+
+        for to_status in [
+            "investigate",
+            "containment",
+            "corrective_action",
+            "verification",
+            "closed",
+        ]:
+            transition_response = await client.post(
+                f"/api/v1/ncr/{ncr_id}/transition",
+                headers=context.org_a_headers,
+                json={"to_status": to_status},
+            )
+            assert transition_response.status_code == 200, transition_response.text
+
+        response = await client.get(f"/api/v1/ncr/{ncr_id}/export", headers=context.org_a_headers)
+
+    assert response.status_code == 200, response.text
+    assert response.content.startswith(b"%PDF")
+    assert b"A worn seal caused the leak" in response.content
+    assert b"Final Report" in response.content
+
+
 # --- Supplier NCR history --------------------------------------------------------
 
 
