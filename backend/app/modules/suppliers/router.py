@@ -21,6 +21,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.core.deps import CurrentUser
+from app.modules.ncr.schemas import NcrListResponse, NcrRead
+from app.modules.ncr.service import list_ncrs
 from app.modules.suppliers.models import ApprovalStatus, RiskRating
 from app.modules.suppliers.schemas import (
     SupplierCertificationListResponse,
@@ -359,4 +361,46 @@ async def list_performance_records_endpoint(
         total=total,
         limit=limit,
         offset=offset,
+    )
+
+
+# --- NCR history -----------------------------------------------------------------
+
+
+@router.get("/{supplier_id}/ncr-history")
+async def list_supplier_ncr_history_endpoint(
+    supplier_id: uuid.UUID,
+    current_user: CurrentUser,
+    session: SessionDependency,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> NcrListResponse:
+    """Read-only, per the Milestone 3 plan's design decision 6 (deferred here
+    until the NCR schema existed) and the Milestone 4 plan's design decision 9.
+    Reuses `ncr.service.list_ncrs`'s own `supplier_id` filter -- the owning
+    module's public service function, per the module-isolation rule -- rather
+    than querying `ncrs` directly."""
+    try:
+        await get_supplier(
+            session, organisation_id=current_user.organisation_id, supplier_id=supplier_id
+        )
+    except SupplierNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Supplier not found"
+        ) from exc
+
+    ncrs, total = await list_ncrs(
+        session,
+        organisation_id=current_user.organisation_id,
+        type=None,
+        status=None,
+        product_id=None,
+        supplier_id=supplier_id,
+        raised_by_id=None,
+        search=None,
+        limit=limit,
+        offset=offset,
+    )
+    return NcrListResponse(
+        items=[NcrRead.model_validate(n) for n in ncrs], total=total, limit=limit, offset=offset
     )

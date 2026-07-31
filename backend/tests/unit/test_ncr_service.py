@@ -179,6 +179,34 @@ async def other_org_supplier_id(
     return await _create_supplier(session_maker, organisation_id=other_organisation_id)
 
 
+async def _create_document(session_maker: SessionMaker, *, organisation_id: uuid.UUID) -> uuid.UUID:
+    from app.modules.documents.service import create_document
+
+    async with session_maker() as session:
+        document = await create_document(
+            session,
+            organisation_id=organisation_id,
+            title="Inspection photo",
+            category_id=None,
+            owner_id=None,
+            tag_ids=[],
+            created_by_id=None,
+        )
+        return document.id
+
+
+@pytest.fixture
+async def document_id(session_maker: SessionMaker, organisation_id: uuid.UUID) -> uuid.UUID:
+    return await _create_document(session_maker, organisation_id=organisation_id)
+
+
+@pytest.fixture
+async def other_org_document_id(
+    session_maker: SessionMaker, other_organisation_id: uuid.UUID
+) -> uuid.UUID:
+    return await _create_document(session_maker, organisation_id=other_organisation_id)
+
+
 async def _create_ncr(
     session_maker: SessionMaker,
     *,
@@ -1767,3 +1795,315 @@ async def test_get_investigation_tool_still_readable_on_a_closed_ncr(
         )
     assert fetched is not None
     assert fetched.data == {"why_1": "Root cause"}
+
+
+# --- Attachments -----------------------------------------------------------------
+
+
+async def test_create_attachment_defaults(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    document_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.service import create_attachment
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+
+    async with session_maker() as session:
+        attachment = await create_attachment(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            document_id=document_id,
+            description="Photo of the defect",
+            created_by_id=user_id,
+        )
+
+    assert attachment.document_id == document_id
+    assert attachment.description == "Photo of the defect"
+    assert attachment.created_by_id == user_id
+
+
+async def test_create_attachment_raises_not_found_for_cross_organisation_ncr(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    other_organisation_id: uuid.UUID,
+    document_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.service import NcrNotFoundError, create_attachment
+
+    other_raised_by_id = await _create_person(session_maker, organisation_id=other_organisation_id)
+    other_ncr_id = await _create_ncr(
+        session_maker,
+        organisation_id=other_organisation_id,
+        raised_by_id=other_raised_by_id,
+        user_id=user_id,
+    )
+
+    async with session_maker() as session:
+        with pytest.raises(NcrNotFoundError):
+            await create_attachment(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=other_ncr_id,
+                document_id=document_id,
+                description=None,
+                created_by_id=user_id,
+            )
+
+
+async def test_create_attachment_rejects_document_in_another_organisation(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    other_org_document_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.service import NcrAttachmentDocumentNotFoundError, create_attachment
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+
+    async with session_maker() as session:
+        with pytest.raises(NcrAttachmentDocumentNotFoundError):
+            await create_attachment(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=ncr_id,
+                document_id=other_org_document_id,
+                description=None,
+                created_by_id=user_id,
+            )
+
+
+async def test_create_attachment_rejects_duplicate_document(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    document_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.service import NcrAttachmentAlreadyExistsError, create_attachment
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+    async with session_maker() as session:
+        await create_attachment(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            document_id=document_id,
+            description=None,
+            created_by_id=user_id,
+        )
+
+    async with session_maker() as session:
+        with pytest.raises(NcrAttachmentAlreadyExistsError):
+            await create_attachment(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=ncr_id,
+                document_id=document_id,
+                description="Duplicate",
+                created_by_id=user_id,
+            )
+
+
+async def test_create_attachment_rejects_adding_to_a_closed_ncr(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    document_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.service import NcrAttachmentsFrozenError, create_attachment
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+    await _close_ncr(session_maker, organisation_id=organisation_id, ncr_id=ncr_id, user_id=user_id)
+
+    async with session_maker() as session:
+        with pytest.raises(NcrAttachmentsFrozenError):
+            await create_attachment(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=ncr_id,
+                document_id=document_id,
+                description=None,
+                created_by_id=user_id,
+            )
+
+
+async def test_list_attachments_raises_not_found_for_cross_organisation_ncr(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    other_organisation_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.service import NcrNotFoundError, list_attachments
+
+    other_raised_by_id = await _create_person(session_maker, organisation_id=other_organisation_id)
+    other_ncr_id = await _create_ncr(
+        session_maker,
+        organisation_id=other_organisation_id,
+        raised_by_id=other_raised_by_id,
+        user_id=user_id,
+    )
+
+    async with session_maker() as session:
+        with pytest.raises(NcrNotFoundError):
+            await list_attachments(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=other_ncr_id,
+                limit=50,
+                offset=0,
+            )
+
+
+async def test_delete_attachment_removes_the_row(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    document_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.service import create_attachment, delete_attachment, list_attachments
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+    async with session_maker() as session:
+        attachment = await create_attachment(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            document_id=document_id,
+            description=None,
+            created_by_id=user_id,
+        )
+
+    async with session_maker() as session:
+        await delete_attachment(
+            session, organisation_id=organisation_id, ncr_id=ncr_id, attachment_id=attachment.id
+        )
+
+    async with session_maker() as session:
+        attachments, total = await list_attachments(
+            session, organisation_id=organisation_id, ncr_id=ncr_id, limit=50, offset=0
+        )
+    assert total == 0
+    assert attachments == []
+
+
+async def test_delete_attachment_returns_ncr_not_found_for_cross_organisation_ncr(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    other_organisation_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    """`ncr_id` itself belonging to another organisation 404s via the same
+    `NcrNotFoundError` every other cross-org NCR lookup raises -- checked before
+    the attachment id is even looked at."""
+    from app.modules.ncr.service import (
+        NcrNotFoundError,
+        create_attachment,
+        delete_attachment,
+    )
+
+    other_raised_by_id = await _create_person(session_maker, organisation_id=other_organisation_id)
+    other_document_id = await _create_document(session_maker, organisation_id=other_organisation_id)
+    other_ncr_id = await _create_ncr(
+        session_maker,
+        organisation_id=other_organisation_id,
+        raised_by_id=other_raised_by_id,
+        user_id=user_id,
+    )
+    async with session_maker() as session:
+        attachment = await create_attachment(
+            session,
+            organisation_id=other_organisation_id,
+            ncr_id=other_ncr_id,
+            document_id=other_document_id,
+            description=None,
+            created_by_id=user_id,
+        )
+
+    async with session_maker() as session:
+        with pytest.raises(NcrNotFoundError):
+            await delete_attachment(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=other_ncr_id,
+                attachment_id=attachment.id,
+            )
+
+
+async def test_delete_attachment_raises_not_found_for_an_unknown_attachment_id(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    """A random/nonexistent attachment id for an NCR that *is* in the caller's own
+    organisation 404s via NcrAttachmentNotFoundError."""
+    from app.modules.ncr.service import NcrAttachmentNotFoundError, delete_attachment
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+
+    async with session_maker() as session:
+        with pytest.raises(NcrAttachmentNotFoundError):
+            await delete_attachment(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=ncr_id,
+                attachment_id=uuid.uuid4(),
+            )
+
+
+async def test_delete_attachment_rejects_editing_a_closed_ncr(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    document_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.ncr.service import (
+        NcrAttachmentsFrozenError,
+        create_attachment,
+        delete_attachment,
+    )
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+    async with session_maker() as session:
+        attachment = await create_attachment(
+            session,
+            organisation_id=organisation_id,
+            ncr_id=ncr_id,
+            document_id=document_id,
+            description=None,
+            created_by_id=user_id,
+        )
+
+    await _close_ncr(session_maker, organisation_id=organisation_id, ncr_id=ncr_id, user_id=user_id)
+
+    async with session_maker() as session:
+        with pytest.raises(NcrAttachmentsFrozenError):
+            await delete_attachment(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=ncr_id,
+                attachment_id=attachment.id,
+            )

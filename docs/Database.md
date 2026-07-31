@@ -379,8 +379,7 @@ transitively through their parent `product_id`.
 
 Per [docs/modules/NCR.md](modules/NCR.md) and the
 [Milestone 4 plan](../.hermes/plans/2026-07-29-milestone-4-ncr.md). This section
-covers the schema/CRUD/workflow/actions/investigation-tools slices;
-`ncr_attachments` is added in a later slice and documented here as it lands.
+covers the schema/CRUD/workflow/actions/investigation-tools/attachments slices.
 `ncrs` carries `organisation_id` directly; the other tables below carry it
 transitively, through their parent `ncr_id`.
 
@@ -424,6 +423,16 @@ transitively, through their parent `ncr_id`.
   `UniqueConstraint(ncr_id, tool_type)` — one evolving worksheet per pair,
   upserted via `PUT` rather than a separate create/update distinction (design
   decision 7).
+- **`ncr_attachments`** — `ncr_id` (FK, cascade delete), `document_id` (FK →
+  `documents.id`, not null, no `ON DELETE` — validated to exist and belong to
+  the caller's own organisation via the Document Management module's own
+  `get_document` service function, never a direct query, per the
+  module-isolation rule), `description` (nullable), `created_by_id` (FK →
+  `users.id`, not null), `created_at`. `UniqueConstraint(ncr_id, document_id)`
+  — the same document cannot be attached to the same NCR twice, enforced with
+  an `IntegrityError` fallback under concurrent duplicate requests, matching
+  `documents.service.acknowledge_document_version`'s idempotent-upsert
+  pattern.
 
 The one-directional transition workflow (`open` → `investigate` → `containment` →
 `corrective_action` → `verification` → `closed`, no skipping stages, no moving
@@ -444,7 +453,11 @@ undermining the close guard's own guarantee; see
 fixed in this slice's own review; see
 [DecisionLog.md](DecisionLog.md#2026-07-30-ncr-investigation-tools-slice-extending-the-frozen-once-closed-rule).
 Reads (`get_investigation_tool`) are not frozen — a closed NCR's worksheets must
-still be readable.
+still be readable. `create_attachment`/`delete_attachment` take the same
+`_lock_ncr` lock and the same closed-NCR `409` guard, extending the
+frozen-once-closed rule proactively to attachments before any review flagged
+it as a gap (unlike the actions/investigation-tools slices, where the gap was
+found reactively by an independent review each time).
 
 #### NCR numbering
 

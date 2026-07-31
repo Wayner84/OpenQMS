@@ -177,3 +177,31 @@ class NcrInvestigationToolRead(BaseModel):
     created_by_id: uuid.UUID | None = None
     updated_by_id: uuid.UUID | None = None
     updated_at: datetime.datetime | None = None
+
+
+class NcrAttachmentCreateRequest(BaseModel):
+    """POST /api/v1/ncr/{id}/attachments request body."""
+
+    document_id: uuid.UUID
+    description: str | None = None
+
+
+class NcrAttachmentRead(BaseModel):
+    """An attachment's public shape."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    ncr_id: uuid.UUID
+    document_id: uuid.UUID
+    description: str | None
+    created_by_id: uuid.UUID
+
+
+class NcrAttachmentListResponse(BaseModel):
+    """GET /api/v1/ncr/{id}/attachments response body."""
+
+    items: list[NcrAttachmentRead]
+    total: int
+    limit: int
+    offset: int

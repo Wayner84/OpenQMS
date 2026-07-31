@@ -206,3 +206,25 @@ class NcrInvestigationTool(Base):
     updated_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+class NcrAttachment(Base):
+    """A Document Management record attached as supporting evidence for an NCR.
+    `document_id` is validated against the Document Management module's own
+    service layer -- never its model directly, per the module-isolation rule."""
+
+    __tablename__ = "ncr_attachments"
+    __table_args__ = (
+        UniqueConstraint("ncr_id", "document_id", name="uq_ncr_attachments_ncr_document"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    ncr_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("ncrs.id", ondelete="CASCADE"), nullable=False
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id"), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

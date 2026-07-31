@@ -1186,3 +1186,64 @@ this matches `configuration.value`'s existing precedent (also uncapped flexible
 JSONB) rather than being a new gap introduced by this slice; worth a future pass
 across all flexible-JSON columns if it ever becomes a real problem, not scoped to
 NCR alone.
+
+## 2026-07-30 — NCR attachments slice: self-contained integration-test fixtures instead of relying on cross-file cleanup ordering
+
+**Problem:** `tests/integration/test_*.py` share one persistent dev PostgreSQL
+database (`openqms-dev-postgres`). Each file's `context` fixture resets the
+default organisation's rows for the tables *that file's own module* creates, at
+fixture *setup* (not teardown) — an implicit contract that a later-alphabetical
+file's setup cleans up an earlier file's leftover cross-referencing rows.
+Adding `ncrs`' and then `ncr_attachments`' foreign keys into `people`/
+`products`/`suppliers`/`documents` broke this contract repeatedly across this
+and the two prior NCR slices: `test_ncr.py` runs alphabetically before
+`test_people.py`/`test_products.py`/`test_suppliers.py`, so a `Person`/
+`Product`/`Supplier`/`Document` row it created and left behind (its own
+teardown only cleans up its `org_b`, not `org_a`, which is cleaned at the
+*next* setup) could still be referenced by a leftover `Ncr` or `NcrAttachment`
+row if that next file's own cleanup didn't know to delete `Ncr`/
+`NcrAttachment` first. This surfaced concretely as a `people_created_by_id_fkey`
+violation deleting a stray "Quinn Reporter" `Person` row, and separately as a
+`documents_created_by_id_fkey` violation in `test_ncr.py`'s own `org_b`
+teardown, once its attachment tests started creating an `org_b` `Document` for
+cross-organisation validation.
+
+**Options considered:**
+1. Keep patching each affected file's cleanup order every time a new
+   cross-module FK is added (the approach taken for the actions slice, adding
+   `delete(Ncr)` to `test_people.py`/`test_products.py`/`test_suppliers.py`).
+   Rejected as the long-term approach: it is an O(n²) maintenance burden — every
+   new FK edge requires re-auditing every other integration test file's cleanup
+   order and hoping alphabetical execution order still resolves it — and it
+   already needed three separate follow-up patches across three slices.
+2. Move to a fully disposable database per test file/run (e.g. a fresh
+   Postgres container or schema per pytest session). Rejected as out of scope
+   for this slice: it is the more architecturally correct long-term fix but is
+   a larger infrastructure change (documented as a candidate for a future
+   dedicated batch, not invented here as a side effect of an NCR slice).
+3. Make each file's own fixture fully self-contained: at both its setup *and*
+   its `org_b` teardown, clean up every table its own tests create — not just
+   the table its own module owns — so it no longer depends on any other file's
+   cleanup ordering at all. Chosen: smallest change that actually fixes the
+   root cause (an implicit, undocumented cross-file contract) rather than
+   patching another symptom of it.
+
+**Fix:** `test_ncr.py`'s `context` fixture setup now deletes `Ncr` (which
+cascades to `ncr_attachments`), then `Document`, `Product`, `Supplier`,
+`Person`, `Company`, and `User` for the default organisation, in that FK-safe
+order (`ncr_attachments.document_id` has no `ON DELETE`, so `Ncr` must go before
+`Document`). Its `finally`-block `org_b` teardown gained the equivalent
+`Document` delete before `Product`, so a `Document` created in one test's
+`org_b` (for cross-organisation attachment validation) no longer blocks that
+same fixture instance's own `User` delete. `test_documents.py`'s fixture setup
+also gained a `delete(Ncr)` before its existing `Document` cascade delete, since
+`ncr_attachments.document_id` referencing `documents` means a leftover `Ncr`
+row can now block a `Document` delete there too. This does not remove the
+underlying shared-database assumption (option 2 above remains the real fix,
+deferred); it only stops each new FK edge from requiring a fresh audit of every
+other file's cleanup order.
+
+**Verification:** full `pytest tests/integration` (118 tests, all NCR/People/
+Products/Suppliers/Documents/Users files, in normal alphabetical order) passes
+cleanly with 0 errors after this change, confirmed on two separate full-suite
+runs. Not a production-code change — test infrastructure only.

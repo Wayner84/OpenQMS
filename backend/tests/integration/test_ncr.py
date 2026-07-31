@@ -86,6 +86,7 @@ async def context(database_url: str, monkeypatch: pytest.MonkeyPatch) -> AsyncIt
     from app.models.configuration import Configuration
     from app.models.organisation import Organisation
     from app.models.user import User, UserRole
+    from app.modules.documents.models import Document
     from app.modules.ncr.models import Ncr
     from app.modules.ncr.numbering import DEFAULT_NUMBERING_SCHEME, NUMBERING_SCHEME_KEY
     from app.modules.people.models import Company, Person
@@ -107,8 +108,16 @@ async def context(database_url: str, monkeypatch: pytest.MonkeyPatch) -> AsyncIt
         ).scalar_one()
 
         # Shared, persistent dev database: reset the default organisation's rows so
-        # earlier local runs don't affect these assertions.
+        # earlier local runs don't affect these assertions. This file's own tests
+        # create Person/Company/Product/Supplier/Document rows via helper functions
+        # (not just Ncr rows), so -- unlike relying on the next alphabetically-run
+        # file's own setup to clean up after this one -- this fixture cleans up all
+        # of them itself, keeping this file self-contained regardless of which
+        # other integration test files run before or after it in a given session.
+        # ncr_attachments.document_id has no ON DELETE, so Ncr (which cascades to
+        # ncr_attachments) must be deleted before Document.
         await session.execute(delete(Ncr).where(Ncr.organisation_id == org_a.id))
+        await session.execute(delete(Document).where(Document.organisation_id == org_a.id))
         await session.execute(delete(Product).where(Product.organisation_id == org_a.id))
         await session.execute(delete(Supplier).where(Supplier.organisation_id == org_a.id))
         await session.execute(delete(Person).where(Person.organisation_id == org_a.id))
@@ -175,7 +184,15 @@ async def context(database_url: str, monkeypatch: pytest.MonkeyPatch) -> AsyncIt
         cleanup_engine = create_async_engine(database_url)
         cleanup_session_maker = async_sessionmaker(cleanup_engine, expire_on_commit=False)
         async with cleanup_session_maker() as cleanup_session:
+            # ncr_attachments.document_id has no ON DELETE, so Ncr (which cascades to
+            # ncr_attachments) must be deleted before Document -- matching the setup
+            # cleanup above. Some of this file's tests create an org_b Document to
+            # validate cross-organisation attachment rejection, so it must be cleaned
+            # up here too or it blocks the org_b User delete below.
             await cleanup_session.execute(delete(Ncr).where(Ncr.organisation_id == org_b.id))
+            await cleanup_session.execute(
+                delete(Document).where(Document.organisation_id == org_b.id)
+            )
             await cleanup_session.execute(
                 delete(Product).where(Product.organisation_id == org_b.id)
             )
@@ -215,6 +232,15 @@ async def _create_product(client: AsyncClient, headers: dict[str, str]) -> str:
     assert response.status_code == 201, response.text
     product_id: str = response.json()["id"]
     return product_id
+
+
+async def _create_document(client: AsyncClient, headers: dict[str, str]) -> str:
+    response = await client.post(
+        "/api/v1/documents", headers=headers, json={"title": "Inspection photo"}
+    )
+    assert response.status_code == 201, response.text
+    document_id: str = response.json()["id"]
+    return document_id
 
 
 async def _create_supplier(client: AsyncClient, headers: dict[str, str]) -> str:
@@ -893,3 +919,170 @@ async def test_upsert_investigation_tool_rejects_editing_a_closed_ncr(context: C
         )
         assert get_response.status_code == 200
         assert get_response.json()["data"] == {"why_1": "Original"}
+
+
+# --- Attachments ---------------------------------------------------------------
+
+
+async def test_attachment_lifecycle_and_cross_org_document_validation(context: Context) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        raised_by_id = await _create_person(client, context.org_a_headers)
+        ncr_id = await _create_ncr(client, context.org_a_headers, raised_by_id)
+
+        org_b_document_id = await _create_document(client, context.org_b_headers)
+        cross_org_response = await client.post(
+            f"/api/v1/ncr/{ncr_id}/attachments",
+            headers=context.org_a_headers,
+            json={"document_id": org_b_document_id},
+        )
+        assert cross_org_response.status_code == 404
+
+        document_id = await _create_document(client, context.org_a_headers)
+        create_response = await client.post(
+            f"/api/v1/ncr/{ncr_id}/attachments",
+            headers=context.org_a_headers,
+            json={"document_id": document_id, "description": "Defect photo"},
+        )
+        assert create_response.status_code == 201, create_response.text
+        attachment_id = create_response.json()["id"]
+
+        duplicate_response = await client.post(
+            f"/api/v1/ncr/{ncr_id}/attachments",
+            headers=context.org_a_headers,
+            json={"document_id": document_id},
+        )
+        assert duplicate_response.status_code == 409
+
+        list_response = await client.get(
+            f"/api/v1/ncr/{ncr_id}/attachments", headers=context.org_a_headers
+        )
+        assert list_response.status_code == 200
+        assert list_response.json()["total"] == 1
+
+        delete_response = await client.delete(
+            f"/api/v1/ncr/{ncr_id}/attachments/{attachment_id}", headers=context.org_a_headers
+        )
+        assert delete_response.status_code == 204
+
+        final_list_response = await client.get(
+            f"/api/v1/ncr/{ncr_id}/attachments", headers=context.org_a_headers
+        )
+        assert final_list_response.json()["total"] == 0
+
+
+async def test_create_attachment_returns_404_for_another_organisations_ncr(
+    context: Context,
+) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        org_b_raised_by_id = await _create_person(client, context.org_b_headers)
+        ncr_id = await _create_ncr(client, context.org_b_headers, org_b_raised_by_id)
+        document_id = await _create_document(client, context.org_a_headers)
+
+        response = await client.post(
+            f"/api/v1/ncr/{ncr_id}/attachments",
+            headers=context.org_a_headers,
+            json={"document_id": document_id},
+        )
+
+    assert response.status_code == 404
+
+
+async def test_attachments_are_frozen_once_the_ncr_is_closed(context: Context) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        raised_by_id = await _create_person(client, context.org_a_headers)
+        ncr_id = await _create_ncr(client, context.org_a_headers, raised_by_id)
+        document_id = await _create_document(client, context.org_a_headers)
+
+        create_response = await client.post(
+            f"/api/v1/ncr/{ncr_id}/attachments",
+            headers=context.org_a_headers,
+            json={"document_id": document_id},
+        )
+        assert create_response.status_code == 201, create_response.text
+        attachment_id = create_response.json()["id"]
+
+        for to_status in [
+            "investigate",
+            "containment",
+            "corrective_action",
+            "verification",
+            "closed",
+        ]:
+            response = await client.post(
+                f"/api/v1/ncr/{ncr_id}/transition",
+                headers=context.org_a_headers,
+                json={"to_status": to_status},
+            )
+            assert response.status_code == 200, response.text
+
+        another_document_id = await _create_document(client, context.org_a_headers)
+        blocked_create_response = await client.post(
+            f"/api/v1/ncr/{ncr_id}/attachments",
+            headers=context.org_a_headers,
+            json={"document_id": another_document_id},
+        )
+        assert blocked_create_response.status_code == 409
+
+        blocked_delete_response = await client.delete(
+            f"/api/v1/ncr/{ncr_id}/attachments/{attachment_id}", headers=context.org_a_headers
+        )
+        assert blocked_delete_response.status_code == 409
+
+        # Reads must still work on a closed NCR.
+        list_response = await client.get(
+            f"/api/v1/ncr/{ncr_id}/attachments", headers=context.org_a_headers
+        )
+        assert list_response.status_code == 200
+        assert list_response.json()["total"] == 1
+
+
+# --- Supplier NCR history --------------------------------------------------------
+
+
+async def test_supplier_ncr_history_lists_only_that_suppliers_ncrs(context: Context) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        raised_by_id = await _create_person(client, context.org_a_headers)
+        supplier_id = await _create_supplier(client, context.org_a_headers)
+        other_supplier_id = await _create_supplier(client, context.org_a_headers)
+
+        await _create_ncr(
+            client,
+            context.org_a_headers,
+            raised_by_id,
+            type="supplier",
+            supplier_id=supplier_id,
+        )
+        await _create_ncr(
+            client,
+            context.org_a_headers,
+            raised_by_id,
+            type="supplier",
+            supplier_id=other_supplier_id,
+        )
+        await _create_ncr(client, context.org_a_headers, raised_by_id)
+
+        response = await client.get(
+            f"/api/v1/suppliers/{supplier_id}/ncr-history", headers=context.org_a_headers
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["total"] == 1
+    assert response.json()["items"][0]["supplier_id"] == supplier_id
+
+
+async def test_supplier_ncr_history_returns_404_for_another_organisations_supplier(
+    context: Context,
+) -> None:
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        org_b_supplier_id = await _create_supplier(client, context.org_b_headers)
+
+        response = await client.get(
+            f"/api/v1/suppliers/{org_b_supplier_id}/ncr-history", headers=context.org_a_headers
+        )
+
+    assert response.status_code == 404

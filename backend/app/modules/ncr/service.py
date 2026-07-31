@@ -14,11 +14,13 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.documents.service import DocumentNotFoundError, get_document
 from app.modules.ncr.models import (
     NCR_STATUS_SEQUENCE,
     Ncr,
     NcrAction,
     NcrActionStatus,
+    NcrAttachment,
     NcrInvestigationTool,
     NcrInvestigationToolType,
     NcrStatus,
@@ -79,6 +81,26 @@ class NcrInvestigationToolFrozenError(Exception):
     """Raised when upserting an investigation tool on an NCR that is already
     `closed`. Same reasoning as `NcrActionsFrozenError`: a closed NCR's
     investigation worksheets must stay exactly as they were at close time."""
+
+
+class NcrAttachmentNotFoundError(Exception):
+    """Raised when an attachment id doesn't exist for the given NCR."""
+
+
+class NcrAttachmentDocumentNotFoundError(Exception):
+    """Raised when an attachment's `document_id` doesn't exist in the caller's
+    organisation."""
+
+
+class NcrAttachmentAlreadyExistsError(Exception):
+    """Raised when attaching a document to an NCR that already has it attached."""
+
+
+class NcrAttachmentsFrozenError(Exception):
+    """Raised when adding or removing an attachment on an NCR that is already
+    `closed`. Same reasoning as `NcrActionsFrozenError`/
+    `NcrInvestigationToolFrozenError`: a closed NCR's evidence must stay exactly
+    as it was at close time."""
 
 
 async def _validate_links(
@@ -598,3 +620,111 @@ async def upsert_investigation_tool(
         return existing
     await session.refresh(tool)
     return tool
+
+
+# --- Attachments -------------------------------------------------------------
+
+
+async def create_attachment(
+    session: AsyncSession,
+    *,
+    organisation_id: uuid.UUID,
+    ncr_id: uuid.UUID,
+    document_id: uuid.UUID,
+    description: str | None,
+    created_by_id: uuid.UUID,
+) -> NcrAttachment:
+    """Attach a Document Management record as supporting evidence. Locks the
+    parent NCR (matching `create_action`'s reasoning) and rejects (`409`) once
+    the NCR is `closed` -- a closed NCR's evidence must stay exactly as it was
+    at close time, same as its actions and investigation tools."""
+    ncr = await get_ncr(session, organisation_id=organisation_id, ncr_id=ncr_id)
+    await _lock_ncr(session, ncr)
+    if ncr.status == NcrStatus.CLOSED:
+        raise NcrAttachmentsFrozenError(f"NCR {ncr_id} is closed; its attachments cannot be edited")
+
+    try:
+        await get_document(session, organisation_id=organisation_id, document_id=document_id)
+    except DocumentNotFoundError as exc:
+        raise NcrAttachmentDocumentNotFoundError(str(exc)) from exc
+
+    existing = (
+        await session.execute(
+            select(NcrAttachment).where(
+                NcrAttachment.ncr_id == ncr_id, NcrAttachment.document_id == document_id
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise NcrAttachmentAlreadyExistsError("This document is already attached to the NCR")
+
+    attachment = NcrAttachment(
+        ncr_id=ncr_id,
+        document_id=document_id,
+        description=description,
+        created_by_id=created_by_id,
+    )
+    session.add(attachment)
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        # Belt-and-braces alongside the check above, matching the Products
+        # link-table precedent: two concurrent attach requests for the same
+        # (ncr_id, document_id) can both pass the check before either commits.
+        await session.rollback()
+        raise NcrAttachmentAlreadyExistsError(
+            "This document is already attached to the NCR"
+        ) from exc
+    await session.refresh(attachment)
+    return attachment
+
+
+async def list_attachments(
+    session: AsyncSession,
+    *,
+    organisation_id: uuid.UUID,
+    ncr_id: uuid.UUID,
+    limit: int,
+    offset: int,
+) -> tuple[list[NcrAttachment], int]:
+    await get_ncr(session, organisation_id=organisation_id, ncr_id=ncr_id)
+
+    total = (
+        await session.execute(
+            select(func.count()).select_from(NcrAttachment).where(NcrAttachment.ncr_id == ncr_id)
+        )
+    ).scalar_one()
+    result = await session.execute(
+        select(NcrAttachment)
+        .where(NcrAttachment.ncr_id == ncr_id)
+        .order_by(NcrAttachment.created_at)
+        .limit(limit)
+        .offset(offset)
+    )
+    return list(result.scalars().all()), total
+
+
+async def delete_attachment(
+    session: AsyncSession,
+    *,
+    organisation_id: uuid.UUID,
+    ncr_id: uuid.UUID,
+    attachment_id: uuid.UUID,
+) -> None:
+    ncr = await get_ncr(session, organisation_id=organisation_id, ncr_id=ncr_id)
+    await _lock_ncr(session, ncr)
+    if ncr.status == NcrStatus.CLOSED:
+        raise NcrAttachmentsFrozenError(f"NCR {ncr_id} is closed; its attachments cannot be edited")
+
+    attachment = (
+        await session.execute(
+            select(NcrAttachment).where(
+                NcrAttachment.id == attachment_id, NcrAttachment.ncr_id == ncr_id
+            )
+        )
+    ).scalar_one_or_none()
+    if attachment is None:
+        raise NcrAttachmentNotFoundError(f"No attachment {attachment_id} for NCR {ncr_id}")
+
+    await session.delete(attachment)
+    await session.commit()

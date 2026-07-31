@@ -532,9 +532,9 @@ user), matching People/Products/Suppliers' precedent — not admin-gated, per de
 decision 2. Deleting an NCR is admin-only (design decision 2), since an NCR is an
 audit-significant record with a full status history, unlike Suppliers/Products'
 pure reference data. This section covers the schema/CRUD/workflow/actions/
-investigation-tools slices; attachments, PDF export, and supplier NCR history are
-added in later slices (see the plan's suggested commit boundaries) and documented
-here as they land.
+investigation-tools/attachments/supplier-history slices; PDF export is added in
+a later slice (see the plan's suggested commit boundaries) and documented here
+as it lands.
 
 ### `POST /api/v1/ncr` / `PATCH /api/v1/ncr/{id}`
 
@@ -627,6 +627,35 @@ the NCR is already `closed` — a closed NCR's investigation tools are frozen th
 same way its actions are (reads via `GET` above are unaffected — a closed NCR's
 worksheets must still be readable).
 
+### `POST /api/v1/ncr/{id}/attachments`
+
+Attach a Document Management record as supporting evidence. Body: `document_id`
+(required, must belong to the caller's own organisation — `404` otherwise, via
+the Document Management module's own service layer, never a direct query, per
+the module-isolation rule), `description` (optional). `404` for a
+cross-organisation NCR `{id}`; `409` if the same `document_id` is already
+attached to the NCR (including under a concurrent duplicate request, via an
+`IntegrityError` fallback matching `documents.service.acknowledge_document_version`'s
+pattern); `409` if the NCR is already `closed` — a closed NCR's attachments are
+frozen the same way its actions and investigation tools are.
+
+### `GET /api/v1/ncr/{id}/attachments`
+
+Paginated list of an NCR's attachments. `404` for a cross-organisation NCR
+`{id}`.
+
+### `DELETE /api/v1/ncr/{id}/attachments/{attachment_id}`
+
+Remove an attachment. `404` if the attachment (or its parent NCR) isn't in the
+caller's own organisation; `409` if the parent NCR is already `closed`.
+
+### `GET /api/v1/suppliers/{id}/ncr-history`
+
+Paginated, read-only list of the NCRs linked to a supplier (`type: supplier`
+NCRs with that `supplier_id`). Implemented in the Suppliers module's router,
+reusing `ncr.service.list_ncrs` rather than querying `Ncr` directly, per the
+module-isolation rule. `404` for a cross-organisation supplier `{id}`.
+
 ## Health and readiness endpoints (Milestone 0)
 
 These are the only endpoints Milestone 0 implements:
@@ -675,7 +704,7 @@ implemented:
 | `/api/v1/documents`, `/api/v1/document-categories`, `/api/v1/document-tags` | Document Management (Milestone 2) — implemented |
 | `/api/v1/suppliers` | Suppliers (Milestone 3) — implemented |
 | `/api/v1/products`, `/api/v1/product-categories` | Products (Milestone 3) — implemented (backend) |
-| `/api/v1/ncr` | NCR (Milestone 4) — implemented (schema/CRUD/workflow only; in progress) |
+| `/api/v1/ncr` | NCR (Milestone 4) — implemented (schema/CRUD/workflow/actions/tools/attachments; PDF export and frontend still in progress) |
 | `/api/v1/calibration` | Calibration and Asset Management |
 | `/api/v1/maintenance` | Maintenance |
 | `/api/v1/fair` | FAIR |

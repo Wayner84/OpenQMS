@@ -1,6 +1,6 @@
 # Current Status
 
-_Last updated: 2026-07-30 (Milestone 4: NCR schema/CRUD/workflow slice implemented)_
+_Last updated: 2026-07-30 (Milestone 4: NCR attachments and supplier NCR history slice implemented)_
 
 This document is kept truthful and current in the same commit as any work that
 changes it, per [Contributing.md](Contributing.md). It must never describe
@@ -13,13 +13,14 @@ in-progress or planned work as complete.
 for the exact scope, schema/API/permissions decisions, and acceptance criteria, and
 [Roadmap.md](Roadmap.md#m4-ncr) for how it fits the overall delivery order.
 
-**Milestone 4 is in progress.** The `ncrs`/`ncr_status_history` schema, CRUD, and
-the full transition workflow are implemented and tested (backend only) — see
-"Completed work" below. Not yet implemented: actions, investigation tools,
-attachments, PDF export, supplier NCR history, and the frontend. M0 (Platform
-Foundation), M1 (Authentication, Organisations, People), M2 (Document Management),
-and M3 (Products and Suppliers) are all complete and verified — see "Completed
-work" below for details and findings.
+**Milestone 4 is in progress.** The `ncrs`/`ncr_status_history` schema, CRUD, the
+full transition workflow, containment/corrective/preventive actions, the four
+structured investigation tools, document attachments, and the Suppliers
+`ncr-history` read endpoint are implemented and tested (backend only) — see
+"Completed work" below. Not yet implemented: PDF export and the frontend. M0
+(Platform Foundation), M1 (Authentication, Organisations, People), M2 (Document
+Management), and M3 (Products and Suppliers) are all complete and verified —
+see "Completed work" below for details and findings.
 
 ## Completed work
 
@@ -1071,14 +1072,75 @@ work" below for details and findings.
     [docs/modules/NCR.md](modules/NCR.md) (`Status: Implemented
     (schema/CRUD/workflow/actions/investigation tools only)`),
     [DecisionLog.md](DecisionLog.md#2026-07-30-ncr-investigation-tools-slice-extending-the-frozen-once-closed-rule).
+- **Milestone 4 — NCR attachments and supplier NCR history** (backend slice,
+  2026-07-30): `ncr_attachments` table
+  (`backend/alembic/versions/5fe9edf6d2c5_add_ncr_attachments.py`), letting a
+  Document Management record be attached to an NCR as supporting evidence, via
+  `GET/POST /api/v1/ncr/{id}/attachments` and
+  `DELETE /api/v1/ncr/{id}/attachments/{attachment_id}`; and a read-only
+  `GET /api/v1/suppliers/{id}/ncr-history` endpoint listing the NCRs linked to
+  a supplier.
+  - `document_id` is validated via `documents.service.get_document` (never a
+    direct query against `documents.models.Document`), enforcing both
+    existence and same-organisation ownership, per the module-isolation rule.
+    The Suppliers `ncr-history` endpoint reuses `ncr.service.list_ncrs` the
+    same way, rather than querying `Ncr` directly.
+  - `create_attachment`/`delete_attachment` take the same `_lock_ncr` row lock
+    and closed-NCR `409` guard as actions/investigation tools
+    (`NcrAttachmentsFrozenError`), applied proactively in this slice from the
+    start rather than found reactively by a review, unlike the prior two
+    slices. Duplicate `(ncr_id, document_id)` attachments are rejected `409`,
+    including under concurrent requests via an `IntegrityError` fallback
+    matching `documents.service.acknowledge_document_version`'s pattern.
+  - Migration verified with a real upgrade → downgrade → upgrade cycle against
+    a disposable local PostgreSQL 16 database.
+  - **Independent security/tenant-isolation review** (a fresh agent with no
+    prior session context) found no issues: tenant isolation, module
+    isolation, the frozen-once-closed rule, concurrency locking, duplicate
+    handling, `document_id` validation, auth on every new endpoint, and
+    bounded `limit`/`offset` on both new list endpoints were all confirmed
+    correctly implemented and covered by tests, with no gaps identified.
+  - 15 new backend tests (354 total, up from 339 after the investigation-tools
+    slice): unit tests (`test_ncr_service.py`) covering the attachment
+    lifecycle, cross-org NCR/document rejection, duplicate rejection, and the
+    closed-NCR frozen rule for both create and delete; integration tests
+    (`test_ncr.py`) covering the same guarantees against real PostgreSQL
+    through the HTTP API, plus the two supplier-history tests (scoped listing,
+    cross-org `404`).
+  - While verifying this slice, found and fixed a cross-file integration-test
+    cleanup fragility (not a production-code bug): the shared, persistent dev
+    Postgres database's `context` fixtures in each `tests/integration/test_*.py`
+    file reset only that file's own module's rows for the default organisation
+    at fixture setup, relying on later-alphabetical files' setup to clean up
+    earlier files' cross-referencing leftovers. Adding `ncrs`/`ncr_attachments`
+    FKs into `people`/`products`/`suppliers`/`documents` broke this chain
+    repeatedly as new cross-module references were added. Fixed by making
+    `test_ncr.py`'s own fixture fully self-contained (cleans up every
+    cross-module table its own tests create, including `Document`, in both its
+    setup and its `org_b` teardown, rather than relying on other files) and by
+    adding the missing `Document` cleanup to `test_documents.py`'s fixture, so
+    `ncr_attachments.document_id` (which has no `ON DELETE`) never blocks a
+    later file's cleanup. Full backend gates re-verified clean after the fix:
+    `ruff format --check`, `ruff check`, `mypy --strict`, 236 unit tests, and
+    118 integration tests against real PostgreSQL, all passing with 0
+    errors/failures on a full-suite run (previously intermittent
+    `test_documents.py` flakiness under full-suite load, documented in "Known
+    bugs" below, was also observed once during this verification and
+    reproduced as pre-existing, not caused by this slice — confirmed by an
+    immediately-following clean full-suite re-run).
+  - Docs updated in this slice: [API.md](API.md#ncr-module-milestone-4-in-progress),
+    [Database.md](Database.md#ncr-and-related-tables-milestone-4-in-progress),
+    [docs/modules/NCR.md](modules/NCR.md) (`Status: Implemented
+    (schema/CRUD/workflow/actions/investigation
+    tools/attachments/supplier history only)`).
 
 ## Work in progress
 
 Milestone 4 (NCR): the `ncrs`/`ncr_status_history`/`ncr_actions`/
-`ncr_investigation_tools` schema, CRUD, transition workflow, actions, and
-investigation tools are implemented and tested (see above). Not yet done:
-`ncr_attachments`, PDF export, `GET /api/v1/suppliers/{id}/ncr-history`, and the
-frontend. Plan:
+`ncr_investigation_tools`/`ncr_attachments` schema, CRUD, transition workflow,
+actions, investigation tools, attachments, and the Suppliers `ncr-history`
+endpoint are implemented and tested (see above). Not yet done: PDF export and
+the frontend. Plan:
 [.hermes/plans/2026-07-29-milestone-4-ncr.md](../.hermes/plans/2026-07-29-milestone-4-ncr.md).
 
 ## Known bugs

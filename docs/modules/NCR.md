@@ -1,19 +1,21 @@
 # NCR
 
-**Status: Implemented (schema/CRUD/workflow/actions/investigation tools only).**
+**Status: Implemented (schema/CRUD/workflow/actions/investigation
+tools/attachments/supplier history only).**
 [Milestone 4](../Roadmap.md#m4-ncr) is in progress — full scope, schema, API, and
 design decisions in the
 [Milestone 4 plan](../../.hermes/plans/2026-07-29-milestone-4-ncr.md). NCR
 creation, editing, listing, admin-only soft deletion, the full transition
 workflow, containment/corrective/preventive actions with owners and due dates,
-and the four structured investigation tools (`ncrs`, `ncr_status_history`,
-`ncr_actions`, `ncr_investigation_tools`), including the
-close-blocked-while-actions-open guard and the closed-NCR actions-frozen rule,
-are implemented and tested, backend only; see
-[docs/CurrentStatus.md](../CurrentStatus.md) for exactly what is and isn't done
-yet. Attachments, PDF export, supplier NCR history, and the frontend are not yet
-implemented. This is one of the two "major modules" named in the spec (with
-[SPC](SPC.md)) and is expected to span multiple implementation batches.
+the four structured investigation tools, document attachments, and the
+Suppliers `ncr-history` read endpoint (`ncrs`, `ncr_status_history`,
+`ncr_actions`, `ncr_investigation_tools`, `ncr_attachments`), including the
+close-blocked-while-actions-open guard and the closed-NCR
+actions/tools/attachments-frozen rule, are implemented and tested, backend
+only; see [docs/CurrentStatus.md](../CurrentStatus.md) for exactly what is and
+isn't done yet. PDF export and the frontend are not yet implemented. This is
+one of the two "major modules" named in the spec (with [SPC](SPC.md)) and is
+expected to span multiple implementation batches.
 
 ## Purpose
 
@@ -69,10 +71,18 @@ Under `/api/v1/ncr`:
   actions.
 - `GET/PUT /api/v1/ncr/{id}/tools/{tool_type}` — read/update a structured
   investigation tool's data.
-- `GET/POST /api/v1/ncr/{id}/attachments` — manage attachments.
+- `GET/POST /api/v1/ncr/{id}/attachments`,
+  `DELETE /api/v1/ncr/{id}/attachments/{attachment_id}` — manage attachments;
+  `document_id` is validated to exist and belong to the caller's organisation
+  via the Document Management module's own service layer.
 - `GET /api/v1/ncr/{id}/export?format=pdf` — export; an incomplete NCR exports with
   blank printable sections for the unfinished parts, a closed NCR exports as a
   polished, fully-populated PDF report.
+
+Under `/api/v1/suppliers`:
+
+- `GET /api/v1/suppliers/{id}/ncr-history` — read-only, paginated list of the
+  NCRs linked to that supplier (`type: supplier` NCRs with `supplier_id` set).
 
 ## Workflow
 
@@ -102,19 +112,24 @@ open, per the spec's explicit rule.
 
 ## Known issues / status
 
-`ncrs`, `ncr_status_history`, `ncr_actions`, and `ncr_investigation_tools`
-(creation, editing, listing, admin-only soft deletion, the full one-directional
-transition workflow with concurrency-safe row-locking, containment/corrective/
-preventive actions with owners/due dates, the close-blocked-while-actions-open
-guard, the closed-NCR actions-frozen rule, and the four structured investigation
-tools with create-or-replace upsert semantics) are implemented and tested against
-real PostgreSQL. Not yet implemented: `ncr_attachments`, PDF export, the
-Suppliers `ncr-history` endpoint, and the frontend. As the largest single module in the
-roadmap, implementation is split across several commits/batches per
-[Contributing.md](../Contributing.md#branching-and-commits) rather than one large
-change — see the
-[Milestone 4 plan](../../.hermes/plans/2026-07-29-milestone-4-ncr.md)'s suggested
-commit boundaries.
+`ncrs`, `ncr_status_history`, `ncr_actions`, `ncr_investigation_tools`, and
+`ncr_attachments` (creation, editing, listing, admin-only soft deletion, the
+full one-directional transition workflow with concurrency-safe row-locking,
+containment/corrective/preventive actions with owners/due dates, the
+close-blocked-while-actions-open guard, the closed-NCR
+actions/tools/attachments-frozen rule, the four structured investigation tools
+with create-or-replace upsert semantics, and document attachments validated
+against the Document Management module's own service layer) are implemented
+and tested against real PostgreSQL. The Suppliers `GET
+/{supplier_id}/ncr-history` read endpoint is also implemented, reusing
+`ncr.service.list_ncrs` rather than querying `Ncr` directly, per the
+module-isolation rule. Not yet implemented: PDF export and the frontend. As
+the largest single module in the roadmap, implementation is split across
+several commits/batches per
+[Contributing.md](../Contributing.md#branching-and-commits) rather than one
+large change — see the
+[Milestone 4 plan](../../.hermes/plans/2026-07-29-milestone-4-ncr.md)'s
+suggested commit boundaries.
 
 ## Related documents
 

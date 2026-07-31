@@ -102,6 +102,7 @@ async def context(
         DEFAULT_MAX_SIZE_MB,
         UPLOAD_POLICY_KEY,
     )
+    from app.modules.ncr.models import Ncr
 
     monkeypatch.setenv("DATABASE_URL", database_url)
     monkeypatch.setenv("BACKEND_CORS_ORIGINS", "http://localhost:5173")
@@ -121,6 +122,10 @@ async def context(
         # Shared, persistent dev database: reset the default organisation's document
         # rows and numbering sequence so earlier local runs don't affect these
         # assertions (mirrors tests/integration/test_people.py's own reset).
+        # ncr_attachments.document_id references documents.id, so any leftover NCR
+        # row (which cascade-deletes its attachments) must be cleared first or the
+        # Document delete below fails on a foreign key violation.
+        await session.execute(delete(Ncr).where(Ncr.organisation_id == org_a.id))
         await session.execute(
             delete(DocumentTagLink).where(
                 DocumentTagLink.document_id.in_(

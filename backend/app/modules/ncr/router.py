@@ -23,6 +23,9 @@ from app.modules.ncr.schemas import (
     NcrActionListResponse,
     NcrActionRead,
     NcrActionUpdateRequest,
+    NcrAttachmentCreateRequest,
+    NcrAttachmentListResponse,
+    NcrAttachmentRead,
     NcrCreateRequest,
     NcrInvestigationToolRead,
     NcrInvestigationToolUpsertRequest,
@@ -38,6 +41,10 @@ from app.modules.ncr.service import (
     NcrActionNotFoundError,
     NcrActionOwnerNotFoundError,
     NcrActionsFrozenError,
+    NcrAttachmentAlreadyExistsError,
+    NcrAttachmentDocumentNotFoundError,
+    NcrAttachmentNotFoundError,
+    NcrAttachmentsFrozenError,
     NcrCloseBlockedByOpenActionsError,
     NcrInvestigationToolFrozenError,
     NcrNotFoundError,
@@ -45,11 +52,14 @@ from app.modules.ncr.service import (
     NcrRaisedByNotFoundError,
     NcrSupplierNotFoundError,
     create_action,
+    create_attachment,
     create_ncr,
+    delete_attachment,
     delete_ncr,
     get_investigation_tool,
     get_ncr,
     list_actions,
+    list_attachments,
     list_ncrs,
     list_status_history,
     transition_ncr,
@@ -367,3 +377,85 @@ async def upsert_investigation_tool_endpoint(
     except NcrInvestigationToolFrozenError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return NcrInvestigationToolRead.model_validate(tool)
+
+
+# --- Attachments ---------------------------------------------------------------
+
+
+@router.post("/{ncr_id}/attachments", status_code=status.HTTP_201_CREATED)
+async def create_attachment_endpoint(
+    ncr_id: uuid.UUID,
+    payload: NcrAttachmentCreateRequest,
+    current_user: CurrentUser,
+    session: SessionDependency,
+) -> NcrAttachmentRead:
+    try:
+        attachment = await create_attachment(
+            session,
+            organisation_id=current_user.organisation_id,
+            ncr_id=ncr_id,
+            document_id=payload.document_id,
+            description=payload.description,
+            created_by_id=current_user.id,
+        )
+    except NcrNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="NCR not found") from exc
+    except NcrAttachmentDocumentNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
+        ) from exc
+    except NcrAttachmentAlreadyExistsError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except NcrAttachmentsFrozenError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return NcrAttachmentRead.model_validate(attachment)
+
+
+@router.get("/{ncr_id}/attachments")
+async def list_attachments_endpoint(
+    ncr_id: uuid.UUID,
+    current_user: CurrentUser,
+    session: SessionDependency,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> NcrAttachmentListResponse:
+    try:
+        attachments, total = await list_attachments(
+            session,
+            organisation_id=current_user.organisation_id,
+            ncr_id=ncr_id,
+            limit=limit,
+            offset=offset,
+        )
+    except NcrNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="NCR not found") from exc
+    return NcrAttachmentListResponse(
+        items=[NcrAttachmentRead.model_validate(a) for a in attachments],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.delete("/{ncr_id}/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_attachment_endpoint(
+    ncr_id: uuid.UUID,
+    attachment_id: uuid.UUID,
+    current_user: CurrentUser,
+    session: SessionDependency,
+) -> None:
+    try:
+        await delete_attachment(
+            session,
+            organisation_id=current_user.organisation_id,
+            ncr_id=ncr_id,
+            attachment_id=attachment_id,
+        )
+    except NcrNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="NCR not found") from exc
+    except NcrAttachmentNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found"
+        ) from exc
+    except NcrAttachmentsFrozenError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
