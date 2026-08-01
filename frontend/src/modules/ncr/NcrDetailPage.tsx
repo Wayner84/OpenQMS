@@ -155,9 +155,9 @@ export function NcrDetailPage(): ReactElement {
   const [ncr, setNcr] = useState<Ncr | null>(null);
   const [statusHistory, setStatusHistory] = useState<NcrStatusHistoryEntry[]>([]);
   const [actions, setActions] = useState<NcrAction[]>([]);
-  const [tools, setTools] = useState<Partial<Record<NcrInvestigationToolType, NcrInvestigationTool>>>(
-    {},
-  );
+  const [tools, setTools] = useState<
+    Partial<Record<NcrInvestigationToolType, NcrInvestigationTool>>
+  >({});
   const [attachments, setAttachments] = useState<NcrAttachment[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -384,7 +384,8 @@ export function NcrDetailPage(): ReactElement {
         await updateNcr(id, {
           type: metadataForm.type,
           product_id: metadataForm.productId || undefined,
-          supplier_id: metadataForm.type === 'supplier' ? metadataForm.supplierId || undefined : undefined,
+          supplier_id:
+            metadataForm.type === 'supplier' ? metadataForm.supplierId || undefined : undefined,
           raised_by_id: metadataForm.raisedById,
           description: metadataForm.description,
           root_cause_summary: metadataForm.rootCauseSummary || undefined,
@@ -626,7 +627,9 @@ export function NcrDetailPage(): ReactElement {
         }
       } catch (err) {
         if (mountedRef.current && currentNcrIdRef.current === actionNcrId) {
-          setActionError(getErrorDetail(err) ?? 'Could not attach this document. Please try again.');
+          setActionError(
+            getErrorDetail(err) ?? 'Could not attach this document. Please try again.',
+          );
         }
       } finally {
         if (mountedRef.current && currentNcrIdRef.current === actionNcrId) {
@@ -903,7 +906,6 @@ export function NcrDetailPage(): ReactElement {
               </button>
             </form>
           )}
-
           <h3>Workflow</h3>
           {isClosed ? (
             <p>This NCR is closed. Actions, investigation tools, and attachments are frozen.</p>
@@ -924,7 +926,6 @@ export function NcrDetailPage(): ReactElement {
               </button>
             </form>
           ) : null}
-
           <h3>Status history</h3>
           {statusHistory.length === 0 ? (
             <p>No status history yet.</p>
@@ -952,7 +953,6 @@ export function NcrDetailPage(): ReactElement {
               </table>
             </div>
           )}
-
           <h3>Actions</h3>
           {!isClosed && (
             <form
@@ -1009,7 +1009,6 @@ export function NcrDetailPage(): ReactElement {
               )}
             </form>
           )}
-
           {actions.length === 0 ? (
             <p>No actions recorded yet.</p>
           ) : (
@@ -1068,7 +1067,6 @@ export function NcrDetailPage(): ReactElement {
               </table>
             </div>
           )}
-
           <h3>Investigation tools</h3>
           <div className="app-header__actions" role="tablist" aria-label="Investigation tools">
             {TOOL_TYPES.map((toolType) => (
@@ -1140,7 +1138,6 @@ export function NcrDetailPage(): ReactElement {
               ))}
             </ul>
           )}
-
           <h3>Attachments</h3>
           {attachments.length === 0 ? (
             <p>No attachments yet.</p>
@@ -1182,7 +1179,6 @@ export function NcrDetailPage(): ReactElement {
               </table>
             </div>
           )}
-
           {!isClosed && (
             <>
               <form

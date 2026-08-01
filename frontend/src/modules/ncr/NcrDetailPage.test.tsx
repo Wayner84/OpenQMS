@@ -377,7 +377,13 @@ describe('NcrDetailPage', () => {
   it('removes an existing attachment', async () => {
     mockedListAttachments.mockResolvedValue({
       items: [
-        { id: 'att1', ncr_id: 'n1', document_id: 'd1', description: 'Defect photo', created_by_id: 'u1' },
+        {
+          id: 'att1',
+          ncr_id: 'n1',
+          document_id: 'd1',
+          description: 'Defect photo',
+          created_by_id: 'u1',
+        },
       ],
       total: 1,
       limit: 200,

@@ -3,12 +3,7 @@
 export type NcrType = 'internal' | 'supplier';
 
 export type NcrStatus =
-  | 'open'
-  | 'investigate'
-  | 'containment'
-  | 'corrective_action'
-  | 'verification'
-  | 'closed';
+  'open' | 'investigate' | 'containment' | 'corrective_action' | 'verification' | 'closed';
 
 /** The fixed one-directional sequence -- a transition may only move to the next
  * entry, never skip ahead or move backward. Mirrors
