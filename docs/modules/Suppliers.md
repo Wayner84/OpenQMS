@@ -76,12 +76,13 @@ Per [ProductSpecification.md](../ProductSpecification.md#module-relationships):
 
 Backend schema, migration, and API are implemented and tested (unit + real-PostgreSQL
 integration); the frontend (`SuppliersPage` search/filter/create, `SupplierDetailPage`
-metadata edit + certifications + performance records) is implemented and tested
-(Vitest + React Testing Library) — see the
+metadata edit + certifications + performance records + a read-only "NCR history"
+section) is implemented and tested (Vitest + React Testing Library) — see the
 [Milestone 3 plan](../../.hermes/plans/2026-07-28-milestone-3-products-and-suppliers.md).
-`GET /api/v1/suppliers/{id}/ncr-history` is deferred to Milestone 4, when the NCR
-module's `ncr_records.supplier_id` actually exists (plan design decision 6). The exact
-risk-scoring formula remains an open research question shared with
+`GET /api/v1/suppliers/{id}/ncr-history` (deferred to Milestone 4 per plan design
+decision 6, since it needed the NCR module's `ncrs.supplier_id` to exist first) is
+now implemented, backend and frontend, as part of Milestone 4 — see [NCR.md](NCR.md).
+The exact risk-scoring formula remains an open research question shared with
 [NCR](NCR.md) and [Health and Safety: Risk Assessments](HealthAndSafetyRiskAssessments.md)
 — see [TODO.md](../TODO.md#research-required); `risk_rating`/performance `score` are
 plain operator-entered fields for now.

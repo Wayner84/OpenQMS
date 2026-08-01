@@ -134,12 +134,11 @@ Full scope and acceptance criteria:
 [.hermes/plans/2026-07-29-milestone-4-ncr.md](../.hermes/plans/2026-07-29-milestone-4-ncr.md).
 
 17. **NCR module** — see [docs/modules/NCR.md](modules/NCR.md). Dependencies:
-    Tasks 13, 14, 15, 16 (all complete). Complexity: **XL**. Status: In Progress
-    (schema, CRUD, the transition workflow, actions with the
-    close-blocked-while-actions-open guard, the four structured investigation
-    tools, document attachments, the Suppliers `ncr-history` read endpoint, and
-    PDF export (via `reportlab`) implemented and tested, backend only; the
-    frontend not yet started).
+    Tasks 13, 14, 15, 16 (all complete). Complexity: **XL**. Status: Implemented
+    (backend and frontend); Milestone 4 closeout verification (full gate
+    re-run, migration cycle, dependency audits, Docker/browser walkthrough,
+    independent security review) still pending before the milestone is marked
+    complete.
 
 ## Low Priority — Later modules (Milestones 5–9)
 18. **Calibration and Asset Management module** — see

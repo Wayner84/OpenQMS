@@ -7,6 +7,8 @@ import { ProtectedRoute } from '../modules/auth/ProtectedRoute';
 import { DocumentCategoriesPage } from '../modules/documents/DocumentCategoriesPage';
 import { DocumentDetailPage } from '../modules/documents/DocumentDetailPage';
 import { DocumentsPage } from '../modules/documents/DocumentsPage';
+import { NcrDetailPage } from '../modules/ncr/NcrDetailPage';
+import { NcrsPage } from '../modules/ncr/NcrsPage';
 import { CompaniesPage } from '../modules/people/CompaniesPage';
 import { PeoplePage } from '../modules/people/PeoplePage';
 import { ProductCategoriesPage } from '../modules/products/ProductCategoriesPage';
@@ -39,6 +41,8 @@ export function App(): ReactElement {
                 <Route path="/products" element={<ProductsPage />} />
                 <Route path="/products/categories" element={<ProductCategoriesPage />} />
                 <Route path="/products/:id" element={<ProductDetailPage />} />
+                <Route path="/ncr" element={<NcrsPage />} />
+                <Route path="/ncr/:id" element={<NcrDetailPage />} />
                 <Route element={<ProtectedRoute requireAdmin />}>
                   <Route path="/users" element={<UsersPage />} />
                   <Route path="/documents/categories" element={<DocumentCategoriesPage />} />

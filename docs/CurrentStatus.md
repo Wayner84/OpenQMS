@@ -1,6 +1,6 @@
 # Current Status
 
-_Last updated: 2026-07-30 (Milestone 4: NCR PDF export slice implemented)_
+_Last updated: 2026-07-30 (Milestone 4: NCR frontend slice implemented; closeout verification pending)_
 
 This document is kept truthful and current in the same commit as any work that
 changes it, per [Contributing.md](Contributing.md). It must never describe
@@ -13,14 +13,17 @@ in-progress or planned work as complete.
 for the exact scope, schema/API/permissions decisions, and acceptance criteria, and
 [Roadmap.md](Roadmap.md#m4-ncr) for how it fits the overall delivery order.
 
-**Milestone 4 is in progress.** The `ncrs`/`ncr_status_history` schema, CRUD, the
-full transition workflow, containment/corrective/preventive actions, the four
-structured investigation tools, document attachments, the Suppliers
-`ncr-history` read endpoint, and PDF export are implemented and tested (backend
-only) — see "Completed work" below. Not yet implemented: the frontend. M0
-(Platform Foundation), M1 (Authentication, Organisations, People), M2 (Document
-Management), and M3 (Products and Suppliers) are all complete and verified —
-see "Completed work" below for details and findings.
+**Milestone 4 is functionally complete; closeout verification is in
+progress.** The `ncrs`/`ncr_status_history` schema, CRUD, the full transition
+workflow, containment/corrective/preventive actions, the four structured
+investigation tools, document attachments, the Suppliers `ncr-history` read
+endpoint, PDF export, and the frontend are all implemented and tested — see
+"Completed work" below. Remaining: the full closeout gate re-run (migration
+cycle, dependency audits, Docker/browser walkthrough, independent security
+review) before the milestone can be marked complete. M0 (Platform Foundation),
+M1 (Authentication, Organisations, People), M2 (Document Management), and M3
+(Products and Suppliers) are all complete and verified — see "Completed work"
+below for details and findings.
 
 ## Completed work
 
@@ -1200,14 +1203,82 @@ see "Completed work" below for details and findings.
     [docs/modules/NCR.md](modules/NCR.md) (`Status: Implemented
     (schema/CRUD/workflow/actions/investigation
     tools/attachments/supplier history/PDF export only)`).
+- **Milestone 4 — NCR frontend** (2026-07-30): `frontend/src/modules/ncr/`
+  (`types.ts`, `api.ts`, `NcrsPage.tsx`, `NcrDetailPage.tsx`), a new "NCR" nav
+  link (visible to every authenticated user, no admin gate, per design
+  decision 2), and a read-only "NCR history" section on `SupplierDetailPage`,
+  completing Milestone 4's in-scope deliverables.
+  - `NcrsPage`: searchable/filterable list (search, type, status) and a create
+    form; the `supplier_id` picker is only rendered (and `required`) when
+    `type` is `supplier`, mirroring the backend's type/supplier_id invariant
+    (design decision 5) client-side, re-enforced server-side regardless.
+  - `NcrDetailPage`: metadata edit; a workflow panel that is a single "Advance
+    to `<next status>`" confirm button with an optional comment, not a
+    dropdown of every status, per design decision 3 (there is only ever one
+    valid next status); status history; actions (add/edit/complete-or-reopen);
+    the four investigation tools as tabs, each a key/value worksheet editor
+    (add/remove/edit field rows, saved as a plain JSON object) rather than a
+    per-tool hard-coded form, since each tool's `data` shape is intentionally
+    unmodelled at the API layer (matching the backend's own design decision 7
+    reasoning) and a generic editor covers all four without inventing
+    per-tool-type UI now; attachments with an attach-existing-document
+    search-and-select flow matching Products' document-linking UX; a PDF
+    export button (blob download via the existing `apiGetBlob` + browser
+    `<a download>` trigger pattern already used for Document Management
+    downloads); and an admin-only delete button, gated the same way Document
+    Management's retirement/delete actions already are. All action/tool/
+    attachment write forms are hidden once the NCR is `closed` (the backend's
+    frozen-once-closed rule), rather than only surfacing the 409 after a
+    doomed submit.
+  - Added `apiPut` to the shared `shared/api/client.ts` fetch wrapper (a new
+    HTTP verb this codebase's frontend had never needed before), mirroring
+    `apiPatch`'s shape exactly, for the investigation tools' `PUT`
+    create-or-replace endpoint.
+  - `listNcrHistory` added to `suppliers/api.ts` (not a new `ncr/api.ts`
+    export, since the endpoint lives under `/api/v1/suppliers`), typed against
+    `NcrListResponse` imported from the NCR module's own `types.ts` — frontend
+    modules routinely import each other's `api.ts`/`types.ts` (e.g.
+    `ProductDetailPage` already imports from `documents`/`suppliers`/`people`),
+    unlike the backend's stricter module-isolation rule.
+  - All async data-loading effects follow this codebase's established
+    `mountedRef` + monotonic request-id + `currentNcrIdRef` guard pattern
+    (`ProductDetailPage`/`DocumentDetailPage`'s precedent), verified under
+    `<StrictMode>`'s dev-mode double-invoked effects.
+  - 28 new frontend tests (277 total, up from 249): `api.test.ts` (8, request
+    shape/query-string encoding for every endpoint including the new `PUT`),
+    `NcrsPage.test.tsx` (7: loading, StrictMode, load error, create with/
+    without the conditional supplier picker, search, pagination),
+    `NcrDetailPage.test.tsx` (13: loading, StrictMode, load error, metadata
+    edit, workflow transition, add/complete an action, save an investigation
+    tool worksheet, attach/remove a document, PDF export, and delete
+    hidden-for-member/shown-and-working-for-admin), plus a `client.test.ts`
+    case for `apiPut` and a `SupplierDetailPage.test.tsx` case for the new
+    NCR-history section. Two ambiguous-label bugs caught by these tests before
+    being fixed: the action form's "Description" label collided with the
+    metadata form's own "Description" label when both were visible at once
+    (renamed to "Action description"), and the attachment search input's
+    label ("Search documents") was a substring-match of the search form's own
+    `aria-label` ("Search documents to attach"), which `getByLabelText`
+    matched ambiguously (fixed by anchoring the test's regex, not a product
+    bug).
+  - Gates pass: `npm run lint` (ESLint + Prettier), `npm run typecheck`
+    (`tsc --noEmit`, zero `any`), 277 Vitest tests, and `npm run build`
+    (production build succeeds).
+  - Docs updated in this slice: [docs/modules/NCR.md](modules/NCR.md)
+    (`Status: Implemented (backend and frontend)`),
+    [docs/modules/Suppliers.md](modules/Suppliers.md) (`ncr-history` no longer
+    listed as deferred), [API.md](API.md#module-endpoint-prefixes).
 
 ## Work in progress
 
 Milestone 4 (NCR): the `ncrs`/`ncr_status_history`/`ncr_actions`/
 `ncr_investigation_tools`/`ncr_attachments` schema, CRUD, transition workflow,
 actions, investigation tools, attachments, the Suppliers `ncr-history`
-endpoint, and PDF export are implemented and tested (see above). Not yet done:
-the frontend. Plan:
+endpoint, PDF export, and the frontend are all implemented and tested (see
+above). Remaining: Milestone 4 closeout verification (full gate re-run,
+migration upgrade/downgrade/upgrade cycle, dependency/security audits,
+Docker Compose browser-driven walkthrough with persistence across restart, and
+an independent security review), then marking the milestone complete. Plan:
 [.hermes/plans/2026-07-29-milestone-4-ncr.md](../.hermes/plans/2026-07-29-milestone-4-ncr.md).
 
 ## Known bugs

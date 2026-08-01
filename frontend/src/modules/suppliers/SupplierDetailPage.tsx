@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactElement } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 
 import { getErrorDetail } from '../../shared/api/client';
 import { fetchAllPages } from '../../shared/api/pagination';
+import type { Ncr, NcrStatus } from '../ncr/types';
 import { listCompanies } from '../people/api';
 import type { Company } from '../people/types';
 import {
@@ -12,6 +13,7 @@ import {
   deleteCertification,
   getSupplier,
   listCertifications,
+  listNcrHistory,
   listPerformanceRecords,
   updateCertification,
   updateSupplier,
@@ -23,6 +25,15 @@ import type {
   SupplierCertification,
   SupplierPerformanceRecord,
 } from './types';
+
+const NCR_STATUS_LABELS: Record<NcrStatus, string> = {
+  open: 'Open',
+  investigate: 'Investigate',
+  containment: 'Containment',
+  corrective_action: 'Corrective action',
+  verification: 'Verification',
+  closed: 'Closed',
+};
 
 const APPROVAL_STATUS_LABELS: Record<ApprovalStatus, string> = {
   approved: 'Approved',
@@ -110,6 +121,7 @@ export function SupplierDetailPage(): ReactElement {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [certifications, setCertifications] = useState<SupplierCertification[]>([]);
   const [performanceRecords, setPerformanceRecords] = useState<SupplierPerformanceRecord[]>([]);
+  const [ncrHistory, setNcrHistory] = useState<Ncr[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -171,11 +183,13 @@ export function SupplierDetailPage(): ReactElement {
     setLoading(true);
     setLoadError(null);
     try {
-      const [supplierResult, certificationItems, performanceItems] = await Promise.all([
-        getSupplier(id),
-        fetchAllPages<SupplierCertification>((params) => listCertifications(id, params)),
-        fetchAllPages<SupplierPerformanceRecord>((params) => listPerformanceRecords(id, params)),
-      ]);
+      const [supplierResult, certificationItems, performanceItems, ncrHistoryItems] =
+        await Promise.all([
+          getSupplier(id),
+          fetchAllPages<SupplierCertification>((params) => listCertifications(id, params)),
+          fetchAllPages<SupplierPerformanceRecord>((params) => listPerformanceRecords(id, params)),
+          fetchAllPages<Ncr>((params) => listNcrHistory(id, params)),
+        ]);
       if (
         mountedRef.current &&
         currentSupplierIdRef.current === id &&
@@ -184,6 +198,7 @@ export function SupplierDetailPage(): ReactElement {
         setSupplier(supplierResult);
         setCertifications(certificationItems);
         setPerformanceRecords(performanceItems);
+        setNcrHistory(ncrHistoryItems);
       }
     } catch {
       if (
@@ -208,6 +223,7 @@ export function SupplierDetailPage(): ReactElement {
     setSupplier(null);
     setCertifications([]);
     setPerformanceRecords([]);
+    setNcrHistory([]);
     setLoadError(null);
     setActionError(null);
     setEditingMetadata(false);
@@ -702,6 +718,34 @@ export function SupplierDetailPage(): ReactElement {
                       <td>{record.period}</td>
                       <td>{record.score}</td>
                       <td>{record.notes}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <h3>NCR history</h3>
+          {ncrHistory.length === 0 ? (
+            <p>No NCRs recorded for this supplier yet.</p>
+          ) : (
+            <div className="data-table-wrapper">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Number</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ncrHistory.map((historyNcr) => (
+                    <tr key={historyNcr.id}>
+                      <td>
+                        <Link to={`/ncr/${historyNcr.id}`}>{historyNcr.number}</Link>
+                      </td>
+                      <td>{NCR_STATUS_LABELS[historyNcr.status]}</td>
+                      <td>{historyNcr.description}</td>
                     </tr>
                   ))}
                 </tbody>

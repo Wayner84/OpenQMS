@@ -722,7 +722,7 @@ implemented:
 | `/api/v1/documents`, `/api/v1/document-categories`, `/api/v1/document-tags` | Document Management (Milestone 2) — implemented |
 | `/api/v1/suppliers` | Suppliers (Milestone 3) — implemented |
 | `/api/v1/products`, `/api/v1/product-categories` | Products (Milestone 3) — implemented (backend) |
-| `/api/v1/ncr` | NCR (Milestone 4) — implemented (schema/CRUD/workflow/actions/tools/attachments/PDF export; frontend still in progress) |
+| `/api/v1/ncr` | NCR (Milestone 4) — implemented (schema/CRUD/workflow/actions/tools/attachments/PDF export, backend and frontend; closeout verification pending) |
 | `/api/v1/calibration` | Calibration and Asset Management |
 | `/api/v1/maintenance` | Maintenance |
 | `/api/v1/fair` | FAIR |

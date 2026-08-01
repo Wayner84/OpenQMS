@@ -1,6 +1,7 @@
 /** Typed client functions for the Suppliers module, per docs/API.md#suppliers-module-milestone-3. */
 
 import { apiDelete, apiGet, apiPatch, apiPost } from '../../shared/api/client';
+import type { NcrListResponse } from '../ncr/types';
 import type {
   ListSuppliersParams,
   Supplier,
@@ -156,4 +157,22 @@ export function createPerformanceRecord(
   payload: SupplierPerformanceRecordWriteRequest,
 ): Promise<SupplierPerformanceRecord> {
   return apiPost<SupplierPerformanceRecord>(`/api/v1/suppliers/${supplierId}/performance`, payload);
+}
+
+/** GET /api/v1/suppliers/{id}/ncr-history (paginated, read-only). */
+export function listNcrHistory(
+  supplierId: string,
+  params: { limit?: number; offset?: number } = {},
+): Promise<NcrListResponse> {
+  const query = new URLSearchParams();
+  if (params.limit !== undefined) {
+    query.set('limit', String(params.limit));
+  }
+  if (params.offset !== undefined) {
+    query.set('offset', String(params.offset));
+  }
+  const queryString = query.toString();
+  return apiGet<NcrListResponse>(
+    `/api/v1/suppliers/${supplierId}/ncr-history${queryString ? `?${queryString}` : ''}`,
+  );
 }

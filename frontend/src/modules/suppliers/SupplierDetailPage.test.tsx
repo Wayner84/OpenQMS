@@ -10,6 +10,7 @@ import {
   deleteCertification,
   getSupplier,
   listCertifications,
+  listNcrHistory,
   listPerformanceRecords,
   updateCertification,
   updateSupplier,
@@ -28,6 +29,7 @@ const mockedDeleteCertification = vi.mocked(deleteCertification);
 const mockedListPerformanceRecords = vi.mocked(listPerformanceRecords);
 const mockedCreatePerformanceRecord = vi.mocked(createPerformanceRecord);
 const mockedListCompanies = vi.mocked(listCompanies);
+const mockedListNcrHistory = vi.mocked(listNcrHistory);
 
 const acmeCompany = {
   id: 'c1',
@@ -89,6 +91,7 @@ describe('SupplierDetailPage', () => {
       offset: 0,
     });
     mockedListPerformanceRecords.mockResolvedValue({ items: [], total: 0, limit: 200, offset: 0 });
+    mockedListNcrHistory.mockResolvedValue({ items: [], total: 0, limit: 200, offset: 0 });
     mockedGetSupplier.mockResolvedValue(acmeSupplier);
   });
 
@@ -251,5 +254,38 @@ describe('SupplierDetailPage', () => {
         expect.objectContaining({ period: '2026-Q3', score: '90' }),
       );
     });
+  });
+
+  it('shows the NCR history linked to this supplier', async () => {
+    mockedListNcrHistory.mockResolvedValue({
+      items: [
+        {
+          id: 'n1',
+          organisation_id: 'o1',
+          number: 'SNCR-0001',
+          type: 'supplier',
+          product_id: null,
+          supplier_id: 's1',
+          status: 'open',
+          raised_by_id: 'p1',
+          description: 'Late delivery of fasteners',
+          root_cause_summary: null,
+          created_by_id: 'u1',
+          updated_by_id: 'u1',
+          closed_at: null,
+        },
+      ],
+      total: 1,
+      limit: 200,
+      offset: 0,
+    });
+
+    renderPage();
+
+    expect(await screen.findByRole('link', { name: 'SNCR-0001' })).toHaveAttribute(
+      'href',
+      '/ncr/n1',
+    );
+    expect(screen.getByText('Late delivery of fasteners')).toBeInTheDocument();
   });
 });

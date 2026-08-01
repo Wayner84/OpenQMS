@@ -10,6 +10,7 @@ import {
   apiPatch,
   apiPost,
   apiPostForm,
+  apiPut,
   getErrorDetail,
 } from './client';
 
@@ -134,6 +135,19 @@ describe('api client', () => {
       const [, options] = vi.mocked(fetch).mock.calls[0] ?? [];
       expect(options?.method).toBe('PATCH');
       expect(options?.body).toBe(JSON.stringify({ is_active: false }));
+    });
+  });
+
+  describe('apiPut', () => {
+    it('sends a JSON body via PUT', async () => {
+      vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }));
+
+      await apiPut('/api/v1/ncr/1/tools/five_why', { data: { why_1: 'It failed' } });
+
+      const [, options] = vi.mocked(fetch).mock.calls[0] ?? [];
+      expect(options?.method).toBe('PUT');
+      expect(options?.body).toBe(JSON.stringify({ data: { why_1: 'It failed' } }));
+      expect(new Headers(options?.headers).get('Content-Type')).toBe('application/json');
     });
   });
 

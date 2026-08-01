@@ -21,7 +21,7 @@ export class ApiError extends Error {
   }
 }
 
-type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
+type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 
 function getBaseUrl(): string {
   const baseUrl = import.meta.env.VITE_API_BASE_URL;
@@ -106,6 +106,12 @@ export function apiPost<T>(path: string, body?: unknown, options?: RequestOption
 /** PATCHes `body` as JSON to `path`. See {@link apiGet} for the error contract. */
 export function apiPatch<T>(path: string, body?: unknown): Promise<T> {
   return request<T>(path, 'PATCH', body);
+}
+
+/** PUTs `body` as JSON to `path` (create-or-replace semantics). See {@link apiGet}
+ * for the error contract. */
+export function apiPut<T>(path: string, body?: unknown): Promise<T> {
+  return request<T>(path, 'PUT', body);
 }
 
 /** DELETEs `path`. See {@link apiGet} for the error contract. */

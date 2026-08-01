@@ -1,21 +1,19 @@
 # NCR
 
-**Status: Implemented (schema/CRUD/workflow/actions/investigation
-tools/attachments/supplier history/PDF export only).**
-[Milestone 4](../Roadmap.md#m4-ncr) is in progress — full scope, schema, API, and
-design decisions in the
+**Status: Implemented (backend and frontend).**
+[Milestone 4](../Roadmap.md#m4-ncr) is functionally complete — full scope,
+schema, API, and design decisions in the
 [Milestone 4 plan](../../.hermes/plans/2026-07-29-milestone-4-ncr.md). NCR
 creation, editing, listing, admin-only soft deletion, the full transition
 workflow, containment/corrective/preventive actions with owners and due dates,
 the four structured investigation tools, document attachments, the Suppliers
-`ncr-history` read endpoint, and PDF export (`ncrs`, `ncr_status_history`,
-`ncr_actions`, `ncr_investigation_tools`, `ncr_attachments`), including the
-close-blocked-while-actions-open guard and the closed-NCR
-actions/tools/attachments-frozen rule, are implemented and tested, backend
-only; see [docs/CurrentStatus.md](../CurrentStatus.md) for exactly what is and
-isn't done yet. The frontend is not yet implemented. This is one of the two
-"major modules" named in the spec (with [SPC](SPC.md)) and is expected to span
-multiple implementation batches.
+`ncr-history` read endpoint, PDF export, and the frontend (`NcrsPage`,
+`NcrDetailPage`, a nav link, and a read-only "NCR history" section on
+`SupplierDetailPage`) are implemented and tested; see
+[docs/CurrentStatus.md](../CurrentStatus.md) for exactly what is and isn't
+done yet, and for closeout verification status. This is one of the two "major
+modules" named in the spec (with [SPC](SPC.md)) and was delivered across
+several implementation batches.
 
 ## Purpose
 
@@ -140,12 +138,20 @@ inject a working hyperlink or styling into an official QMS report. Fixed by
 escaping all four user-controlled interpolations with
 `xml.sax.saxutils.escape` before they reach `Paragraph`; see
 [DecisionLog.md](../DecisionLog.md#2026-07-30-ncr-pdf-export-slice-unescaped-user-text-in-reportlab-paragraph-markup).
-Not yet implemented: the frontend. As the largest single module in the
-roadmap, implementation is split across several commits/batches per
+The frontend (`frontend/src/modules/ncr/`: `NcrsPage` search/filter/create,
+`NcrDetailPage` metadata edit + workflow panel + status history + actions +
+the four investigation tools as a key/value worksheet editor + attachments +
+PDF export/admin delete, a nav link, and a read-only "NCR history" section on
+`SupplierDetailPage`) is implemented and tested (Vitest + React Testing
+Library), completing this module's scope. As the largest single module in the
+roadmap, implementation was split across several commits/batches per
 [Contributing.md](../Contributing.md#branching-and-commits) rather than one
-large change — see the
+large change, per the
 [Milestone 4 plan](../../.hermes/plans/2026-07-29-milestone-4-ncr.md)'s
-suggested commit boundaries.
+suggested commit boundaries. Milestone 4 closeout verification (full gate
+re-run, migration cycle, dependency audits, Docker/browser walkthrough,
+independent security review) is tracked separately — see
+[docs/CurrentStatus.md](../CurrentStatus.md).
 
 ## Related documents
 
