@@ -162,7 +162,9 @@ Full scope and acceptance criteria:
 18. **Calibration and Asset Management module** — see
     [docs/modules/CalibrationAndAssetManagement.md](modules/CalibrationAndAssetManagement.md).
     Dependencies: Tasks 13, 14 (both complete). Complexity: **L**. Status: In
-    Progress (plan committed; no schema, API, or UI implemented yet).
+    Progress (`assets` schema and CRUD implemented and tested, backend only;
+    calibration schedules/events, asset maintenance schedules, the `due`
+    reminders endpoint, and the frontend not yet started).
 
 ## Low Priority — Later modules (Milestones 6–9)
 19. **Maintenance module** — see [docs/modules/Maintenance.md](modules/Maintenance.md).

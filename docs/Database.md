@@ -479,6 +479,48 @@ the same trailing number with different prefixes), read/incremented with
 with an extra lookup keyed by `type` inside the row's value — see
 `backend/app/modules/ncr/numbering.py`.
 
+### Calibration and Asset Management tables (Milestone 5, in progress)
+
+Per [docs/modules/CalibrationAndAssetManagement.md](modules/CalibrationAndAssetManagement.md)
+and the
+[Milestone 5 plan](../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
+This section covers the asset schema/CRUD slice.
+
+- **`assets`** — `asset_tag` (unique per organisation via
+  `UniqueConstraint(organisation_id, asset_tag)`, enforced at the service layer
+  with a clean `409` on conflict — a check-then-insert `IntegrityError`
+  fallback, matching `products.part_number`'s established precedent, per plan
+  design decision 8), `name` (not null), `asset_type` (native enum
+  `measuring_equipment`/`inspection_equipment`/`company_asset`),
+  `serial_number`/`location` (nullable), `owner_id` (nullable FK →
+  `people.id` — an organisational assignment, can validly name someone
+  without a login, matching `ncrs.raised_by_id`'s precedent), `status`
+  (native enum `in_service`/`out_of_service`/`retired`, default
+  `in_service`), `purchase_date` (nullable date), `created_by_id`/
+  `updated_by_id` (FK → `users.id`, not null), `created_at`/`updated_at`,
+  `deleted_at` (nullable — soft delete, matching `documents`/`ncrs`'
+  precedent rather than Products/Suppliers' hard-delete, per plan design
+  decision 9: an asset carries audit-significant calibration history added
+  in a later slice).
+
+`create_asset`/`update_asset` take the same `_lock_asset` row lock (a
+per-asset `SELECT ... FOR UPDATE`, mirroring `ncr.service._lock_ncr`/
+`documents.service._lock_document`) applied proactively from this slice's
+first commit, not found reactively by a review — `update_asset` re-checks
+`asset.deleted_at` immediately after acquiring the lock and raises
+`AssetNotFoundError` if a concurrent delete committed in the window between
+the initial fetch and the lock, the same class of gap NCR's `update_ncr`
+was missing until a Milestone 4 closeout review found it. An independent
+security review of this slice confirmed the guard is genuine (a real
+regression test forces the race deterministically) and found no other
+issues.
+
+A new `configuration` row, `calibration_due_reminder_window_days` (default
+`30`), seeded by the schema migration for the existing default organisation,
+mirroring `supplier_certification_reminder_window_days`'s existing
+precedent — not yet consumed by any endpoint in this slice (the `due`
+reminders endpoint that will use it is a later slice).
+
 ## Soft delete and audit trail
 
 Milestone 0 deferred this until "the first module that needs it (Document

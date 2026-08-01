@@ -677,6 +677,44 @@ JSON values) is escaped before being embedded, since `reportlab`'s `Paragraph`
 parses a constrained HTML-like markup — see
 [DecisionLog.md](DecisionLog.md#2026-07-30-ncr-pdf-export-slice-unescaped-user-text-in-reportlab-paragraph-markup).
 
+## Calibration and Asset Management module (Milestone 5, in progress)
+
+Per [docs/modules/CalibrationAndAssetManagement.md](modules/CalibrationAndAssetManagement.md)
+and the
+[Milestone 5 plan](../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
+Every operation requires only authentication (any active user), matching
+People/Products/Suppliers/NCR's precedent — not admin-gated, per design
+decision 1. This section covers the asset schema/CRUD slice; calibration
+schedules/events, asset maintenance schedules, and the `due` reminders
+endpoint are added in later slices and documented here as they land.
+
+### `POST /api/v1/calibration/assets` / `PATCH /api/v1/calibration/assets/{id}`
+
+Create/full-update an asset. Body: `asset_tag` (required, unique per
+organisation — `409` on conflict, per design decision 8), `name` (required),
+`asset_type` (`measuring_equipment` / `inspection_equipment` /
+`company_asset`), `serial_number` (optional), `location` (optional),
+`owner_id` (optional, a People record — must belong to the caller's own
+organisation, `404` otherwise), `status` (`in_service` / `out_of_service` /
+`retired`, default `in_service`), `purchase_date` (optional). `404` for a
+cross-organisation `{id}` on `PATCH`; `409` if a concurrent delete committed
+between the initial fetch and the row lock (the same re-check pattern already
+used by `ncr.service.update_ncr`).
+
+### `GET /api/v1/calibration/assets` / `GET /api/v1/calibration/assets/{id}`
+
+List (paginated) or fetch one asset. List filters: `asset_type`, `status`,
+`location` (exact match), `search` (case-insensitive substring across
+`asset_tag`/`name`/`serial_number`). `404` for a cross-organisation `{id}`.
+
+### `DELETE /api/v1/calibration/assets/{id}`
+
+Any active user (not admin-gated, per design decision 1). Soft delete
+(`deleted_at`) — design decision 9: an asset carries audit-significant
+calibration history (added in a later slice), matching `documents`/`ncrs`'
+precedent, unlike Products/Suppliers' hard-deletable pure reference data.
+`404` for a cross-organisation `{id}`.
+
 ## Health and readiness endpoints (Milestone 0)
 
 These are the only endpoints Milestone 0 implements:
@@ -725,8 +763,8 @@ implemented:
 | `/api/v1/documents`, `/api/v1/document-categories`, `/api/v1/document-tags` | Document Management (Milestone 2) — implemented |
 | `/api/v1/suppliers` | Suppliers (Milestone 3) — implemented |
 | `/api/v1/products`, `/api/v1/product-categories` | Products (Milestone 3) — implemented (backend) |
-| `/api/v1/ncr` | NCR (Milestone 4) — implemented (schema/CRUD/workflow/actions/tools/attachments/PDF export, backend and frontend; closeout verification pending) |
-| `/api/v1/calibration` | Calibration and Asset Management |
+| `/api/v1/ncr` | NCR (Milestone 4) — implemented and closed out (schema/CRUD/workflow/actions/tools/attachments/PDF export, backend and frontend) |
+| `/api/v1/calibration` | Calibration and Asset Management (Milestone 5) — implemented (asset schema/CRUD only; schedules/events/maintenance/due-reminders in progress) |
 | `/api/v1/maintenance` | Maintenance |
 | `/api/v1/fair` | FAIR |
 | `/api/v1/spc` | SPC |

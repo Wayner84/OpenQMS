@@ -80,6 +80,7 @@ async def context(database_url: str, monkeypatch: pytest.MonkeyPatch) -> AsyncIt
     from app.main import create_app
     from app.models.organisation import Organisation
     from app.models.user import User, UserRole
+    from app.modules.calibration.models import Asset
     from app.modules.ncr.models import Ncr
     from app.modules.people.models import Company, Person
 
@@ -99,9 +100,11 @@ async def context(database_url: str, monkeypatch: pytest.MonkeyPatch) -> AsyncIt
 
         # Shared, persistent dev database: reset the default organisation's rows so
         # earlier local runs don't affect these assertions. ncrs.raised_by_id/
-        # owner_id reference people.id, so any leftover NCR row must be cleared
-        # first or the Person delete below fails on a foreign key violation.
+        # owner_id and assets.owner_id reference people.id, so any leftover NCR/
+        # Asset row must be cleared first or the Person delete below fails on a
+        # foreign key violation.
         await session.execute(delete(Ncr).where(Ncr.organisation_id == org_a.id))
+        await session.execute(delete(Asset).where(Asset.organisation_id == org_a.id))
         await session.execute(delete(Person).where(Person.organisation_id == org_a.id))
         await session.execute(delete(Company).where(Company.organisation_id == org_a.id))
         await session.execute(delete(User).where(User.organisation_id == org_a.id))

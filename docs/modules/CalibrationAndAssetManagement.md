@@ -1,10 +1,13 @@
 # Calibration and Asset Management
 
-**Status: Planned, implementation starting.** Targeted for
-[Milestone 5](../Roadmap.md#m5-calibration-and-asset-management); full scope,
-schema, API, and design decisions in the
+**Status: Implemented (asset schema/CRUD only).** [Milestone 5](../Roadmap.md#m5-calibration-and-asset-management)
+is in progress — full scope, schema, API, and design decisions in the
 [Milestone 5 plan](../../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
-No code exists for this module yet; see [docs/CurrentStatus.md](../CurrentStatus.md).
+Asset creation, editing, listing, and soft deletion (`assets`) are implemented
+and tested, backend only; see [docs/CurrentStatus.md](../CurrentStatus.md) for
+exactly what is and isn't done yet. Calibration schedules/events, asset
+maintenance schedules, the `due` reminders endpoint, and the frontend are not
+yet implemented.
 
 ## Purpose
 
@@ -79,7 +82,17 @@ Per [ProductSpecification.md](../ProductSpecification.md#module-relationships),
 
 ## Known issues / status
 
-Planned only; no schema, API, or UI exists yet. The boundary with
+`assets` (creation, editing, listing filterable by type/status/location/search,
+and soft deletion, all scoped to the caller's organisation, any active user —
+design decision 1) are implemented and tested against real PostgreSQL.
+`asset_tag` uniqueness per organisation is enforced with a check-then-insert
+plus an `IntegrityError` fallback, matching `products.part_number`'s
+precedent. `update_asset`/`delete_asset` use the same per-asset row-locking
+pattern as `documents`/`ncrs`, applied proactively from this slice's first
+commit (an independent security review confirmed the guard is genuine, not a
+gap) rather than found reactively as happened three times during Milestone 4.
+Not yet implemented: calibration schedules/events, asset maintenance
+schedules, the `due` reminders endpoint, and the frontend. The boundary with
 [Maintenance](Maintenance.md) (this module owns *scheduled* calibration/maintenance
 of tracked equipment; Maintenance owns *ad hoc requests*, especially for production
 machinery) is documented here and in [Maintenance.md](Maintenance.md) to prevent

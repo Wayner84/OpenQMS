@@ -86,6 +86,7 @@ async def context(database_url: str, monkeypatch: pytest.MonkeyPatch) -> AsyncIt
     from app.models.configuration import Configuration
     from app.models.organisation import Organisation
     from app.models.user import User, UserRole
+    from app.modules.calibration.models import Asset
     from app.modules.documents.models import Document
     from app.modules.ncr.models import Ncr
     from app.modules.ncr.numbering import DEFAULT_NUMBERING_SCHEME, NUMBERING_SCHEME_KEY
@@ -115,11 +116,15 @@ async def context(database_url: str, monkeypatch: pytest.MonkeyPatch) -> AsyncIt
         # of them itself, keeping this file self-contained regardless of which
         # other integration test files run before or after it in a given session.
         # ncr_attachments.document_id has no ON DELETE, so Ncr (which cascades to
-        # ncr_attachments) must be deleted before Document.
+        # ncr_attachments) must be deleted before Document. assets.owner_id
+        # references people.id (Milestone 5's Calibration module), so any leftover
+        # Asset row -- e.g. from test_calibration.py, which runs before this file
+        # alphabetically -- must also be cleared before Person.
         await session.execute(delete(Ncr).where(Ncr.organisation_id == org_a.id))
         await session.execute(delete(Document).where(Document.organisation_id == org_a.id))
         await session.execute(delete(Product).where(Product.organisation_id == org_a.id))
         await session.execute(delete(Supplier).where(Supplier.organisation_id == org_a.id))
+        await session.execute(delete(Asset).where(Asset.organisation_id == org_a.id))
         await session.execute(delete(Person).where(Person.organisation_id == org_a.id))
         await session.execute(delete(Company).where(Company.organisation_id == org_a.id))
         await session.execute(delete(User).where(User.organisation_id == org_a.id))

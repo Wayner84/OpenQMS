@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from app.api.v1 import health
 from app.modules.auth import router as auth
+from app.modules.calibration import router as calibration
 from app.modules.documents import router as documents
 from app.modules.ncr import router as ncr
 from app.modules.people import router as people
@@ -24,3 +25,4 @@ api_router.include_router(suppliers.router)
 api_router.include_router(products.categories_router)
 api_router.include_router(products.products_router)
 api_router.include_router(ncr.router)
+api_router.include_router(calibration.router)

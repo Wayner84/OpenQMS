@@ -1,6 +1,6 @@
 # Current Status
 
-_Last updated: 2026-08-01 (Milestone 5: Calibration and Asset Management planned, implementation starting)_
+_Last updated: 2026-08-01 (Milestone 5: assets schema and CRUD implemented)_
 
 This document is kept truthful and current in the same commit as any work that
 changes it, per [Contributing.md](Contributing.md). It must never describe
@@ -14,9 +14,9 @@ for the exact scope, schema/API/permissions decisions, and acceptance criteria, 
 [Roadmap.md](Roadmap.md#m5-calibration-and-asset-management) for how it fits the
 overall delivery order.
 
-**Milestone 5 is planned; implementation is starting.** No schema, API, or UI
-exists yet for this module — see "Completed work" below for what's actually
-done. M0 (Platform Foundation), M1 (Authentication, Organisations, People),
+**Milestone 5 is in progress.** The `assets` schema and CRUD are implemented
+and tested — see "Completed work" below for exactly what's done and what
+remains. M0 (Platform Foundation), M1 (Authentication, Organisations, People),
 M2 (Document Management), M3 (Products and Suppliers), and M4 (NCR) are all
 complete and verified — see "Completed work"
 below for details and findings.
@@ -1371,12 +1371,85 @@ below for details and findings.
 [.hermes/plans/2026-07-29-milestone-4-ncr.md](../.hermes/plans/2026-07-29-milestone-4-ncr.md)
 for the full acceptance-criteria checklist, all checked off.
 
+- **Milestone 5 — assets schema and CRUD** (backend slice, 2026-08-01):
+  `assets` table
+  (`backend/alembic/versions/e6ad898e1aba_add_assets.py`), the first slice of
+  the Calibration and Asset Management module
+  (`backend/app/modules/calibration/`). `GET/POST /api/v1/calibration/assets`,
+  `GET/PATCH/DELETE /api/v1/calibration/assets/{id}` — CRUD filterable by
+  `asset_type`/`status`/`location`/`search`, any active user (design decision
+  1, matching People/Products/Suppliers/NCR's precedent).
+  - `asset_tag` is unique per organisation, enforced with a check-then-insert
+    (`_assert_asset_tag_available`) plus an `IntegrityError` fallback on
+    `commit()`, matching `products.service`'s `part_number` pattern hardened
+    at the Milestone 3 closeout (design decision 8).
+  - Soft delete (`deleted_at`), matching `documents`/`ncrs`' precedent rather
+    than Products/Suppliers' hard-delete, since an asset will carry
+    audit-significant calibration history once the next slice adds it
+    (design decision 9). Because of that choice, `update_asset`/
+    `delete_asset` proactively take the same per-row `SELECT ... FOR UPDATE`
+    lock (`_lock_asset`, mirroring `ncr.service._lock_ncr`/
+    `documents.service._lock_document`), with `update_asset` immediately
+    re-checking `deleted_at` after acquiring the lock and rejecting a
+    concurrent-delete race with `AssetNotFoundError` — applied from this
+    slice's first commit, not found reactively by a review, directly
+    following the Milestone 5 plan's own stated lesson from three separate
+    reactive findings of this exact gap during Milestone 4.
+  - `owner_id` is validated via `people.service.get_person` (never
+    `people.models.Person` directly), enforcing both existence and
+    same-organisation ownership, per the module-isolation rule.
+  - A new `configuration` row, `calibration_due_reminder_window_days`
+    (default `30`), seeded by the migration for the existing default
+    organisation, mirroring `supplier_certification_reminder_window_days`'s
+    precedent — not yet consumed by any endpoint (the `due` reminders
+    endpoint that will use it is a later slice).
+  - Migration verified with a real upgrade → downgrade → upgrade cycle
+    (the full 13-revision chain) against a disposable local PostgreSQL 16
+    database.
+  - **Independent security/tenant-isolation review** (a fresh agent with no
+    prior session context) found no issues: tenant isolation, module
+    isolation, the lock-and-recheck-deleted_at pattern (confirmed as a
+    genuine regression test, not a tautology, by tracing what would happen
+    if the recheck were removed), the uniqueness-guard belt-and-braces
+    handling, auth (non-admin-gated, as designed, with a real `401` test),
+    and bounded list pagination were all confirmed correctly implemented.
+  - While adding this slice's own integration test file
+    (`tests/integration/test_calibration.py`, built self-contained from the
+    start per the cross-file cleanup lesson from Milestone 4's NCR work —
+    see
+    [DecisionLog.md](DecisionLog.md#2026-07-30-ncr-attachments-slice-self-contained-integration-test-fixtures-instead-of-relying-on-cross-file-cleanup-ordering)),
+    proactively added the equivalent `delete(Asset)` cleanup (before
+    `delete(Person)`, since `assets.owner_id` now references `people.id`) to
+    `test_people.py`'s and `test_ncr.py`'s own fixtures, rather than waiting
+    to discover the FK-violation failure the way NCR's attachments slice
+    did.
+  - 20 new backend tests (277 unit total, up from 257 after Milestone 4's
+    closeout fix; 131 integration total, up from 123): unit tests
+    (`test_calibration_service.py`) covering CRUD, the `asset_tag` conflict
+    (including the forced-race `IntegrityError`-fallback path), cross-org
+    owner rejection, cross-org `404`, list filtering, soft-delete exclusion
+    from list/get, and the deleted-after-fetch concurrency regression;
+    integration tests (`test_calibration.py`) covering the same guarantees
+    through the real HTTP API against real PostgreSQL, plus an
+    authentication-required check.
+  - Gates pass: `ruff format --check`, `ruff check`, `mypy --strict` (107
+    source files), 257 unit tests, and 131 integration tests against real
+    PostgreSQL.
+  - Docs updated in this slice:
+    [API.md](API.md#calibration-and-asset-management-module-milestone-5-in-progress),
+    [Database.md](Database.md#calibration-and-asset-management-tables-milestone-5-in-progress),
+    [docs/modules/CalibrationAndAssetManagement.md](modules/CalibrationAndAssetManagement.md)
+    (`Status: Implemented (asset schema/CRUD only)`), this file, and
+    [TODO.md](TODO.md).
+
 ## Work in progress
 
-Milestone 5 (Calibration and Asset Management): planned, documentation-first,
-per [.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md](../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
-No schema, API, or UI exists yet. Implementation starts with the `assets`
-schema and CRUD (the plan's suggested commit 2).
+Milestone 5 (Calibration and Asset Management): the `assets` schema and CRUD
+are implemented and tested (see above). Remaining: calibration schedules and
+events (with server-computed, race-safe `next_due_date` recalculation), asset
+maintenance schedules, the `due` reminders endpoint, the frontend, then
+closeout. Plan:
+[.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md](../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
 
 ## Known bugs
 
@@ -1438,14 +1511,16 @@ dependency, `reportlab` (plus its own transitive `pillow`), introduces no new
 
 ## Next recommended tasks
 
-Implement Milestone 5 per the committed plan, starting with the `assets`
-schema and CRUD (the plan's suggested commit 2), then calibration schedules
-and events, asset maintenance schedules and the due-reminders endpoint,
-frontend, then closeout — test-first, in small independently-committable
-vertical slices, following the same pattern used for Milestones 1–4, with an
-independent security review after each slice (not only at final closeout —
-per the plan's own reasoning, drawn from three separate frozen-once-closed
-gaps found during Milestone 4).
+Continue Milestone 5 per the committed plan: calibration schedules and events
+(with server-computed, race-safe `next_due_date` recalculation — the plan's
+suggested commit 3), then asset maintenance schedules and the due-reminders
+endpoint, frontend, then closeout — test-first, in small
+independently-committable vertical slices, following the same pattern used
+for Milestones 1–4, with an independent security review after each slice
+(not only at final closeout — per the plan's own reasoning, drawn from three
+separate frozen-once-closed gaps found during Milestone 4; the first slice's
+own review found zero issues, suggesting the proactive-hardening approach is
+working).
 
 Note on local tooling: this backend was developed using a repository-local `uv`
 install and virtual environment under `.tools/` (git-ignored) because `uv` was not
