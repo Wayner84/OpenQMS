@@ -1,6 +1,6 @@
 # Current Status
 
-_Last updated: 2026-07-30 (Milestone 4: NCR frontend slice implemented; closeout verification pending)_
+_Last updated: 2026-07-30 (Milestone 4: NCR closed out and complete)_
 
 This document is kept truthful and current in the same commit as any work that
 changes it, per [Contributing.md](Contributing.md). It must never describe
@@ -8,21 +8,22 @@ in-progress or planned work as complete.
 
 ## Current milestone
 
-**M4 — NCR.** See
+**M4 — NCR — complete.** See
 [.hermes/plans/2026-07-29-milestone-4-ncr.md](../.hermes/plans/2026-07-29-milestone-4-ncr.md)
-for the exact scope, schema/API/permissions decisions, and acceptance criteria, and
-[Roadmap.md](Roadmap.md#m4-ncr) for how it fits the overall delivery order.
+for the exact scope, schema/API/permissions decisions, and acceptance criteria (all
+checked off), and [Roadmap.md](Roadmap.md#m4-ncr) for how it fits the overall
+delivery order.
 
-**Milestone 4 is functionally complete; closeout verification is in
-progress.** The `ncrs`/`ncr_status_history` schema, CRUD, the full transition
-workflow, containment/corrective/preventive actions, the four structured
-investigation tools, document attachments, the Suppliers `ncr-history` read
-endpoint, PDF export, and the frontend are all implemented and tested — see
-"Completed work" below. Remaining: the full closeout gate re-run (migration
-cycle, dependency audits, Docker/browser walkthrough, independent security
-review) before the milestone can be marked complete. M0 (Platform Foundation),
-M1 (Authentication, Organisations, People), M2 (Document Management), and M3
-(Products and Suppliers) are all complete and verified — see "Completed work"
+**Milestone 4 is complete and closed out.** The `ncrs`/`ncr_status_history`
+schema, CRUD, the full transition workflow, containment/corrective/preventive
+actions, the four structured investigation tools, document attachments, the
+Suppliers `ncr-history` read endpoint, PDF export, and the frontend are all
+implemented and tested, and the full closeout gate re-run (migration cycle,
+dependency audits, Docker/browser walkthrough with a persistence-restart
+check, and an independent security review) has passed — see "Completed work"
+below. M0 (Platform Foundation), M1 (Authentication, Organisations, People),
+M2 (Document Management), M3 (Products and Suppliers), and M4 (NCR) are all
+complete and verified — see "Completed work"
 below for details and findings.
 
 ## Completed work
@@ -1268,18 +1269,119 @@ below for details and findings.
     (`Status: Implemented (backend and frontend)`),
     [docs/modules/Suppliers.md](modules/Suppliers.md) (`ncr-history` no longer
     listed as deferred), [API.md](API.md#module-endpoint-prefixes).
+- **Milestone 4 closeout** (2026-07-30): full gate re-run, migration cycle,
+  dependency audits, a real browser-driven `docker compose up --build`
+  walkthrough with a persistence-restart check, and a final holistic
+  independent security review, matching the Milestone 3 closeout pattern.
+  Milestone 4 is complete.
+  - Gates: backend `ruff check`/`ruff format --check`/`mypy --strict` (100
+    source files) all pass; 245 unit tests and 123 integration tests against
+    real PostgreSQL pass. Frontend `npm run lint`, `npm run format:check`
+    (Prettier — confirmed as the *actual* formatting gate; `npm run lint`
+    alone only disables ESLint rules that conflict with Prettier, it doesn't
+    enforce formatting itself, so `format:check` must be run separately, not
+    assumed covered by `lint`), `npm run typecheck`, 278 Vitest tests, and
+    `npm run build` (production build) all pass.
+  - Migration cycle: the full 12-revision chain (`592fe625cdd5` through
+    `5fe9edf6d2c5`) verified with a real upgrade → downgrade → upgrade cycle
+    against a disposable local PostgreSQL 16 container.
+  - Dependency audits re-run: `pip-audit` reports the same 10 pre-existing
+    `starlette`/`pytest` findings as already documented below, confirmed
+    `reportlab`/`pillow` (Milestone 4's one new backend dependency)
+    introduce no new finding. `npm audit` reports 8 findings (3 moderate, 4
+    high, 1 critical) against the same packages already documented below
+    (`brace-expansion`, `esbuild`, the `vite`/`vite-node`/`@vitest/mocker`/
+    `vitest` chain, `react-router`) — fewer distinct advisory rows than the
+    14 previously counted at Milestone 3 closeout, but `package.json`/
+    `package-lock.json` are unchanged since Milestone 3 (confirmed via `git
+    status`), so this is the advisory database itself changing over time
+    (the same drift already documented for `pip-audit`'s CVE-ID counts), not
+    a new dependency-introduced finding.
+  - Browser-driven `docker compose up --build` smoke test (real headless
+    Chromium via a temporary, uncommitted Playwright script in a scratch
+    directory outside `frontend/`'s own `package.json` — no committed
+    dependency added, matching the Milestone 0/1/2/3 closeout precedent),
+    run against a temporary `-p openqms-m4-verify` Compose project with a
+    local, uncommitted port-remapping override (host ports 8000/5173/5432
+    were already occupied by unrelated pre-existing Docker workloads on this
+    machine; remapped to 18000/15173/15432 via a `docker-compose.override.local.yml`
+    using Compose's `!override` merge tag, deleted before finishing — no
+    unrelated container was stopped, restarted, or otherwise disturbed): the
+    bootstrap admin logged in; created a Person, a Company+Supplier, and a
+    Document; created an internal NCR and a supplier NCR; added an action to
+    the internal NCR; filled in its 5 Why investigation tool; attached the
+    document; walked the full workflow to `verification`; attempted to close
+    while the action was still open and confirmed the `409` block
+    (`"...cannot close while 1 action(s) are still open"`); completed the
+    action; closed the NCR successfully; exported it as a PDF (verified
+    `%PDF` magic bytes); and viewed the Suppliers NCR-history section,
+    confirming the linked SNCR appeared. `docker compose down` (no `-v`)
+    then `up` (no `--build`) restart, followed by a second Playwright script:
+    re-logged in, confirmed both NCRs still listed, confirmed the closed
+    NCR's status/action/investigation-tool data all survived, re-exported the
+    PDF successfully, and reconfirmed the Suppliers NCR-history section — all
+    passed, proving real persistence across a restart, not just within a
+    single running process.
+  - **Final holistic independent security/tenant-isolation review** (a fresh
+    agent with no prior session context, reviewing the whole NCR module
+    together — backend and, for the first time, the frontend — on top of the
+    four per-slice reviews already run for actions/investigation-tools/
+    attachments/PDF-export) found one real gap, fixed test-first before this
+    commit: `update_ncr` had no equivalent to the frozen-once-closed guard
+    already enforced for actions/investigation tools/attachments, so a
+    closed NCR's own `description`/`root_cause_summary`/`type`/`product_id`/
+    `supplier_id` could be silently rewritten via `PATCH /api/v1/ncr/{id}`
+    after closure, with no `409` and no trace in `ncr_status_history`
+    (which only records workflow transitions, not field edits) — undermining
+    the entire frozen-once-closed guarantee the other three slices were
+    specifically hardened for. The frontend compounded this: `NcrDetailPage`'s
+    "Edit details" button and metadata form rendered unconditionally, with no
+    `!isClosed` guard, unlike the Actions/Investigation-Tools/Attachments
+    sections a few dozen lines later. Fixed with a new `NcrFrozenError`
+    (`409`) in `update_ncr`/`update_ncr_endpoint`, and a matching
+    `!isClosed` guard around the frontend's edit button/form. Everything
+    else reviewed came back clean: every backend handler scopes by
+    `current_user.organisation_id`; cross-org lookups all `404`; `delete_ncr`
+    is genuinely `CurrentAdmin`-gated server-side (the frontend's hidden
+    delete button for non-admins is backed by real enforcement, not just UI);
+    no `organisation_id` ever originates from frontend request payloads; no
+    `dangerouslySetInnerHTML` anywhere in the new frontend files; the PDF
+    export blob only ever reaches a local `<a download>` click; every form
+    input has an associated `<label htmlFor>`; and `NcrsPage`/`NcrDetailPage`/
+    the new Suppliers NCR-history table all consistently use the shared
+    `.data-table-wrapper` responsive-table convention. One low-severity,
+    informational-only observation was recorded but not changed: the
+    investigation-tool tabs (`role="tablist"`/`role="tab"`/`aria-selected`)
+    have no `aria-controls`/`role="tabpanel"` wiring to their worksheet form
+    — `eslint-plugin-jsx-a11y` (this project's accessibility gate, run via
+    `npm run lint`) doesn't police tab/tabpanel association, so this passed
+    the automated gate; it's a minor screen-reader-navigation gap, not an
+    exploitable defect, left as a candidate for a future accessibility pass
+    rather than blocking this closeout. Full reasoning in
+    [DecisionLog.md](DecisionLog.md#2026-07-30-milestone-4-closeout-update_ncr-had-no-frozen-once-closed-guard).
+  - 3 new regression tests (245 backend unit, 123 backend integration, 278
+    frontend): `test_update_ncr_rejects_editing_a_closed_ncr` (unit, asserting
+    both the raised `NcrFrozenError` and that the description is unchanged
+    afterward), `test_update_ncr_rejects_editing_a_closed_ncr` (integration,
+    asserting the real HTTP `409` through the full workflow-to-closed
+    sequence), and `hides the edit-details button and form once the NCR is
+    closed` (frontend).
+  - Docs updated in this commit: [API.md](API.md#ncr-module-milestone-4-in-progress)
+    (`PATCH` now documents its `409`), [Database.md](Database.md#ncr-and-related-tables-milestone-4-in-progress),
+    [docs/modules/NCR.md](modules/NCR.md) (closeout section added, module
+    marked complete), [DecisionLog.md](DecisionLog.md), this file, and
+    [TODO.md](TODO.md).
+
+**Milestone 4 (NCR) is complete.** See
+[.hermes/plans/2026-07-29-milestone-4-ncr.md](../.hermes/plans/2026-07-29-milestone-4-ncr.md)
+for the full acceptance-criteria checklist, all checked off.
 
 ## Work in progress
 
-Milestone 4 (NCR): the `ncrs`/`ncr_status_history`/`ncr_actions`/
-`ncr_investigation_tools`/`ncr_attachments` schema, CRUD, transition workflow,
-actions, investigation tools, attachments, the Suppliers `ncr-history`
-endpoint, PDF export, and the frontend are all implemented and tested (see
-above). Remaining: Milestone 4 closeout verification (full gate re-run,
-migration upgrade/downgrade/upgrade cycle, dependency/security audits,
-Docker Compose browser-driven walkthrough with persistence across restart, and
-an independent security review), then marking the milestone complete. Plan:
-[.hermes/plans/2026-07-29-milestone-4-ncr.md](../.hermes/plans/2026-07-29-milestone-4-ncr.md).
+None. Milestone 4 is closed out. Next: Milestone 5 (Calibration and Asset
+Management), to be planned documentation-first per
+[Roadmap.md](Roadmap.md#m5-calibration-and-asset-management) before any
+implementation begins.
 
 ## Known bugs
 
@@ -1303,7 +1405,16 @@ dependency change made — `npm audit`'s severity rollup for a couple of these s
 `vite-node`) but the underlying advisories and packages are unchanged from this entry.
 Re-verified at Milestone 3 closeout (2026-07-29): same 14 findings (3 moderate, 10
 high, 1 critical), same packages/versions; Milestone 3 added no new frontend
-dependency.
+dependency. Re-verified at Milestone 4 closeout (2026-07-30): `package.json`/
+`package-lock.json` unchanged since Milestone 3 (confirmed via `git status` —
+Milestone 4's frontend slice added no new npm dependency), but `npm audit` now
+reports 8 findings (3 moderate, 4 high, 1 critical) against the same packages
+as before (`brace-expansion`, `esbuild`, `vite`/`vite-node`/`@vitest/mocker`/
+`vitest`, `react-router`) — fewer distinct advisory rows than the 14 previously
+counted, evidently from npm's advisory database itself changing over time
+(the same kind of count drift already documented for `pip-audit`'s CVE-ID
+count above), not from any dependency change in this repository. No new
+package appears in the report.
 
 `pip-audit` (backend) reports pre-existing advisories in `starlette` (0.46.2,
 pulled in transitively by the Milestone-0-pinned `fastapi>=0.115,<0.116`) and
@@ -1324,7 +1435,11 @@ unchanged, so this remains the same accepted, unproven-jump-out-of-scope deferra
 a new or worsened finding. Re-verified at Milestone 3 closeout (2026-07-29): same
 `fastapi==0.115.14`/`starlette==0.46.2`/`pytest==8.3.5` versions (`pip-audit` now
 lists 10 CVE IDs across both packages combined rather than 7, all against the same
-unchanged versions); Milestone 3 added no new backend dependency.
+unchanged versions); Milestone 3 added no new backend dependency. Re-verified at
+Milestone 4 closeout (2026-07-30): same 10 findings against the same
+`starlette==0.46.2`/`pytest==8.3.5` versions; Milestone 4's one new backend
+dependency, `reportlab` (plus its own transitive `pillow`), introduces no new
+`pip-audit` finding.
 
 ## Next recommended tasks
 

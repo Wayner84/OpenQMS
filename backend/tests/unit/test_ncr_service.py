@@ -562,6 +562,46 @@ async def test_update_ncr_changes_fields_and_validates_links(
     assert updated.updated_by_id == user_id
 
 
+async def test_update_ncr_rejects_editing_a_closed_ncr(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    raised_by_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    """A closed NCR's metadata is frozen -- same reasoning as
+    NcrActionsFrozenError/NcrInvestigationToolFrozenError/NcrAttachmentsFrozenError:
+    a closed NCR's description/root cause/type/product/supplier must stay exactly
+    as they were at close time, or a PDF export filed as the final compliance
+    record could silently diverge from what's editable afterward. A closeout
+    security review found update_ncr had no equivalent guard."""
+    from app.modules.ncr.models import NcrType
+    from app.modules.ncr.service import NcrFrozenError, get_ncr, update_ncr
+
+    ncr_id = await _create_ncr(
+        session_maker, organisation_id=organisation_id, raised_by_id=raised_by_id, user_id=user_id
+    )
+    await _close_ncr(session_maker, organisation_id=organisation_id, ncr_id=ncr_id, user_id=user_id)
+
+    async with session_maker() as session:
+        with pytest.raises(NcrFrozenError):
+            await update_ncr(
+                session,
+                organisation_id=organisation_id,
+                ncr_id=ncr_id,
+                updated_by_id=user_id,
+                type=NcrType.INTERNAL,
+                product_id=None,
+                supplier_id=None,
+                raised_by_id=raised_by_id,
+                description="Should not be applied",
+                root_cause_summary=None,
+            )
+
+    async with session_maker() as session:
+        ncr = await get_ncr(session, organisation_id=organisation_id, ncr_id=ncr_id)
+    assert ncr.description != "Should not be applied"
+
+
 async def test_delete_ncr_soft_deletes_and_excludes_from_get(
     session_maker: SessionMaker,
     organisation_id: uuid.UUID,

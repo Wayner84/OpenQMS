@@ -55,6 +55,15 @@ class InvalidNcrTransitionError(Exception):
     fixed sequence for the NCR's current status."""
 
 
+class NcrFrozenError(Exception):
+    """Raised when editing an NCR's own metadata (type/product/supplier/raised_by/
+    description/root_cause_summary) once it is already `closed`. Same reasoning as
+    `NcrActionsFrozenError`/`NcrInvestigationToolFrozenError`/
+    `NcrAttachmentsFrozenError`: a closed NCR's record must stay exactly as it was
+    at close time -- a PDF export filed as the final compliance record must not be
+    able to silently diverge from what remains editable afterward."""
+
+
 class NcrCloseBlockedByOpenActionsError(Exception):
     """Raised when transitioning to `closed` while any of the NCR's actions are
     still `open` (design decision 4)."""
@@ -249,6 +258,14 @@ async def update_ncr(
         # ran before this lock was acquired, and a concurrent admin delete could
         # have committed in between.
         raise NcrNotFoundError(f"No NCR {ncr_id} in this organisation")
+    if ncr.status == NcrStatus.CLOSED:
+        # A closeout security review found this slice had no equivalent to
+        # create_action/upsert_investigation_tool/create_attachment's
+        # frozen-once-closed guard, so a closed NCR's own metadata (description,
+        # root cause, type/product/supplier linkage) could be silently rewritten
+        # after closure -- undermining the PDF export's role as a final,
+        # point-in-time compliance record.
+        raise NcrFrozenError(f"NCR {ncr_id} is closed; its details cannot be edited")
     await _validate_links(
         session,
         organisation_id=organisation_id,

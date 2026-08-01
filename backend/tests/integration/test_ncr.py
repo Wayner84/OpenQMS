@@ -401,6 +401,47 @@ async def test_update_ncr_persists_changes(context: Context) -> None:
     assert response.json()["root_cause_summary"] == "Tooling wear"
 
 
+async def test_update_ncr_rejects_editing_a_closed_ncr(context: Context) -> None:
+    """A closeout security review found update_ncr had no equivalent to the
+    closed-NCR-is-frozen guard already enforced for actions/investigation
+    tools/attachments, so a closed NCR's own description/root cause/type/
+    product/supplier could be silently rewritten after closure."""
+    transport = ASGITransport(app=context.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        raised_by_id = await _create_person(client, context.org_a_headers)
+        ncr_id = await _create_ncr(client, context.org_a_headers, raised_by_id)
+
+        for to_status in [
+            "investigate",
+            "containment",
+            "corrective_action",
+            "verification",
+            "closed",
+        ]:
+            transition_response = await client.post(
+                f"/api/v1/ncr/{ncr_id}/transition",
+                headers=context.org_a_headers,
+                json={"to_status": to_status},
+            )
+            assert transition_response.status_code == 200, transition_response.text
+
+        response = await client.patch(
+            f"/api/v1/ncr/{ncr_id}",
+            headers=context.org_a_headers,
+            json={
+                "type": "internal",
+                "raised_by_id": raised_by_id,
+                "description": "Should not be applied",
+            },
+        )
+
+    assert response.status_code == 409, response.text
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        get_response = await client.get(f"/api/v1/ncr/{ncr_id}", headers=context.org_a_headers)
+    assert get_response.json()["description"] != "Should not be applied"
+
+
 async def test_delete_ncr_requires_admin(context: Context) -> None:
     transport = ASGITransport(app=context.app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:

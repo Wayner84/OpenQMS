@@ -544,7 +544,10 @@ on violation, per design decision 5; must belong to the caller's own organisatio
 caller's own organisation — `404` otherwise), `description`, `root_cause_summary`
 (optional). `status` is not settable here — it only changes via
 `POST .../transition`. `number` is always server-generated (see below), never
-client-supplied.
+client-supplied. `PATCH` returns `409` once the NCR is already `closed` — a closed
+NCR's metadata is frozen, the same way its actions/investigation tools/attachments
+already were (a closeout security review found this endpoint was the one write path
+missing that guard).
 
 ### `GET /api/v1/ncr` / `GET /api/v1/ncr/{id}`
 

@@ -317,40 +317,46 @@ left in a truthful, working state.
 
 ## Acceptance criteria
 
-- [ ] `ncrs`, `ncr_status_history`, `ncr_actions`, `ncr_investigation_tools`,
+- [x] `ncrs`, `ncr_status_history`, `ncr_actions`, `ncr_investigation_tools`,
       `ncr_attachments` exist via reviewed Alembic migrations, each verified with a
       real upgrade → downgrade → upgrade cycle against PostgreSQL.
-- [ ] Full NCR CRUD works end-to-end against real PostgreSQL, covered by tests.
-- [ ] The Open → Investigate → Containment → Corrective Action → Verification →
+- [x] Full NCR CRUD works end-to-end against real PostgreSQL, covered by tests.
+- [x] The Open → Investigate → Containment → Corrective Action → Verification →
       Close workflow is enforced server-side (no skipping stages, no closing while
       actions are open), covered by tests including a concurrency case.
-- [ ] Actions, the four investigation tools, and attachments all work end-to-end
+- [x] Actions, the four investigation tools, and attachments all work end-to-end
       against real PostgreSQL, covered by tests.
-- [ ] `type`/`supplier_id` invariant, cross-module `product_id`/`supplier_id`/
+- [x] `type`/`supplier_id` invariant, cross-module `product_id`/`supplier_id`/
       `raised_by_id`/`owner_id`/`document_id` validation, and cross-organisation
       `404`s are all covered by tests.
-- [ ] PDF export produces a real PDF for both an incomplete and a closed NCR.
-- [ ] `GET /api/v1/suppliers/{id}/ncr-history` works end-to-end, covered by tests.
-- [ ] Frontend: NCR list/search/filter, create/edit, the workflow panel, actions,
+- [x] PDF export produces a real PDF for both an incomplete and a closed NCR.
+- [x] `GET /api/v1/suppliers/{id}/ncr-history` works end-to-end, covered by tests.
+- [x] Frontend: NCR list/search/filter, create/edit, the workflow panel, actions,
       investigation tools, attachments, export, and the Suppliers NCR-history
       section — all calling real backend endpoints through typed API clients,
       covered by Vitest tests, accessible and responsive.
-- [ ] All commands in
+- [x] All commands in
       [CodingStandards.md](../../docs/CodingStandards.md#commands-established-in-milestone-0-referenced-by-every-later-batch)
       pass: `ruff check`, `ruff format --check`, `mypy` (strict), `pytest` (unit +
       integration), `npm run lint`, `format:check`, `typecheck`, `test`, `build`.
-- [ ] Dependency audits (`pip-audit`, `npm audit`) re-run, including the new
+- [x] Dependency audits (`pip-audit`, `npm audit`) re-run, including the new
       `reportlab` dependency; no new findings beyond already-documented deferrals,
       or new findings triaged and recorded.
-- [ ] `docker compose up --build` smoke test, browser-driven: create an internal
+- [x] `docker compose up --build` smoke test, browser-driven: create an internal
       NCR and a supplier NCR, add an action, fill in an investigation tool, attach
       a document, walk a full transition sequence to Closed (blocked once, then
       unblocked, by an open action), export a PDF, view supplier NCR history — all
       surviving a `docker compose down`/`up` restart (no `-v`).
-- [ ] `docs/API.md`, `docs/Database.md`, `docs/modules/NCR.md`,
+- [x] `docs/API.md`, `docs/Database.md`, `docs/modules/NCR.md`,
       `docs/modules/Suppliers.md` (NCR history section), `docs/DecisionLog.md`,
       `docs/CurrentStatus.md`, `docs/TODO.md` updated in the same commits as the
       behaviour they describe.
+
+**Milestone 4 closed out 2026-07-30.** See
+[docs/CurrentStatus.md](../../docs/CurrentStatus.md) for the full closeout
+verification detail and
+[docs/DecisionLog.md](../../docs/DecisionLog.md#2026-07-30-milestone-4-closeout-update_ncr-had-no-frozen-once-closed-guard)
+for the one finding (and fix) from the closeout security review.
 
 ## Next milestone after this one
 

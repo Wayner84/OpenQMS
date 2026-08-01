@@ -767,13 +767,15 @@ export function NcrDetailPage(): ReactElement {
               {actionError}
             </p>
           )}
-          <button
-            type="button"
-            className="button"
-            onClick={editingMetadata ? cancelEditMetadata : startEditMetadata}
-          >
-            {editingMetadata ? 'Cancel editing' : 'Edit details'}
-          </button>{' '}
+          {!isClosed && (
+            <button
+              type="button"
+              className="button"
+              onClick={editingMetadata ? cancelEditMetadata : startEditMetadata}
+            >
+              {editingMetadata ? 'Cancel editing' : 'Edit details'}
+            </button>
+          )}{' '}
           <button type="button" className="button" disabled={exporting} onClick={handleExport}>
             {exporting ? 'Exporting…' : 'Export PDF'}
           </button>{' '}
@@ -782,7 +784,7 @@ export function NcrDetailPage(): ReactElement {
               {deleting ? 'Deleting…' : 'Delete NCR'}
             </button>
           )}
-          {editingMetadata && (
+          {!isClosed && editingMetadata && (
             <form
               className="auth-form"
               onSubmit={handleMetadataSubmit}
@@ -908,7 +910,10 @@ export function NcrDetailPage(): ReactElement {
           )}
           <h3>Workflow</h3>
           {isClosed ? (
-            <p>This NCR is closed. Actions, investigation tools, and attachments are frozen.</p>
+            <p>
+              This NCR is closed. Its details, actions, investigation tools, and attachments are
+              frozen.
+            </p>
           ) : nextStatus ? (
             <form className="auth-form" onSubmit={handleTransition} aria-label="Advance workflow">
               <div className="form-field">

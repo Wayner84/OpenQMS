@@ -148,10 +148,27 @@ roadmap, implementation was split across several commits/batches per
 [Contributing.md](../Contributing.md#branching-and-commits) rather than one
 large change, per the
 [Milestone 4 plan](../../.hermes/plans/2026-07-29-milestone-4-ncr.md)'s
-suggested commit boundaries. Milestone 4 closeout verification (full gate
-re-run, migration cycle, dependency audits, Docker/browser walkthrough,
-independent security review) is tracked separately — see
-[docs/CurrentStatus.md](../CurrentStatus.md).
+suggested commit boundaries.
+
+**Milestone 4 closeout** (2026-07-30): full backend/frontend gate re-run,
+a real Alembic upgrade → downgrade → upgrade cycle against a disposable
+PostgreSQL container, re-verified `pip-audit`/`npm audit` (no new findings),
+and a browser-driven `docker compose up --build` smoke test (create an
+internal and a supplier NCR, add an action, fill in an investigation tool,
+attach a document, walk the full workflow to `closed` — blocked once by the
+open action, then unblocked — export a PDF, view the Suppliers NCR-history
+section, all surviving a `docker compose down`/`up` restart with no `-v`) all
+passed. A final holistic closeout security/tenant-isolation review — on top
+of the four per-slice reviews already run for actions/investigation-tools/
+attachments/PDF-export — found one real gap: `update_ncr` had no equivalent
+to the frozen-once-closed guard already enforced for actions/investigation
+tools/attachments, so a closed NCR's own description/root cause/type/
+product/supplier could be silently rewritten after closure (and the frontend
+compounded it by never hiding the edit form for a closed NCR). Fixed
+test-first with a new `NcrFrozenError` (`409`) and a matching frontend
+`!isClosed` guard; see
+[DecisionLog.md](../DecisionLog.md#2026-07-30-milestone-4-closeout-update_ncr-had-no-frozen-once-closed-guard).
+Milestone 4 is complete.
 
 ## Related documents
 

@@ -128,17 +128,31 @@ workflow through `docker compose up --build`, surviving a `down`/`up` restart. S
 [DecisionLog.md](DecisionLog.md#2026-07-29-milestone-3-closeout-products-check-then-insert-races-mapped-to-clean-conflicts)
 for full detail. Next: Milestone 4 (NCR) — see below.
 
-## Medium Priority — Milestone 4 (NCR) — IN PROGRESS
+Milestone 4 closeout (2026-07-30): full gate re-run (backend and frontend), the
+123-test real-PostgreSQL integration suite (245 unit + 123 integration backend;
+278 frontend), a real upgrade → downgrade → upgrade cycle for the complete
+12-revision migration chain, re-verified dependency audits (no new findings), a
+final holistic independent security/tenant-isolation review that found and
+fixed test-first a missing frozen-once-closed guard on `update_ncr` (a closed
+NCR's own metadata could be silently rewritten after closure), and a real
+headless-Chromium browser walkthrough of the full NCR workflow (internal +
+supplier NCR, action, investigation tool, attachment, full transition to
+Closed blocked-then-unblocked by an open action, PDF export, Suppliers
+NCR-history) through `docker compose up --build`, surviving a `down`/`up`
+restart. See [CurrentStatus.md](CurrentStatus.md) and
+[DecisionLog.md](DecisionLog.md#2026-07-30-milestone-4-closeout-update_ncr-had-no-frozen-once-closed-guard)
+for full detail. Next: Milestone 5 (Calibration and Asset Management) — see
+below.
 
-Full scope and acceptance criteria:
+## Medium Priority — Milestone 4 (NCR) — COMPLETE
+
+Full scope and acceptance criteria (all checked off):
 [.hermes/plans/2026-07-29-milestone-4-ncr.md](../.hermes/plans/2026-07-29-milestone-4-ncr.md).
 
 17. **NCR module** — see [docs/modules/NCR.md](modules/NCR.md). Dependencies:
-    Tasks 13, 14, 15, 16 (all complete). Complexity: **XL**. Status: Implemented
-    (backend and frontend); Milestone 4 closeout verification (full gate
-    re-run, migration cycle, dependency audits, Docker/browser walkthrough,
-    independent security review) still pending before the milestone is marked
-    complete.
+    Tasks 13, 14, 15, 16 (all complete). Complexity: **XL**. Status: Done
+    (backend and frontend both implemented and tested; Milestone 4 closeout
+    verification complete).
 
 ## Low Priority — Later modules (Milestones 5–9)
 18. **Calibration and Asset Management module** — see

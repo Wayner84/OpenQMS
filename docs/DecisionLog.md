@@ -1288,3 +1288,53 @@ by `test_render_pdf_escapes_user_text_that_looks_like_markup`
 (`backend/tests/unit/test_ncr_export.py`), which asserts `render_ncr_pdf` does
 not raise for a description/root-cause-summary/tool-value each containing an
 unterminated `<b>`/`<i>` sequence that reproduced the crash before the fix.
+
+## 2026-07-30 — Milestone 4 closeout: update_ncr had no frozen-once-closed guard
+
+**Problem:** the final closeout security/tenant-isolation review (a fresh
+agent re-reading the whole NCR module together, on top of the four per-slice
+reviews already done for actions/investigation-tools/attachments/PDF-export)
+found that `update_ncr` (`backend/app/modules/ncr/service.py`) never checked
+`ncr.status == NcrStatus.CLOSED`, unlike every sibling write path
+(`create_action`/`update_action` → `NcrActionsFrozenError`,
+`upsert_investigation_tool` → `NcrInvestigationToolFrozenError`,
+`create_attachment`/`delete_attachment` → `NcrAttachmentsFrozenError`). The
+frontend compounded this: `NcrDetailPage.tsx`'s "Edit details" button and
+metadata form rendered unconditionally, with no `!isClosed` guard, in
+contrast to the Actions/Investigation-Tools/Attachments sections a few dozen
+lines later, which were all correctly wrapped. `PATCH /api/v1/ncr/{id}`
+therefore succeeded on a closed NCR with no `409` and no trace in
+`ncr_status_history` (which only records workflow transitions, not field
+edits) — any authenticated org member (editing isn't admin-gated, per design
+decision 2) could silently rewrite a closed NCR's description, root cause
+summary, type, or product/supplier linkage after a PDF export had already
+been filed as the point-in-time compliance record, defeating the entire
+frozen-once-closed guarantee the other three slices were specifically
+hardened for.
+
+**Fix:** a new `NcrFrozenError` (`409`), raised by `update_ncr` immediately
+after the existing `deleted_at` re-check (same `_lock_ncr`-guarded position
+as the sibling frozen checks), mapped to `409 Conflict` in
+`update_ncr_endpoint`. The frontend's "Edit details" button and metadata form
+in `NcrDetailPage.tsx` are now wrapped in `{!isClosed && ...}`, matching the
+Actions/Investigation-Tools/Attachments sections' existing pattern; the
+closed-NCR banner text was updated from "Actions, investigation tools, and
+attachments are frozen" to "Its details, actions, investigation tools, and
+attachments are frozen" to reflect the now-complete guarantee.
+Regression-covered by `test_update_ncr_rejects_editing_a_closed_ncr`
+(unit, `backend/tests/unit/test_ncr_service.py`, asserting both the raised
+exception and that the description is unchanged afterward),
+`test_update_ncr_rejects_editing_a_closed_ncr` (integration,
+`backend/tests/integration/test_ncr.py`, asserting the real HTTP `409`
+through the full workflow-to-closed sequence), and
+`hides the edit-details button and form once the NCR is closed`
+(`frontend/src/modules/ncr/NcrDetailPage.test.tsx`).
+
+This is the third time in this milestone a fresh review has found a missing
+instance of the same frozen-once-closed class of gap (actions, then
+investigation tools, now the NCR's own metadata) — each time in a part of
+the schema the narrower per-slice review scope didn't reach. The pattern
+argues for treating "does every write path check the closed-NCR guard"
+as an explicit, standing checklist item for any future write path added to
+this module, rather than relying solely on each new slice's own review to
+notice the gap by comparison with its siblings.

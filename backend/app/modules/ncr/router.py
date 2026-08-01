@@ -47,6 +47,7 @@ from app.modules.ncr.service import (
     NcrAttachmentNotFoundError,
     NcrAttachmentsFrozenError,
     NcrCloseBlockedByOpenActionsError,
+    NcrFrozenError,
     NcrInvestigationToolFrozenError,
     NcrNotFoundError,
     NcrProductNotFoundError,
@@ -180,6 +181,8 @@ async def update_ncr_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Person not found"
         ) from exc
+    except NcrFrozenError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return NcrRead.model_validate(ncr)
 
 

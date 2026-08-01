@@ -201,6 +201,22 @@ describe('NcrDetailPage', () => {
     });
   });
 
+  it('hides the edit-details button and form once the NCR is closed', async () => {
+    mockedGetNcr.mockResolvedValue({
+      ...ncrFixture,
+      status: 'closed',
+      closed_at: '2026-07-30T00:00:00Z',
+    });
+
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /NCR-0001/ })).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole('button', { name: /edit details/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/this ncr is closed/i)).toBeInTheDocument();
+  });
+
   it('advances the workflow to the next status', async () => {
     mockedTransitionNcr.mockResolvedValue({ ...ncrFixture, status: 'investigate' });
 

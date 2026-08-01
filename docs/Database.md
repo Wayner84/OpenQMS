@@ -460,7 +460,12 @@ still be readable. `create_attachment`/`delete_attachment` take the same
 `_lock_ncr` lock and the same closed-NCR `409` guard, extending the
 frozen-once-closed rule proactively to attachments before any review flagged
 it as a gap (unlike the actions/investigation-tools slices, where the gap was
-found reactively by an independent review each time).
+found reactively by an independent review each time). `update_ncr` itself
+also rejects (`409`) once the NCR is `closed` — a Milestone 4 closeout review
+found this was the one write path still missing the guard, letting a closed
+NCR's own `description`/`root_cause_summary`/`type`/`product_id`/
+`supplier_id` be silently rewritten after closure; see
+[DecisionLog.md](DecisionLog.md#2026-07-30-milestone-4-closeout-update_ncr-had-no-frozen-once-closed-guard).
 
 #### NCR numbering
 
