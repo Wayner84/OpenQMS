@@ -1,6 +1,6 @@
 # Current Status
 
-_Last updated: 2026-07-30 (Milestone 4: NCR closed out and complete)_
+_Last updated: 2026-08-01 (Milestone 5: Calibration and Asset Management planned, implementation starting)_
 
 This document is kept truthful and current in the same commit as any work that
 changes it, per [Contributing.md](Contributing.md). It must never describe
@@ -8,20 +8,15 @@ in-progress or planned work as complete.
 
 ## Current milestone
 
-**M4 — NCR — complete.** See
-[.hermes/plans/2026-07-29-milestone-4-ncr.md](../.hermes/plans/2026-07-29-milestone-4-ncr.md)
-for the exact scope, schema/API/permissions decisions, and acceptance criteria (all
-checked off), and [Roadmap.md](Roadmap.md#m4-ncr) for how it fits the overall
-delivery order.
+**M5 — Calibration and Asset Management.** See
+[.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md](../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md)
+for the exact scope, schema/API/permissions decisions, and acceptance criteria, and
+[Roadmap.md](Roadmap.md#m5-calibration-and-asset-management) for how it fits the
+overall delivery order.
 
-**Milestone 4 is complete and closed out.** The `ncrs`/`ncr_status_history`
-schema, CRUD, the full transition workflow, containment/corrective/preventive
-actions, the four structured investigation tools, document attachments, the
-Suppliers `ncr-history` read endpoint, PDF export, and the frontend are all
-implemented and tested, and the full closeout gate re-run (migration cycle,
-dependency audits, Docker/browser walkthrough with a persistence-restart
-check, and an independent security review) has passed — see "Completed work"
-below. M0 (Platform Foundation), M1 (Authentication, Organisations, People),
+**Milestone 5 is planned; implementation is starting.** No schema, API, or UI
+exists yet for this module — see "Completed work" below for what's actually
+done. M0 (Platform Foundation), M1 (Authentication, Organisations, People),
 M2 (Document Management), M3 (Products and Suppliers), and M4 (NCR) are all
 complete and verified — see "Completed work"
 below for details and findings.
@@ -1378,10 +1373,10 @@ for the full acceptance-criteria checklist, all checked off.
 
 ## Work in progress
 
-None. Milestone 4 is closed out. Next: Milestone 5 (Calibration and Asset
-Management), to be planned documentation-first per
-[Roadmap.md](Roadmap.md#m5-calibration-and-asset-management) before any
-implementation begins.
+Milestone 5 (Calibration and Asset Management): planned, documentation-first,
+per [.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md](../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
+No schema, API, or UI exists yet. Implementation starts with the `assets`
+schema and CRUD (the plan's suggested commit 2).
 
 ## Known bugs
 
@@ -1443,12 +1438,14 @@ dependency, `reportlab` (plus its own transitive `pillow`), introduces no new
 
 ## Next recommended tasks
 
-Implement Milestone 4 per the committed plan, starting with the `ncrs`/
-`ncr_status_history` schema, numbering, CRUD, and the transition workflow (the
-plan's suggested commit 2), then actions, investigation tools, attachments and
-supplier NCR history, PDF export, frontend, then closeout — test-first, in small
-independently-committable vertical slices, following the same pattern used for
-Milestones 1–3.
+Implement Milestone 5 per the committed plan, starting with the `assets`
+schema and CRUD (the plan's suggested commit 2), then calibration schedules
+and events, asset maintenance schedules and the due-reminders endpoint,
+frontend, then closeout — test-first, in small independently-committable
+vertical slices, following the same pattern used for Milestones 1–4, with an
+independent security review after each slice (not only at final closeout —
+per the plan's own reasoning, drawn from three separate frozen-once-closed
+gaps found during Milestone 4).
 
 Note on local tooling: this backend was developed using a repository-local `uv`
 install and virtual environment under `.tools/` (git-ignored) because `uv` was not

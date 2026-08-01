@@ -154,10 +154,17 @@ Full scope and acceptance criteria (all checked off):
     (backend and frontend both implemented and tested; Milestone 4 closeout
     verification complete).
 
-## Low Priority — Later modules (Milestones 5–9)
+## Medium Priority — Milestone 5 (Calibration and Asset Management) — IN PROGRESS
+
+Full scope and acceptance criteria:
+[.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md](../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
+
 18. **Calibration and Asset Management module** — see
     [docs/modules/CalibrationAndAssetManagement.md](modules/CalibrationAndAssetManagement.md).
-    Dependencies: Tasks 13, 14. Complexity: **L**. Status: Not Started.
+    Dependencies: Tasks 13, 14 (both complete). Complexity: **L**. Status: In
+    Progress (plan committed; no schema, API, or UI implemented yet).
+
+## Low Priority — Later modules (Milestones 6–9)
 19. **Maintenance module** — see [docs/modules/Maintenance.md](modules/Maintenance.md).
     Dependencies: Tasks 13, 18 (assets). Complexity: **M**. Status: Not Started.
 20. **FAIR module** — see [docs/modules/FAIR.md](modules/FAIR.md). Dependencies:

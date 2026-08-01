@@ -1,8 +1,10 @@
 # Calibration and Asset Management
 
-**Status: Planned.** Not yet implemented — targeted for
-[Milestone 5](../Roadmap.md#m5-calibration-and-asset-management). No code exists
-for this module yet; see [docs/CurrentStatus.md](../CurrentStatus.md).
+**Status: Planned, implementation starting.** Targeted for
+[Milestone 5](../Roadmap.md#m5-calibration-and-asset-management); full scope,
+schema, API, and design decisions in the
+[Milestone 5 plan](../../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
+No code exists for this module yet; see [docs/CurrentStatus.md](../CurrentStatus.md).
 
 ## Purpose
 
@@ -86,5 +88,7 @@ duplication during implementation.
 ## Related documents
 
 - [Roadmap.md](../Roadmap.md#m5-calibration-and-asset-management)
+- [Milestone 5 plan](../../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md)
+  — full schema, API, and design decisions for this implementation.
 - [Maintenance.md](Maintenance.md)
 - [Suppliers.md](Suppliers.md)
