@@ -1,6 +1,6 @@
 # Current Status
 
-_Last updated: 2026-08-01 (Milestone 5: assets schema and CRUD implemented)_
+_Last updated: 2026-11-23 (Milestone 5 draft remains unverified; testing-readiness additions planned)_
 
 This document is kept truthful and current in the same commit as any work that
 changes it, per [Contributing.md](Contributing.md). It must never describe
@@ -1444,12 +1444,24 @@ for the full acceptance-criteria checklist, all checked off.
 
 ## Work in progress
 
-Milestone 5 (Calibration and Asset Management): the `assets` schema and CRUD
-are implemented and tested (see above). Remaining: calibration schedules and
-events (with server-computed, race-safe `next_due_date` recalculation), asset
-maintenance schedules, the `due` reminders endpoint, the frontend, then
-closeout. Plan:
+Milestone 5 (Calibration and Asset Management): `assets` schema and CRUD are
+committed and previously verified. A later uncommitted draft of the calibration
+schedules/events backend now exists in the working tree (models, migration,
+service/router/schema and tests), but it is **not accepted or committed**: 271
+backend unit tests and the touched files' Ruff/mypy gates passed on 2026-11-23;
+real PostgreSQL integration tests, migration cycle, full backend gates and
+end-to-end checks have not been run for this draft. Docker Desktop's Linux
+engine was unavailable and `TEST_DATABASE_URL` was unset on that date.
+Remaining after that slice: asset maintenance schedules, the `due` reminders
+endpoint, frontend and M5 closeout. Plan:
 [.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md](../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
+
+A new testing-readiness request is planned, not implemented: granular
+user/module/action permissions and optional CMM Program Control. See
+[Roadmap.md](Roadmap.md#testing-readiness-gates-after-m5),
+[TODO.md](TODO.md#high-priority--testing-readiness-after-milestone-5-planned),
+[modules/ProgramControl.md](modules/ProgramControl.md) and
+[DecisionLog.md](DecisionLog.md#2026-11-23-testing-readiness-permissions-and-optional-cmm-program-control).
 
 ## Known bugs
 
@@ -1511,9 +1523,10 @@ dependency, `reportlab` (plus its own transitive `pillow`), introduces no new
 
 ## Next recommended tasks
 
-Continue Milestone 5 per the committed plan: calibration schedules and events
-(with server-computed, race-safe `next_due_date` recalculation — the plan's
-suggested commit 3), then asset maintenance schedules and the due-reminders
+Validate and finish the uncommitted Milestone 5 calibration schedules/events
+draft against a disposable PostgreSQL instance (including migrations and
+cross-organisation API tests) before committing it; then asset maintenance
+schedules and the due-reminders
 endpoint, frontend, then closeout — test-first, in small
 independently-committable vertical slices, following the same pattern used
 for Milestones 1–4, with an independent security review after each slice
@@ -1538,7 +1551,12 @@ that are intentionally out of scope until their relevant milestone, if ever.
 
 ## Blockers
 
-None. The previous session-local Node execution restriction no longer applies;
+The 2026-11-23 environment had no running Docker Desktop Linux engine and no
+`TEST_DATABASE_URL`. This blocks the uncommitted calibration schedules/events
+draft's PostgreSQL integration tests and migration cycle. Unit tests are not
+substitutes for these gates. Restore a disposable database before accepting the
+slice; do not aim its destructive integration fixtures at a production database.
+The previous session-local Node execution restriction no longer applies;
 Node/npm and every documented frontend gate ran successfully on 2026-07-28.
 The stack was chosen per the product specification's own
 preference (FastAPI + SQLAlchemy 2/Alembic + PostgreSQL, React/TypeScript/Vite)

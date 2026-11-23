@@ -1338,3 +1338,43 @@ argues for treating "does every write path check the closed-NCR guard"
 as an explicit, standing checklist item for any future write path added to
 this module, rather than relying solely on each new slice's own review to
 notice the gap by comparison with its siblings.
+
+## 2026-11-23 — Testing-readiness permissions and optional CMM program control
+
+**Problem:** the product needs role-specific visibility/action permissions (for
+example read-only Documents access without the ability to up-rev) and optional
+control of opaque CMM program binaries before a pilot can test those workflows.
+The current admin/member split and the Document Management approval workflow do
+not provide a named approver, a protected CMM publication root or endpoint-level
+per-action permissions. A read-only file attribute alone cannot stop a user
+with write access from changing a master, nor guarantee every CMM software
+vendor forces Save As.
+
+**Options:** (a) use the existing Document Management record and admin/member
+roles unchanged; (b) replace PostgreSQL/auth and implement all features together;
+(c) extend the existing SQL-backed role model first, then build a distinct,
+optional Program Control module reusing the secure storage and audit patterns.
+
+**Choice and reasoning:** (c), as bounded testing-readiness gates after the
+in-progress Milestone 5 and before the later roadmap modules. PostgreSQL,
+Alembic, bootstrap admin and user CRUD are already implemented; replacing them
+adds risk and solves no missing user-facing requirement. A canonical permission
+catalog with explicit server-side checks and frontend capabilities supports
+module hiding and finer document operations without relying on CSS/navigation
+as a security boundary. Program Control then uses those checks, immutable
+stored revisions, a server-generated SHA-256 digest, a selected eligible
+approver, append-only decision records and approved-only publication to a
+configured, isolated CMM-accessible path. Distinguish deployment-level mounts
+and credentials from organisation business configuration. Make the master
+read-only with write-denying filesystem/share permissions and separate run-data
+storage, but test actual CMM Save/Save As behaviour in a one-machine pilot.
+
+**Pros:** preserves the live product baseline and existing users, enables a
+small end-to-end pilot, gives a defensible integrity/approval trail, and avoids
+presenting a hash as a semantic diff or the read-only attribute as protection.
+**Cons:** every existing endpoint needs a permission inventory and migration;
+atomic DB-plus-filesystem publication requires crash recovery and integrity
+checks; network mounts and OS ACLs differ by deployment. Neither gate is
+implemented yet. Exact approver override, program identity, retention and
+network topology remain open decisions in
+[modules/ProgramControl.md](modules/ProgramControl.md).

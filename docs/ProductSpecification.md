@@ -67,6 +67,14 @@ Business behaviour should be data-driven wherever practical, including NCR and d
 
 Core QMS document control: SOPs, work instructions, forms, policies, controlled documents, revision history, approval workflow, change history, permissions, electronic acknowledgement, search, categories, tags, PDF preview, version comparison and configurable numbering. Future: electronic signatures and ISO compliance assistance.
 
+### User management and granular permissions (testing-readiness addition)
+
+Keep the initial single bootstrap-admin account, which can add users. Extend the current admin/member distinction with admin-managed roles and effective permissions per module and action. A user without a module's view permission must not see its navigation or reach its API; permissions must be checked by the server, not just by the frontend. Permit fine distinctions such as reading a controlled document without uploading a new revision, editing its metadata, approving it or deleting it. Existing account privileges must migrate deliberately, without locking out the final admin; permission changes must take effect without trusting stale JWT claims. No cross-organisation grants or self-escalation.
+
+### CMM Program Control (optional testing-readiness addition)
+
+Control opaque/encrypted CMM program binaries through immutable uploaded revisions, a server-computed SHA-256 digest, a selected approver and an auditable approval/rejection history. Only an approved revision may be published to an administrator-configurable CMM-accessible filesystem/network location; private storage, publication and run-data paths must be configured for the deployment and kept distinct. Retain prior approved revisions, verify the published file's bytes and make the master read-only with appropriate share/ACL permissions. The read-only flag alone does not universally force Save As; test the actual CMM application's behaviour. Module visibility and availability are an optional organisation-level Settings toggle and per-user permission, enforced in backend and frontend. See [modules/ProgramControl.md](modules/ProgramControl.md) for the planned workflow and safety gates.
+
 ### Calibration and Asset Management
 
 Inspection equipment, measuring equipment and company assets; calibration schedules, appropriate asset maintenance schedules, certificate storage, reminders, status and complete equipment history. Examples include micrometers, calipers, CMMs, height gauges, surface testers and torque equipment. Production machinery belongs in Maintenance, not this module.

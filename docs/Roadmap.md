@@ -70,6 +70,20 @@ Inspection/measuring equipment and company assets, calibration schedules, certif
 storage, reminders, and equipment history. Chosen sixth: a well-scoped, high-value
 module that depends on People (owners) and Documents (certificates) already existing.
 
+## Testing-readiness gates after M5
+
+Before attempting a pilot of controlled CMM programs, add two bounded vertical
+slices: **granular role/permission management** first, then the optional
+[Program Control](modules/ProgramControl.md) module. This is a deliberate
+priority insertion ahead of M6–M10, not a claim that either feature exists yet.
+Preserve the completed bootstrap-admin and admin/member baseline, migrate existing
+users without widening or silently removing their privileges, enforce every
+permission on the backend, and hide unavailable modules/actions in the UI. The
+program pilot must use isolated storage and a designated CMM/share, not an
+untested production master. Detailed policy design is in
+[Permissions.md](Permissions.md). See the testing-readiness decision in
+[DecisionLog.md](DecisionLog.md#2026-11-23-testing-readiness-permissions-and-optional-cmm-program-control).
+
 ## M6 — Maintenance
 
 Maintenance requests separate from calibration: raise, prioritise, assign, attach

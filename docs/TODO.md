@@ -166,6 +166,27 @@ Full scope and acceptance criteria:
     calibration schedules/events, asset maintenance schedules, the `due`
     reminders endpoint, and the frontend not yet started).
 
+## High Priority — Testing readiness after Milestone 5 (planned)
+
+TR1. **Granular user permissions and role templates** — retain the bootstrap admin
+    and last-admin guard; add organisation-scoped, admin-managed permission grants
+    for module visibility and resource actions (e.g. `documents.read` without
+    `documents.revise`), a server-side policy dependency on every affected route,
+    and a capabilities-driven frontend that hides unavailable navigation and
+    controls. Migrate existing accounts without breaking their current access;
+    test direct-API bypass, cross-organisation isolation, self-escalation and
+    revocation. Dependencies: M1 and existing module endpoints; complete M5 first
+    unless a separate documented priority change is made. Complexity: **XL**.
+    Status: Not Started.
+TR2. **Optional CMM Program Control** — organisation-level Settings toggle;
+    immutable binary revisions with SHA-256, selected approver, audited decision,
+    approved-only atomic publication to a configured CMM-accessible root, separate
+    read-only master and writable run-data path, integrity/recovery and backup
+    checks. Pilot on an isolated target before production share use. See
+    [modules/ProgramControl.md](modules/ProgramControl.md). Dependencies: TR1,
+    Document Management storage conventions, PostgreSQL and a confirmed CMM/share
+    topology. Complexity: **XL**. Status: Not Started.
+
 ## Low Priority — Later modules (Milestones 6–9)
 19. **Maintenance module** — see [docs/modules/Maintenance.md](modules/Maintenance.md).
     Dependencies: Tasks 13, 18 (assets). Complexity: **M**. Status: Not Started.
