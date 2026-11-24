@@ -1,14 +1,16 @@
 # Calibration and Asset Management
 
-**Status: Backend implemented (asset CRUD, calibration schedules/events, maintenance schedules and due list).** [Milestone 5](../Roadmap.md#m5-calibration-and-asset-management)
-is in progress — full scope, schema, API, and design decisions in the
+**Status: Implemented and verified (Milestone 5 scope).** [Milestone 5](../Roadmap.md#m5-calibration-and-asset-management)
+full scope, schema, API, and design decisions are in the
 [Milestone 5 plan](../../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
 Asset CRUD and calibration schedules/events are implemented and tested against
 disposable PostgreSQL; see [docs/CurrentStatus.md](../CurrentStatus.md)
 for exact scope. The frontend asset register/create and metadata detail/edit/
 soft-delete, calibration schedule and separate asset maintenance schedule
 management, the combined due-list page, and calibration-event history/recording
-are implemented; full-stack acceptance remains pending.
+are implemented; disposable-PostgreSQL/Compose browser acceptance passed on
+2026-11-24. Granular permissions and optional CMM Program Control are separate
+planned testing-readiness gates.
 
 ## Purpose
 
@@ -115,7 +117,8 @@ bounded override), asset links and pagination; it does not send notifications.
 The event form selects a People performer or supplier, can link an existing
 Document as a certificate, and refreshes the asset's current calibration
 schedule after recording; events are immutable. End-to-end Compose acceptance
-is pending. The boundary with
+passed, including certificate version upload, performer selection, due lists,
+soft deletion and persistence across a restart. The boundary with
 [Maintenance](Maintenance.md) (this module owns *scheduled* calibration/maintenance
 of tracked equipment; Maintenance owns *ad hoc requests*, especially for production
 machinery) is documented here and in [Maintenance.md](Maintenance.md) to prevent

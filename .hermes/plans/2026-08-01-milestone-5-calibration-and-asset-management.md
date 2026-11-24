@@ -1,6 +1,6 @@
 # Milestone 5 — Calibration and Asset Management
 
-**Status:** In progress — asset CRUD, calibration schedules/events, maintenance schedules and due-list backend implemented; asset-list/create, metadata-detail, calibration-schedule, asset-maintenance-schedule, due-list and event frontend implemented; full-stack browser acceptance pending.
+**Status:** Complete for the defined Milestone 5 scope — backend/frontend, migration cycle, disposable-PostgreSQL integration, browser-driven Compose workflow and persistence restart verified on 2026-11-24. Outbound emails, granular permissions and optional CMM Program Control are separate deferred work.
 **Date planned:** 2026-08-01
 
 ## Purpose
@@ -330,40 +330,40 @@ established than after three more slices have had the chance to repeat it.
 
 ## Acceptance criteria
 
-- [ ] `assets`, `calibration_schedules`, `calibration_events`,
+- [x] `assets`, `calibration_schedules`, `calibration_events`,
       `asset_maintenance_schedules` exist via reviewed Alembic migrations,
       each verified with a real upgrade → downgrade → upgrade cycle against
       PostgreSQL.
 - [x] Full asset CRUD (including soft delete) works end-to-end against real
       PostgreSQL, covered by tests.
-- [ ] Calibration schedules and events work end-to-end, including
+- [x] Calibration schedules and events work end-to-end, including
       server-computed, race-safe `next_due_date` recalculation on recording
       an event, covered by tests including a concurrency case.
-- [ ] Asset maintenance schedules and the `due` reminders endpoint work
+- [x] Asset maintenance schedules and the `due` reminders endpoint work
       end-to-end, covered by tests.
-- [ ] `asset_tag` uniqueness, the `performed_by_id`/`performed_by_supplier_id`
+- [x] `asset_tag` uniqueness, the `performed_by_id`/`performed_by_supplier_id`
       mutual-exclusivity invariant, cross-module `owner_id`/`performed_by_id`/
       `performed_by_supplier_id`/`certificate_document_id` validation, and
       cross-organisation `404`s are all covered by tests.
-- [ ] Frontend: asset list/search/filter, create/edit/soft-delete, calibration
+- [x] Frontend: asset list/search/filter, create/edit/soft-delete, calibration
       schedule/event management, maintenance schedule management — all
       calling real backend endpoints through typed API clients, covered by
       Vitest tests, accessible and responsive.
-- [ ] All commands in
+- [x] All commands in
       [CodingStandards.md](../../docs/CodingStandards.md#commands-established-in-milestone-0-referenced-by-every-later-batch)
       pass: `ruff check`, `ruff format --check`, `mypy` (strict), `pytest`
       (unit + integration), `npm run lint`, `format:check`, `typecheck`,
       `test`, `build`.
-- [ ] Dependency audits (`pip-audit`, `npm audit`) re-run; no new findings
+- [x] Dependency audits (`pip-audit`, `npm audit`) re-run; no new findings
       beyond already-documented deferrals, or new findings triaged and
       recorded.
-- [ ] `docker compose up --build` smoke test, browser-driven: create an
+- [x] `docker compose up --build` smoke test, browser-driven: create an
       asset, set its calibration schedule, record a calibration event with an
       attached certificate, verify the schedule's `next_due_date` updated,
       set an asset maintenance schedule, check the `due` endpoint/UI reflects
       it, soft-delete an asset — all surviving a `docker compose down`/`up`
       restart (no `-v`).
-- [ ] `docs/API.md`, `docs/Database.md`,
+- [x] `docs/API.md`, `docs/Database.md`,
       `docs/modules/CalibrationAndAssetManagement.md`, `docs/DecisionLog.md`,
       `docs/CurrentStatus.md`, `docs/TODO.md` updated in the same commits as
       the behaviour they describe.

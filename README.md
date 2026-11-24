@@ -12,14 +12,12 @@ Full product vision: [docs/ProductSpecification.md](docs/ProductSpecification.md
 
 ## Project status
 
-**Milestones 0–2 complete; Milestone 3 next.** Platform foundation (Docker Compose,
-auth, organisations), authentication/user management/People, and Document Management
-(categories/tags, versioned files, approval workflow, acknowledgements, search,
-comparison — backend and frontend) are all implemented, tested, and verified,
-including a real-PostgreSQL integration suite and a browser-driven Docker Compose
-smoke test. See [docs/CurrentStatus.md](docs/CurrentStatus.md) for the truthful,
-up-to-date state and [docs/TODO.md](docs/TODO.md) for what's next (Products and
-Suppliers).
+**Milestones 0–5 implemented and verified.** Calibration and Asset Management
+completed its real-PostgreSQL suite and browser-driven Docker Compose acceptance.
+Granular permissions and optional CMM Program Control are separately planned
+testing-readiness work, not shipped features. See
+[docs/CurrentStatus.md](docs/CurrentStatus.md) for the evidence and known audit
+deferrals, and [docs/TODO.md](docs/TODO.md) for the next tasks.
 
 ## Stack
 
@@ -45,8 +43,8 @@ Backend at `http://localhost:8000` (interactive API docs at `/docs`), frontend a
 openQMS is delivered as a documented, tested platform foundation followed by vertical
 module slices, in roadmap order — not all at once. See [docs/Roadmap.md](docs/Roadmap.md)
 for delivery order and reasoning. Every module has a planning document under
-[docs/modules/](docs/modules/); People and Document Management are implemented
-(Milestones 1–2), the rest are still labelled `Status: Planned`:
+[docs/modules/](docs/modules/); People, Documents, Products/Suppliers, NCR and
+Calibration/Assets are implemented; other modules remain planned:
 
 - [Document Management](docs/modules/DocumentManagement.md)
 - [Calibration and Asset Management](docs/modules/CalibrationAndAssetManagement.md)

@@ -154,19 +154,17 @@ Full scope and acceptance criteria (all checked off):
     (backend and frontend both implemented and tested; Milestone 4 closeout
     verification complete).
 
-## Medium Priority — Milestone 5 (Calibration and Asset Management) — IN PROGRESS
+## Medium Priority — Milestone 5 (Calibration and Asset Management) — COMPLETE
 
 Full scope and acceptance criteria:
 [.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md](../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
 
 18. **Calibration and Asset Management module** — see
     [docs/modules/CalibrationAndAssetManagement.md](modules/CalibrationAndAssetManagement.md).
-    Dependencies: Tasks 13, 14 (both complete). Complexity: **L**. Status: In
-    Progress (`assets` CRUD and calibration schedules/events implemented and
-    tested in the backend; asset maintenance schedules and the `due` endpoint
-    backend implemented; asset-list/create, metadata-detail and calibration-
-    schedule, asset-maintenance, due-list and event frontend implemented;
-    full-stack acceptance pending).
+    Dependencies: Tasks 13, 14 (both complete). Complexity: **L**. Status: Done
+    (backend, frontend and disposable-PostgreSQL/Compose browser closeout
+    verified; 417 backend and 327 frontend tests, migration cycle, dependency
+    audits and persistence restart — see [CurrentStatus.md](CurrentStatus.md)).
 
 ## High Priority — Testing readiness after Milestone 5 (planned)
 

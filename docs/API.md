@@ -677,15 +677,16 @@ JSON values) is escaped before being embedded, since `reportlab`'s `Paragraph`
 parses a constrained HTML-like markup — see
 [DecisionLog.md](DecisionLog.md#2026-07-30-ncr-pdf-export-slice-unescaped-user-text-in-reportlab-paragraph-markup).
 
-## Calibration and Asset Management module (Milestone 5, in progress)
+## Calibration and Asset Management module (Milestone 5, implemented)
 
 Per [docs/modules/CalibrationAndAssetManagement.md](modules/CalibrationAndAssetManagement.md)
 and the
 [Milestone 5 plan](../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
 Every operation requires only authentication (any active user), matching
 People/Products/Suppliers/NCR's precedent — not admin-gated, per design
-decision 1. Asset CRUD and calibration schedules/events are implemented in the
-backend; the asset maintenance schedule backend slice is now implemented. The `due` reminders endpoint and frontend remain later slices.
+decision 1. Asset CRUD, calibration schedules/events, maintenance schedules and
+the combined `due` endpoint have backend and frontend workflows; outbound
+reminder messages are not implemented.
 
 ### `POST /api/v1/calibration/assets` / `PATCH /api/v1/calibration/assets/{id}`
 
@@ -797,9 +798,8 @@ Response `503` (database unreachable):
 `/api/v1/auth`, `/api/v1/users`, `/api/v1/people`, `/api/v1/companies`,
 `/api/v1/document-categories`, `/api/v1/document-tags`, `/api/v1/documents`,
 `/api/v1/suppliers`, `/api/v1/products`, `/api/v1/product-categories`, and
-`/api/v1/ncr` are implemented (see "Authentication", "User management", "People
-module", "Document Management", "Suppliers module", "Products module", and "NCR
-module" above). The rest are reserved prefixes for future modules, so routing
+`/api/v1/ncr`, and `/api/v1/calibration` are implemented (see their sections
+above). The rest are reserved prefixes for future modules, so routing
 collisions are avoided as modules land per the [Roadmap](Roadmap.md). Each will get
 full documentation in its `docs/modules/<Module>.md` "Planned APIs" section as it is
 implemented:
@@ -813,7 +813,7 @@ implemented:
 | `/api/v1/suppliers` | Suppliers (Milestone 3) — implemented |
 | `/api/v1/products`, `/api/v1/product-categories` | Products (Milestone 3) — implemented (backend) |
 | `/api/v1/ncr` | NCR (Milestone 4) — implemented and closed out (schema/CRUD/workflow/actions/tools/attachments/PDF export, backend and frontend) |
-| `/api/v1/calibration` | Calibration and Asset Management (Milestone 5) — asset CRUD and schedules/events backend implemented; maintenance/due/frontend pending |
+| `/api/v1/calibration` | Calibration and Asset Management (Milestone 5) — implemented and verified |
 | `/api/v1/maintenance` | Maintenance |
 | `/api/v1/fair` | FAIR |
 | `/api/v1/spc` | SPC |

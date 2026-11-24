@@ -479,12 +479,14 @@ the same trailing number with different prefixes), read/incremented with
 with an extra lookup keyed by `type` inside the row's value — see
 `backend/app/modules/ncr/numbering.py`.
 
-### Calibration and Asset Management tables (Milestone 5, in progress)
+### Calibration and Asset Management tables (Milestone 5, implemented)
 
 Per [docs/modules/CalibrationAndAssetManagement.md](modules/CalibrationAndAssetManagement.md)
 and the
 [Milestone 5 plan](../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
-This section covers asset CRUD and the calibration schedule/event backend slices.
+This section covers assets, calibration schedules/events and per-asset maintenance
+schedules. Their migrations passed a complete disposable-PostgreSQL upgrade →
+downgrade-to-base → upgrade cycle.
 
 - **`assets`** — `asset_tag` (unique per organisation via
   `UniqueConstraint(organisation_id, asset_tag)`, enforced at the service layer
@@ -500,8 +502,7 @@ This section covers asset CRUD and the calibration schedule/event backend slices
   `updated_by_id` (FK → `users.id`, not null), `created_at`/`updated_at`,
   `deleted_at` (nullable — soft delete, matching `documents`/`ncrs`'
   precedent rather than Products/Suppliers' hard-delete, per plan design
-  decision 9: an asset carries audit-significant calibration history added
-  in a later slice).
+  decision 9: an asset carries audit-significant calibration history).
 
 `update_asset`/`delete_asset` take the same `_lock_asset` row lock (a
 per-asset `SELECT ... FOR UPDATE`, mirroring `ncr.service._lock_ncr`/
@@ -518,8 +519,8 @@ issues.
 A new `configuration` row, `calibration_due_reminder_window_days` (default
 `30`), seeded by the schema migration for the existing default organisation,
 mirroring `supplier_certification_reminder_window_days`'s existing
-precedent — still not consumed by an endpoint; the `due` reminders endpoint
-that will use it is a later slice.
+precedent — consumed by the combined `GET /api/v1/calibration/due` endpoint
+when no explicit window is supplied.
 
 - **`calibration_schedules`** — one per asset (`asset_id` unique, FK to
   `assets.id` with cascade on physical deletion), positive `interval_value`,

@@ -1,12 +1,12 @@
 # Current Status
 
-_Last updated: 2026-11-24 (Milestone 5 asset-maintenance-schedule backend slice verified; due endpoint and frontend pending)_
+_Last updated: 2026-11-24 (Milestone 5 full-stack closeout and dependency audit)_
 
 This document is kept truthful and current in the same commit as any work that
 changes it, per [Contributing.md](Contributing.md). It must never describe
 in-progress or planned work as complete.
 
-## Current milestone
+## Latest completed milestone
 
 **M5 — Calibration and Asset Management.** See
 [.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md](../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md)
@@ -14,12 +14,12 @@ for the exact scope, schema/API/permissions decisions, and acceptance criteria, 
 [Roadmap.md](Roadmap.md#m5-calibration-and-asset-management) for how it fits the
 overall delivery order.
 
-**Milestone 5 is in progress.** Asset CRUD, calibration schedules/events, and the asset-maintenance-schedule backend slice
-are implemented in the backend — see "Completed work" below for exactly what's done and what
-remains. M0 (Platform Foundation), M1 (Authentication, Organisations, People),
-M2 (Document Management), M3 (Products and Suppliers), and M4 (NCR) are all
-complete and verified — see "Completed work"
-below for details and findings.
+**Milestone 5 is implemented and verified for its defined scope.** Asset CRUD,
+calibration schedules/events, asset maintenance schedules and the combined due list
+work through the real PostgreSQL-backed API and browser UI. Automatic outbound
+reminder emails and maintenance-event history are explicitly deferred. Granular
+permissions and optional CMM Program Control are separate testing-readiness gates,
+not implemented by this milestone. See the closeout evidence below.
 
 ## Completed work
 
@@ -1436,13 +1436,42 @@ for the full acceptance-criteria checklist, all checked off.
     source files), 257 unit tests, and 131 integration tests against real
     PostgreSQL.
   - Docs updated in this slice:
-    [API.md](API.md#calibration-and-asset-management-module-milestone-5-in-progress),
-    [Database.md](Database.md#calibration-and-asset-management-tables-milestone-5-in-progress),
+    [API.md](API.md#calibration-and-asset-management-module-milestone-5-implemented),
+    [Database.md](Database.md#calibration-and-asset-management-tables-milestone-5-implemented),
     [docs/modules/CalibrationAndAssetManagement.md](modules/CalibrationAndAssetManagement.md)
     (`Status: Implemented (asset schema/CRUD only)`), this file, and
     [TODO.md](TODO.md).
 
-## Work in progress
+## Milestone 5 closeout (2026-11-24)
+
+- A dedicated, localhost-only Docker Compose project built all three services from
+  the final tree. Its PostgreSQL and uploads volumes are isolated from other
+  instances. All services reached healthy status; the readiness API returned
+  `{"status":"ready","database":"ok"}`. No production database or CMM share was used.
+- A real browser created an asset, set its calibration and maintenance schedules,
+  uploaded a disposable certificate version in Documents, recorded three immutable
+  calibration events (unattributed, People performer with certificate, supplier
+  performer), and observed the recalculated schedule date and both due-list
+  obligations. The 0-day and 1-day overrides filtered as expected. Maintenance
+  due-date clearing/restoring and confirmed asset soft-delete also worked.
+  A Compose `down`/`up` without `-v` retained one active and one soft-deleted asset,
+  three events, one maintenance schedule and one document; a browser read confirmed
+  their persistence. A subsequent rebuilt stack with updated dependencies again
+  passed readiness and browser due-list checks.
+- Separate disposable PostgreSQL databases verified the complete 15-revision
+  Alembic upgrade → downgrade-to-base → upgrade cycle and the final canonical
+  **417 backend tests**, including real integration tests. Ruff lint/format and
+  strict mypy passed. Frontend lint, Prettier, strict typecheck, **327 tests**,
+  and production build passed. Independent reviews passed each calibration
+  frontend/backend slice; the final dependency bump was tested against all 417
+  backend tests and audited separately.
+- Production dependency audits: `pip-audit` found **zero** advisories in the
+  upgraded backend export; `npm audit --omit=dev` found **zero** frontend runtime
+  advisories after updating React Router. The full npm audit still reports
+  17 development-tooling advisories (10 moderate, 5 high, 2 critical), detailed
+  under Known bugs below. These are not a clean full-tree audit.
+
+## Milestone 5 implementation history
 
 Milestone 5 (Calibration and Asset Management): asset CRUD and calibration
 schedules/events are committed. The single-row asset-maintenance-schedule
@@ -1471,8 +1500,8 @@ maintenance obligations with asset links, a configurable window override and
 pagination; it does not deliver outbound reminders. The calibration-event
 history/record panel now supports in-house or
 supplier performers, an existing document certificate, pagination and a schedule
-refresh after recording. Milestone 5 is **not** finished: full-stack browser
-acceptance remains. Plan:
+refresh after recording. Milestone 5's defined scope and browser acceptance are
+complete; see the closeout evidence above. Plan:
 [.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md](../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
 
 A new testing-readiness request is planned, not implemented: granular
@@ -1488,6 +1517,21 @@ None known in the code written so far. (Two defects found during Milestone 1's f
 validation — a login timing side-channel and a React StrictMode `mountedRef` bug —
 were fixed test-first in that same closeout batch; see "Completed work" above and
 [DecisionLog.md](DecisionLog.md#2026-07-26-milestone-1-closeout-login-timing-side-channel-and-a-react-strictmode-mountedref-bug).)
+
+**Current audit override (2026-11-24):** The historical audit snapshots below are
+retained as history, not current dependency status. Production backend dependencies
+were advanced to FastAPI 0.165.0/Starlette 1.10.0, PyJWT 2.15.1, Pillow 13.0.0
+and dnspython 2.9.2, and frontend React Router resolved to 7.18.6. Current
+production audits report zero findings on both stacks. The full `npm audit`
+still reports 17 advisories confined to dev tooling: 10 moderate, 5 high,
+2 critical, across ESLint/TypeScript ESLint, Vite/Vitest and their transitive
+dependencies. This development toolchain is not bundled into the production
+frontend build, but the Vite dev server is used locally for Compose testing;
+keep it bound to localhost and revisit tooling upgrades before an exposed
+development deployment. The PyJWT update emits short-HMAC-key warnings in
+tests using deliberately short test keys; the disposable acceptance instance
+uses a generated long key. No unreviewed automated major tooling upgrade was
+applied.
 
 `npm audit` (frontend) reports 14 vulnerabilities: 13 in dev-only tooling transitive
 dependencies (ESLint's `minimatch`/`brace-expansion`, Vite's dev-time `esbuild`,
@@ -1542,14 +1586,9 @@ dependency, `reportlab` (plus its own transitive `pillow`), introduces no new
 
 ## Next recommended tasks
 
-Continue Milestone 5 with full-stack browser acceptance, including calibration
-event and certificate workflows — test-first, in small
-independently-committable vertical slices, following the same pattern used
-for Milestones 1–4, with an independent security review after each slice
-(not only at final closeout — per the plan's own reasoning, drawn from three
-separate frozen-once-closed gaps found during Milestone 4; the first slice's
-own review found zero issues, suggesting the proactive-hardening approach is
-working).
+Next, address the separately planned testing-readiness permissions and optional
+CMM Program Control in bounded, independently reviewed slices. See
+[Permissions.md](Permissions.md) and [modules/ProgramControl.md](modules/ProgramControl.md).
 
 Note on local tooling: this backend was developed using a repository-local `uv`
 install and virtual environment under `.tools/` (git-ignored) because `uv` was not
@@ -1568,10 +1607,12 @@ that are intentionally out of scope until their relevant milestone, if ever.
 ## Blockers
 
 Docker Desktop was started with the user's approval on 2026-11-23. A disposable
-PostgreSQL 16 container on localhost:15439 provided real integration and
-migration verification for the schedules/events backend, then was stopped and
-removed after explicit cleanup approval. Never point destructive integration
-fixtures at a production database. There is no current backend database blocker.
+PostgreSQL 16 development container at localhost:15439 was used for earlier
+integration work. A separate localhost-only Compose project at 15440 provides
+the retained acceptance test database, with **separate databases** for final
+integration tests and migration-cycle checks. Never point destructive fixtures
+at a production database or the acceptance test records. There is no current
+backend database blocker.
 The previous session-local Node execution restriction no longer applies;
 Node/npm and every documented frontend gate ran successfully on 2026-07-28.
 The stack was chosen per the product specification's own

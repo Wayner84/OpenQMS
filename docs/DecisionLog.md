@@ -1412,3 +1412,34 @@ complete historical record without making reminders regress. Equal-date
 entries use the latest recorded calculation. This is a deliberate refinement
 of the Milestone 5 plan's simple "recompute on every event" wording; a
 failing regression test demonstrated the stale-date bug before the fix.
+
+## 2026-11-24 — Milestone 5 dependency-audit remediation before local acceptance
+
+**Problem:** the production backend lock resolved PyJWT, Starlette, Pillow and
+dnspython versions with 73 advisory records in `pip-audit`; the frontend's
+React Router 7.18.1 had a high-severity RSC-mode advisory, even though this
+SPA does not use RSC. A prior deferral based on an untested FastAPI/Starlette
+upgrade was no longer a satisfactory readiness claim.
+
+**Choice:** upgrade FastAPI/Starlette, PyJWT, Pillow and dnspython as a tested
+bundle; add explicit lower bounds for the vulnerable transitive packages.
+FastAPI 0.165.0 and Starlette 1.10.0 retain their PyPI development-status
+classifiers (Beta and Alpha respectively), but so did the previously locked
+FastAPI 0.115.14 and Starlette 0.46.2. These labels are not a new pre-release
+policy exception; the Starlette 0→1 API jump remains real compatibility risk,
+accepted only after the full regression and live Compose checks below. Staying
+on the old pair would retain the audited production findings. Advance React
+Router within its compatible v7 range. The resolved versions
+are recorded in the lock files. Against isolated PostgreSQL, all 417 backend
+tests passed with Ruff and strict mypy; 327 frontend tests and all static/build
+gates passed. The rebuilt Compose stack passed browser and readiness checks.
+The production-only audits now report zero findings on both stacks.
+
+**Residual risk:** full `npm audit` still reports 17 advisories in developer
+tooling (10 moderate, 5 high, 2 critical). No production frontend dependency
+is flagged by `npm audit --omit=dev`. Keep the Vite dev server bound to
+localhost; evaluate tooling-major upgrades separately with their own gates
+before exposing any development server. PyJWT warns that intentionally short
+test signing keys are below its recommended HS256 length; deployment keys must
+remain long and randomly generated. This dependency audit is a point-in-time
+check, not a promise that future advisories will not appear.
