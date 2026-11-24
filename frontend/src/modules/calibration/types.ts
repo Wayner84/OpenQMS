@@ -87,3 +87,25 @@ export interface MaintenanceScheduleUpdate {
   interval_unit?: CalibrationIntervalUnit;
   next_due_date?: string | null;
 }
+
+export interface DueItem {
+  asset_id: string;
+  asset_tag: string;
+  asset_name: string;
+  due_type: 'calibration' | 'maintenance';
+  next_due_date: string;
+}
+
+export interface DueListResponse {
+  items: DueItem[];
+  total: number;
+  limit: number;
+  offset: number;
+  within_days: number;
+}
+
+export interface ListDueParams {
+  withinDays?: number;
+  limit?: number;
+  offset?: number;
+}

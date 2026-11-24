@@ -131,6 +131,10 @@ describe('Layout', () => {
       'href',
       '/calibration/assets',
     );
+    expect(screen.getByRole('link', { name: /^due$/i })).toHaveAttribute(
+      'href',
+      '/calibration/due',
+    );
   });
 
   it('shows the Users nav link to an admin', async () => {

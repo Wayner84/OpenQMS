@@ -165,7 +165,7 @@ Full scope and acceptance criteria:
     Progress (`assets` CRUD and calibration schedules/events implemented and
     tested, backend only; asset maintenance schedules and the `due` endpoint
     backend implemented; asset-list/create, metadata-detail and calibration-
-    schedule and asset-maintenance frontend implemented, with event/due UI and full-stack
+    schedule, asset-maintenance and due-list frontend implemented, with event UI and full-stack
     acceptance pending).
 
 ## High Priority — Testing readiness after Milestone 5 (planned)

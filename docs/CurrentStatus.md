@@ -1463,11 +1463,13 @@ review passed the bounded frontend slice. Asset detail metadata view/edit/
 soft-delete is also implemented and independently reviewed (293 frontend tests).
 Calibration schedule create/edit and due-status display now have a frontend panel
 on asset detail. The indicator compares the date against today's UTC date;
-clearing an already-set date is blocked because the backend PATCH does not
-The separate asset maintenance schedule panel supports create/edit, including
+clearing an already-set calibration date is blocked because its backend PATCH
+ignores null. The separate asset maintenance schedule panel supports create/edit, including
 an explicit due-date clear; its due indicator also uses the UTC calendar date.
-Milestone 5 is **not** finished: event and due-list UI, plus browser acceptance,
-remain. Plan:
+The authenticated due-list page displays both calibration and equipment-
+maintenance obligations with asset links, a configurable window override and
+pagination; it does not deliver outbound reminders. Milestone 5 is **not**
+finished: event UI and browser acceptance remain. Plan:
 [.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md](../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
 
 A new testing-readiness request is planned, not implemented: granular
@@ -1537,8 +1539,8 @@ dependency, `reportlab` (plus its own transitive `pillow`), introduces no new
 
 ## Next recommended tasks
 
-Continue Milestone 5 with calibration event and due-reminder frontend workflows,
-then full-stack acceptance — test-first, in small
+Continue Milestone 5 with calibration event frontend workflows, then full-stack
+acceptance — test-first, in small
 independently-committable vertical slices, following the same pattern used
 for Milestones 1–4, with an independent security review after each slice
 (not only at final closeout — per the plan's own reasoning, drawn from three

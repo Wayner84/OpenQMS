@@ -13,6 +13,7 @@ import { CompaniesPage } from '../modules/people/CompaniesPage';
 import { PeoplePage } from '../modules/people/PeoplePage';
 import { AssetsPage } from '../modules/calibration/AssetsPage';
 import { AssetDetailPage } from '../modules/calibration/AssetDetailPage';
+import { DuePage } from '../modules/calibration/DuePage';
 import { ProductCategoriesPage } from '../modules/products/ProductCategoriesPage';
 import { ProductDetailPage } from '../modules/products/ProductDetailPage';
 import { ProductsPage } from '../modules/products/ProductsPage';
@@ -47,6 +48,7 @@ export function App(): ReactElement {
                 <Route path="/ncr/:id" element={<NcrDetailPage />} />
                 <Route path="/calibration/assets" element={<AssetsPage />} />
                 <Route path="/calibration/assets/:id" element={<AssetDetailPage />} />
+                <Route path="/calibration/due" element={<DuePage />} />
                 <Route element={<ProtectedRoute requireAdmin />}>
                   <Route path="/users" element={<UsersPage />} />
                   <Route path="/documents/categories" element={<DocumentCategoriesPage />} />

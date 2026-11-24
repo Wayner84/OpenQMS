@@ -7,8 +7,8 @@ Asset CRUD and calibration schedules/events are implemented and tested against
 disposable PostgreSQL; see [docs/CurrentStatus.md](../CurrentStatus.md)
 for exact scope. The frontend asset register/create and metadata detail/edit/
 soft-delete, calibration schedule and separate asset maintenance schedule
-management are implemented; event and due-list UI and full-stack acceptance
-remain pending.
+management and the combined due-list page are implemented; event UI and
+full-stack acceptance remain pending.
 
 ## Purpose
 
@@ -110,8 +110,9 @@ The asset-list, metadata-detail and calibration-schedule UI are implemented;
 the detail indicator uses the UTC calendar date and cannot clear a previously
 set due date (calibration PATCH treats null as no change). The asset maintenance
 panel supports explicit due-date clearing through its distinct partial PATCH.
-Event and due-list UI and end-to-end Compose
-acceptance are pending. The boundary with
+The due-list UI shows both obligations, the backend-configured window (or a
+bounded override), asset links and pagination; it does not send notifications.
+Event UI and end-to-end Compose acceptance are pending. The boundary with
 [Maintenance](Maintenance.md) (this module owns *scheduled* calibration/maintenance
 of tracked equipment; Maintenance owns *ad hoc requests*, especially for production
 machinery) is documented here and in [Maintenance.md](Maintenance.md) to prevent

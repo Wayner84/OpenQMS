@@ -10,6 +10,8 @@ import type {
   MaintenanceSchedule,
   MaintenanceScheduleCreate,
   MaintenanceScheduleUpdate,
+  DueListResponse,
+  ListDueParams,
 } from './types';
 
 /** Fetch a page of organisation-scoped calibration assets. */
@@ -80,4 +82,13 @@ export function updateMaintenanceSchedule(
   payload: MaintenanceScheduleUpdate,
 ): Promise<MaintenanceSchedule> {
   return apiPatch<MaintenanceSchedule>(maintenancePath(assetId), payload);
+}
+
+export function listDue(params: ListDueParams = {}): Promise<DueListResponse> {
+  const query = new URLSearchParams();
+  if (params.withinDays !== undefined) query.set('within_days', String(params.withinDays));
+  if (params.limit !== undefined) query.set('limit', String(params.limit));
+  if (params.offset !== undefined) query.set('offset', String(params.offset));
+  const suffix = query.toString();
+  return apiGet<DueListResponse>(`/api/v1/calibration/due${suffix ? `?${suffix}` : ''}`);
 }

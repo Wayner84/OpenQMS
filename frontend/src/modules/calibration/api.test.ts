@@ -13,6 +13,7 @@ import {
   getMaintenanceSchedule,
   createMaintenanceSchedule,
   updateMaintenanceSchedule,
+  listDue,
 } from './api';
 
 vi.mock('../../shared/api/client');
@@ -107,5 +108,15 @@ describe('calibration asset API', () => {
     expect(apiPatch).toHaveBeenCalledWith('/api/v1/calibration/assets/a1/maintenance-schedule', {
       next_due_date: null,
     });
+  });
+
+  it('requests due entries with an optional window and bounded page parameters', async () => {
+    vi.mocked(apiGet).mockResolvedValue({});
+    await listDue({ limit: 20, offset: 0 });
+    await listDue({ withinDays: 14, limit: 20, offset: 20 });
+    expect(apiGet).toHaveBeenCalledWith('/api/v1/calibration/due?limit=20&offset=0');
+    expect(apiGet).toHaveBeenCalledWith(
+      '/api/v1/calibration/due?within_days=14&limit=20&offset=20',
+    );
   });
 });
