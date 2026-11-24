@@ -109,7 +109,7 @@ export function DuePage(): ReactElement {
           <p>
             Showing {current.total ? offset + 1 : 0}–
             {Math.min(offset + current.items.length, current.total)} of {current.total} (within{' '}
-            {current.within_days} days)
+            {current.within_days} {current.within_days === 1 ? 'day' : 'days'})
           </p>
           {current.items.length === 0 ? (
             <p>No due items in this window.</p>

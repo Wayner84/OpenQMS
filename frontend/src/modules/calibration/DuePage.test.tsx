@@ -77,6 +77,12 @@ describe('DuePage', () => {
     expect(listDue).toHaveBeenCalledTimes(2);
   });
 
+  it('uses the singular day label for a one-day window', async () => {
+    vi.mocked(listDue).mockResolvedValue({ ...response, within_days: 1 });
+    renderPage();
+    expect(await screen.findByText(/within 1 day\)/i)).toBeInTheDocument();
+  });
+
   it('paginates all matching entries, not only the first 20', async () => {
     vi.mocked(listDue)
       .mockResolvedValueOnce({ ...response, total: 21 })
