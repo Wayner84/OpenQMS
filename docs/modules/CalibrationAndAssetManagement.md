@@ -1,11 +1,11 @@
 # Calibration and Asset Management
 
-**Status: Implemented (asset CRUD, calibration schedules/events, and asset-maintenance-schedule backend).** [Milestone 5](../Roadmap.md#m5-calibration-and-asset-management)
+**Status: Backend implemented (asset CRUD, calibration schedules/events, maintenance schedules and due list).** [Milestone 5](../Roadmap.md#m5-calibration-and-asset-management)
 is in progress — full scope, schema, API, and design decisions in the
 [Milestone 5 plan](../../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
 Asset CRUD and calibration schedules/events are implemented and tested against
 disposable PostgreSQL, backend only; see [docs/CurrentStatus.md](../CurrentStatus.md)
-for exact scope. The `due` reminders endpoint and frontend are not implemented.
+for exact scope. The frontend and full-stack acceptance are not implemented.
 
 ## Purpose
 
@@ -48,10 +48,11 @@ Under `/api/v1/calibration`:
   — CRUD, filterable by type, status, location.
 - `GET/POST/PATCH /api/v1/calibration/assets/{id}/schedule` — implemented calibration schedule; one per asset, positive interval, due date updated on an event or set manually.
 - `GET/POST /api/v1/calibration/assets/{id}/events` — implemented immutable record/paginated list. An existing certificate document is linked after upload through Document Management, not uploaded through this endpoint. A recorded event computes its due-date snapshot using the schedule interval; only a current/newer calibration updates the schedule, so backfilled history cannot regress its due date.
-- `GET/POST /api/v1/calibration/assets/{id}/maintenance-schedule` — equipment
+- `GET/POST/PATCH /api/v1/calibration/assets/{id}/maintenance-schedule` — equipment
   maintenance schedule.
-- `GET /api/v1/calibration/due` — assets due or overdue for calibration/maintenance,
-  feeding reminders and dashboards.
+- `GET /api/v1/calibration/due` — implemented backend list of both calibration
+  and maintenance due/overdue entries, filtered by the configured reminder
+  window or a bounded explicit override, feeding future frontend reminders.
 
 ## Workflow
 
@@ -100,7 +101,9 @@ the positive-interval constraint, named unique-error classification and partial
 PATCH. The asset row lock serializes writes with soft deletion by design, but
 a concurrent PostgreSQL schedule-write/delete test has not yet been run. The
 migration passed a fresh-database upgrade/downgrade/upgrade cycle. The `due`
-reminders endpoint and frontend are not yet implemented. The boundary with
+list backend is implemented and tested on disposable PostgreSQL for combined
+schedule types, overdue, windows, pagination, tenant isolation and soft deletion;
+its UI and end-to-end Compose acceptance are still pending. The boundary with
 [Maintenance](Maintenance.md) (this module owns *scheduled* calibration/maintenance
 of tracked equipment; Maintenance owns *ad hoc requests*, especially for production
 machinery) is documented here and in [Maintenance.md](Maintenance.md) to prevent

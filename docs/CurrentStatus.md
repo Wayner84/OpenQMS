@@ -1450,8 +1450,13 @@ backend is now implemented with a PostgreSQL migration, scoped GET/POST/PATCH,
 partial updates and a soft-delete write guard. Its disposable PostgreSQL 16
 migration downgrade/upgrade passed, as did the complete backend suite (415
 tests), Ruff lint/format and strict mypy on 2026-11-24. Independent review
-passed and the backend slice is committed. Milestone 5 is **not** finished: the
-`due` reminders endpoint, frontend and browser acceptance remain. Plan:
+passed and the maintenance-schedule backend slice is committed. The `due`
+reminders backend now combines both schedule types, applies an organisation-
+configured UTC-date window with bounded overrides, and was tested against
+disposable PostgreSQL for tenant isolation, pagination, overdue/soft-delete
+filtering and both due types per asset. Backend regression and independent
+review passed (417 tests on disposable PostgreSQL, Ruff and strict mypy).
+Milestone 5 is **not** finished: frontend and browser acceptance remain. Plan:
 [.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md](../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
 
 A new testing-readiness request is planned, not implemented: granular

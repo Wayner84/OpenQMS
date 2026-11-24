@@ -1,5 +1,5 @@
 """Calibration and Asset Management endpoints: assets, calibration schedules/events
-(this slice), and, in a later slice, maintenance schedules.
+and maintenance schedules.
 
 Per docs/API.md and the Milestone 5 plan's design decision 1: every operation here
 requires only authentication (any active user), not admin privilege -- matching
@@ -8,6 +8,7 @@ server-side and scoped to `current_user.organisation_id`, never a client-supplie
 value.
 """
 
+import datetime
 import uuid
 from typing import Annotated
 
@@ -16,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.core.deps import CurrentUser
+from app.modules.calibration.due_schemas import DueItem, DueListResponse
 from app.modules.calibration.maintenance_schemas import (
     MaintenanceScheduleEmpty,
     MaintenanceScheduleRead,
@@ -23,6 +25,10 @@ from app.modules.calibration.maintenance_schemas import (
     MaintenanceScheduleWrite,
 )
 from app.modules.calibration.models import AssetStatus, AssetType
+from app.modules.calibration.reminder_config import (
+    MAX_REMINDER_WINDOW_DAYS,
+    get_reminder_window_days,
+)
 from app.modules.calibration.schemas import (
     AssetListResponse,
     AssetRead,
@@ -54,6 +60,7 @@ from app.modules.calibration.service import (
     get_maintenance_schedule,
     get_schedule,
     list_assets,
+    list_due,
     list_events,
     update_asset,
     update_maintenance_schedule,
@@ -385,3 +392,42 @@ async def update_maintenance_schedule_endpoint(
     except AssetMaintenanceScheduleNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return MaintenanceScheduleRead.model_validate(row)
+
+
+@router.get("/due")
+async def list_due_endpoint(
+    current_user: CurrentUser,
+    session: SessionDependency,
+    within_days: Annotated[int | None, Query(ge=0, le=MAX_REMINDER_WINDOW_DAYS)] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> DueListResponse:
+    window = (
+        within_days
+        if within_days is not None
+        else await get_reminder_window_days(session, organisation_id=current_user.organisation_id)
+    )
+    cutoff = datetime.datetime.now(datetime.UTC).date() + datetime.timedelta(days=window)
+    rows, total = await list_due(
+        session,
+        organisation_id=current_user.organisation_id,
+        cutoff=cutoff,
+        limit=limit,
+        offset=offset,
+    )
+    return DueListResponse(
+        items=[
+            DueItem(
+                asset_id=asset.id,
+                asset_tag=asset.asset_tag,
+                asset_name=asset.name,
+                due_type=kind,
+                next_due_date=due_date,
+            )
+            for asset, kind, due_date in rows
+        ],
+        total=total,
+        limit=limit,
+        offset=offset,
+        within_days=window,
+    )

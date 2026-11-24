@@ -1369,6 +1369,48 @@ async def test_maintenance_create_classifies_only_unique_integrity_error(
             )
 
 
+async def test_calibration_due_window_is_scoped_and_defaults_when_invalid(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    other_organisation_id: uuid.UUID,
+) -> None:
+    from sqlalchemy import select
+
+    from app.models.configuration import Configuration
+    from app.modules.calibration.reminder_config import (
+        REMINDER_WINDOW_KEY,
+        get_reminder_window_days,
+    )
+
+    async with session_maker() as session:
+        assert await get_reminder_window_days(session, organisation_id=organisation_id) == 30
+        session.add(
+            Configuration(
+                organisation_id=organisation_id, key=REMINDER_WINDOW_KEY, value={"days": 7}
+            )
+        )
+        session.add(
+            Configuration(
+                organisation_id=other_organisation_id,
+                key=REMINDER_WINDOW_KEY,
+                value={"days": 45},
+            )
+        )
+        await session.commit()
+    async with session_maker() as session:
+        assert await get_reminder_window_days(session, organisation_id=organisation_id) == 7
+        assert await get_reminder_window_days(session, organisation_id=other_organisation_id) == 45
+        config = (
+            await session.execute(
+                select(Configuration).where(Configuration.organisation_id == organisation_id)
+            )
+        ).scalar_one()
+        config.value = {"days": -1}
+        await session.commit()
+    async with session_maker() as session:
+        assert await get_reminder_window_days(session, organisation_id=organisation_id) == 30
+
+
 async def test_maintenance_schedule_service_rejects_foreign_and_deleted_assets(
     session_maker: SessionMaker,
     organisation_id: uuid.UUID,

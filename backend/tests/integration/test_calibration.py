@@ -520,3 +520,116 @@ async def test_maintenance_schedule_api_lifecycle_and_guards(context: Context) -
                 headers=context.org_a_headers,
             )
         ).status_code == 404
+
+
+async def test_due_lists_calibration_and_maintenance_without_foreign_or_deleted_assets(
+    context: Context,
+) -> None:
+    import datetime
+
+    today = datetime.datetime.now(datetime.UTC).date()
+    async with AsyncClient(
+        transport=ASGITransport(app=context.app), base_url="http://test"
+    ) as client:
+        calibration_asset = await _create_asset(client, context.org_a_headers, "DUE-CAL")
+        maintenance_asset = await _create_asset(client, context.org_a_headers, "DUE-MAINT")
+        future_asset = await _create_asset(client, context.org_a_headers, "DUE-FUTURE")
+        foreign_asset = await _create_asset(client, context.org_b_headers, "DUE-FOREIGN")
+        deleted_asset = await _create_asset(client, context.org_a_headers, "DUE-DELETED")
+        for asset_id, headers, due in (
+            (calibration_asset, context.org_a_headers, today - datetime.timedelta(days=1)),
+            (future_asset, context.org_a_headers, today + datetime.timedelta(days=45)),
+            (foreign_asset, context.org_b_headers, today - datetime.timedelta(days=2)),
+        ):
+            response = await client.post(
+                f"/api/v1/calibration/assets/{asset_id}/schedule",
+                headers=headers,
+                json={"interval_value": 1, "interval_unit": "years"},
+            )
+            assert response.status_code == 201, response.text
+            baseline = await client.patch(
+                f"/api/v1/calibration/assets/{asset_id}/schedule",
+                headers=headers,
+                json={
+                    "interval_value": 1,
+                    "interval_unit": "years",
+                    "next_due_date": due.isoformat(),
+                },
+            )
+            assert baseline.status_code == 200, baseline.text
+        for asset_id, due in (
+            (maintenance_asset, today + datetime.timedelta(days=5)),
+            (deleted_asset, today),
+        ):
+            response = await client.post(
+                f"/api/v1/calibration/assets/{asset_id}/maintenance-schedule",
+                headers=context.org_a_headers,
+                json={
+                    "interval_value": 1,
+                    "interval_unit": "years",
+                    "next_due_date": due.isoformat(),
+                },
+            )
+            assert response.status_code == 201, response.text
+        assert (
+            await client.delete(
+                f"/api/v1/calibration/assets/{deleted_asset}", headers=context.org_a_headers
+            )
+        ).status_code == 204
+        due_response = await client.get(
+            "/api/v1/calibration/due?within_days=10&limit=1&offset=0",
+            headers=context.org_a_headers,
+        )
+        assert due_response.status_code == 200, due_response.text
+        assert due_response.json()["total"] == 2, due_response.json()
+        assert due_response.json()["items"][0]["asset_id"] == calibration_asset
+        assert due_response.json()["items"][0]["due_type"] == "calibration"
+        second = await client.get(
+            "/api/v1/calibration/due?within_days=10&limit=1&offset=1",
+            headers=context.org_a_headers,
+        )
+        assert second.status_code == 200, second.text
+        assert second.json()["items"][0]["asset_id"] == maintenance_asset
+        assert second.json()["items"][0]["due_type"] == "maintenance"
+        default_window = await client.get("/api/v1/calibration/due", headers=context.org_a_headers)
+        assert default_window.status_code == 200, default_window.text
+        assert default_window.json()["within_days"] == 30
+        assert default_window.json()["total"] == 2
+        overdue_only = await client.get(
+            "/api/v1/calibration/due?within_days=0", headers=context.org_a_headers
+        )
+        assert overdue_only.json()["total"] == 1
+        assert overdue_only.json()["items"][0]["asset_id"] == calibration_asset
+        extended = await client.get(
+            "/api/v1/calibration/due?within_days=45", headers=context.org_a_headers
+        )
+        assert extended.json()["total"] == 3
+        second_type = await client.post(
+            f"/api/v1/calibration/assets/{calibration_asset}/maintenance-schedule",
+            headers=context.org_a_headers,
+            json={
+                "interval_value": 1,
+                "interval_unit": "years",
+                "next_due_date": (today + datetime.timedelta(days=2)).isoformat(),
+            },
+        )
+        assert second_type.status_code == 201, second_type.text
+        both_types = await client.get(
+            "/api/v1/calibration/due?within_days=10", headers=context.org_a_headers
+        )
+        assert both_types.json()["total"] == 3
+        assert [item["due_type"] for item in both_types.json()["items"]] == [
+            "calibration",
+            "maintenance",
+            "maintenance",
+        ]
+        assert [item["asset_id"] for item in both_types.json()["items"]][:2] == [
+            calibration_asset,
+            calibration_asset,
+        ]
+        for query in ("within_days=-1", "within_days=3651", "limit=0", "offset=-1"):
+            invalid = await client.get(
+                f"/api/v1/calibration/due?{query}", headers=context.org_a_headers
+            )
+            assert invalid.status_code == 422, (query, invalid.text)
+        assert (await client.get("/api/v1/calibration/due")).status_code == 401

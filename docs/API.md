@@ -750,6 +750,20 @@ explicit `null` clears `next_due_date`, and interval fields cannot be null.
 Cross-organisation and soft-deleted assets return `404`; writes are serialized
 against asset soft deletion. `next_due_date` is operator-settable.
 
+### `GET /api/v1/calibration/due`
+
+Lists calibration **and** equipment-maintenance due entries for live assets in
+the caller's organisation. Each entry has `asset_id`, `asset_tag`, `asset_name`,
+`due_type` (`calibration` or `maintenance`) and `next_due_date`; an asset with
+both schedules can appear twice. Overdue entries are included. Null dates and
+soft-deleted assets are excluded. Results sort by due date, then asset ID and
+due type for stable pagination (`limit` 1–200, default 50; `offset` >= 0);
+`total` counts entries before pagination. The response also returns the
+effective `within_days` value. Without an override, the window comes from the
+organisation's `calibration_due_reminder_window_days` configuration (30 days
+if missing or invalid). `?within_days=` accepts 0–3650 inclusive; values
+outside that range return `422`. The cutoff uses the current UTC date.
+
 ## Health and readiness endpoints (Milestone 0)
 
 These are the only endpoints Milestone 0 implements:

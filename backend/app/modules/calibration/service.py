@@ -10,7 +10,7 @@ import calendar
 import datetime
 import uuid
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import String, func, literal, or_, select, union_all
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -615,3 +615,49 @@ async def update_maintenance_schedule(
     await session.commit()
     await session.refresh(row)
     return row
+
+
+async def list_due(
+    session: AsyncSession,
+    *,
+    organisation_id: uuid.UUID,
+    cutoff: datetime.date,
+    limit: int,
+    offset: int,
+) -> tuple[list[tuple[Asset, str, datetime.date]], int]:
+    """List both due types, including overdue dates, for live assets in this organisation."""
+    dates = union_all(
+        select(
+            CalibrationSchedule.asset_id.label("asset_id"),
+            CalibrationSchedule.next_due_date.label("due_date"),
+            literal("calibration", type_=String).label("due_type"),
+        ),
+        select(
+            AssetMaintenanceSchedule.asset_id.label("asset_id"),
+            AssetMaintenanceSchedule.next_due_date.label("due_date"),
+            literal("maintenance", type_=String).label("due_type"),
+        ),
+    ).subquery()
+    scope = (
+        Asset.organisation_id == organisation_id,
+        Asset.deleted_at.is_(None),
+        dates.c.due_date.is_not(None),
+        dates.c.due_date <= cutoff,
+    )
+    total = (
+        await session.execute(
+            select(func.count())
+            .select_from(Asset)
+            .join(dates, dates.c.asset_id == Asset.id)
+            .where(*scope)
+        )
+    ).scalar_one()
+    result = await session.execute(
+        select(Asset, dates.c.due_type, dates.c.due_date)
+        .join(dates, dates.c.asset_id == Asset.id)
+        .where(*scope)
+        .order_by(dates.c.due_date, Asset.id, dates.c.due_type)
+        .limit(limit)
+        .offset(offset)
+    )
+    return [(asset, due_type, due_date) for asset, due_type, due_date in result.all()], total
