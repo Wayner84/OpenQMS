@@ -11,6 +11,7 @@ import { NcrDetailPage } from '../modules/ncr/NcrDetailPage';
 import { NcrsPage } from '../modules/ncr/NcrsPage';
 import { CompaniesPage } from '../modules/people/CompaniesPage';
 import { PeoplePage } from '../modules/people/PeoplePage';
+import { AssetsPage } from '../modules/calibration/AssetsPage';
 import { ProductCategoriesPage } from '../modules/products/ProductCategoriesPage';
 import { ProductDetailPage } from '../modules/products/ProductDetailPage';
 import { ProductsPage } from '../modules/products/ProductsPage';
@@ -43,6 +44,7 @@ export function App(): ReactElement {
                 <Route path="/products/:id" element={<ProductDetailPage />} />
                 <Route path="/ncr" element={<NcrsPage />} />
                 <Route path="/ncr/:id" element={<NcrDetailPage />} />
+                <Route path="/calibration/assets" element={<AssetsPage />} />
                 <Route element={<ProtectedRoute requireAdmin />}>
                   <Route path="/users" element={<UsersPage />} />
                   <Route path="/documents/categories" element={<DocumentCategoriesPage />} />

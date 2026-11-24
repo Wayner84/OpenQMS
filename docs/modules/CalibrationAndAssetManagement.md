@@ -5,7 +5,8 @@ is in progress — full scope, schema, API, and design decisions in the
 [Milestone 5 plan](../../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
 Asset CRUD and calibration schedules/events are implemented and tested against
 disposable PostgreSQL, backend only; see [docs/CurrentStatus.md](../CurrentStatus.md)
-for exact scope. The frontend and full-stack acceptance are not implemented.
+for exact scope. The frontend asset register/create form is implemented; detail
+workflows and full-stack acceptance remain pending.
 
 ## Purpose
 
@@ -102,8 +103,9 @@ PATCH. The asset row lock serializes writes with soft deletion by design, but
 a concurrent PostgreSQL schedule-write/delete test has not yet been run. The
 migration passed a fresh-database upgrade/downgrade/upgrade cycle. The `due`
 list backend is implemented and tested on disposable PostgreSQL for combined
-schedule types, overdue, windows, pagination, tenant isolation and soft deletion;
-its UI and end-to-end Compose acceptance are still pending. The boundary with
+schedule types, overdue, windows, pagination, tenant isolation and soft deletion.
+The asset-list UI is implemented, but due/detail workflows and end-to-end Compose
+acceptance are pending. The boundary with
 [Maintenance](Maintenance.md) (this module owns *scheduled* calibration/maintenance
 of tracked equipment; Maintenance owns *ad hoc requests*, especially for production
 machinery) is documented here and in [Maintenance.md](Maintenance.md) to prevent

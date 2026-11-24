@@ -127,6 +127,10 @@ describe('Layout', () => {
     expect(screen.getByRole('link', { name: /^suppliers$/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /^products$/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /^ncr$/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /^calibration$/i })).toHaveAttribute(
+      'href',
+      '/calibration/assets',
+    );
   });
 
   it('shows the Users nav link to an admin', async () => {

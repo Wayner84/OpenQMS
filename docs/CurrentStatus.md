@@ -1456,7 +1456,11 @@ configured UTC-date window with bounded overrides, and was tested against
 disposable PostgreSQL for tenant isolation, pagination, overdue/soft-delete
 filtering and both due types per asset. Backend regression and independent
 review passed (417 tests on disposable PostgreSQL, Ruff and strict mypy).
-Milestone 5 is **not** finished: frontend and browser acceptance remain. Plan:
+The frontend now has a typed asset client, searchable/filterable/paginated register,
+create form with People owner selection and authenticated navigation. Its 288
+Vitest tests, lint, format, typecheck and production build passed; an independent
+review passed the bounded frontend slice. Milestone 5 is **not** finished: asset
+detail, schedule/event/maintenance UI and browser acceptance remain. Plan:
 [.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md](../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
 
 A new testing-readiness request is planned, not implemented: granular
