@@ -7,6 +7,9 @@ import type {
   CalibrationScheduleCreate,
   CalibrationScheduleUpdate,
   ListAssetsParams,
+  MaintenanceSchedule,
+  MaintenanceScheduleCreate,
+  MaintenanceScheduleUpdate,
 } from './types';
 
 /** Fetch a page of organisation-scoped calibration assets. */
@@ -56,4 +59,25 @@ export function updateCalibrationSchedule(
   payload: CalibrationScheduleUpdate,
 ): Promise<CalibrationSchedule> {
   return apiPatch<CalibrationSchedule>(`/api/v1/calibration/assets/${assetId}/schedule`, payload);
+}
+
+const maintenancePath = (assetId: string): string =>
+  `/api/v1/calibration/assets/${assetId}/maintenance-schedule`;
+
+export function getMaintenanceSchedule(assetId: string): Promise<MaintenanceSchedule> {
+  return apiGet<MaintenanceSchedule>(maintenancePath(assetId));
+}
+
+export function createMaintenanceSchedule(
+  assetId: string,
+  payload: MaintenanceScheduleCreate,
+): Promise<MaintenanceSchedule> {
+  return apiPost<MaintenanceSchedule>(maintenancePath(assetId), payload);
+}
+
+export function updateMaintenanceSchedule(
+  assetId: string,
+  payload: MaintenanceScheduleUpdate,
+): Promise<MaintenanceSchedule> {
+  return apiPatch<MaintenanceSchedule>(maintenancePath(assetId), payload);
 }

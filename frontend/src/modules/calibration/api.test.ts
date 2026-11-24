@@ -10,6 +10,9 @@ import {
   listAssets,
   updateAsset,
   updateCalibrationSchedule,
+  getMaintenanceSchedule,
+  createMaintenanceSchedule,
+  updateMaintenanceSchedule,
 } from './api';
 
 vi.mock('../../shared/api/client');
@@ -81,6 +84,28 @@ describe('calibration asset API', () => {
       interval_value: 1,
       interval_unit: 'years',
       next_due_date: '2027-01-01',
+    });
+  });
+
+  it('reads, creates and partially updates equipment maintenance schedules', async () => {
+    vi.mocked(apiGet).mockResolvedValue({});
+    vi.mocked(apiPost).mockResolvedValue({});
+    vi.mocked(apiPatch).mockResolvedValue({});
+    await getMaintenanceSchedule('a1');
+    await createMaintenanceSchedule('a1', {
+      interval_value: 1,
+      interval_unit: 'years',
+      next_due_date: '2027-01-01',
+    });
+    await updateMaintenanceSchedule('a1', { next_due_date: null });
+    expect(apiGet).toHaveBeenCalledWith('/api/v1/calibration/assets/a1/maintenance-schedule');
+    expect(apiPost).toHaveBeenCalledWith('/api/v1/calibration/assets/a1/maintenance-schedule', {
+      interval_value: 1,
+      interval_unit: 'years',
+      next_due_date: '2027-01-01',
+    });
+    expect(apiPatch).toHaveBeenCalledWith('/api/v1/calibration/assets/a1/maintenance-schedule', {
+      next_due_date: null,
     });
   });
 });

@@ -8,6 +8,7 @@ import { listPeople } from '../people/api';
 import type { Person } from '../people/types';
 import { deleteAsset, getAsset, updateAsset } from './api';
 import { CalibrationSchedulePanel } from './CalibrationSchedulePanel';
+import { MaintenanceSchedulePanel } from './MaintenanceSchedulePanel';
 import type { Asset, AssetStatus, AssetType, AssetWriteRequest } from './types';
 
 /** Metadata controls for an organisation-scoped asset. */
@@ -271,6 +272,7 @@ export function AssetDetailPage(): ReactElement {
             {deleting ? 'Deleting…' : 'Delete asset'}
           </button>
           <CalibrationSchedulePanel assetId={asset.id} />
+          <MaintenanceSchedulePanel assetId={asset.id} />
         </>
       )}
     </section>

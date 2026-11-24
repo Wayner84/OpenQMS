@@ -63,3 +63,27 @@ export interface CalibrationScheduleCreate {
 export interface CalibrationScheduleUpdate extends CalibrationScheduleCreate {
   next_due_date: string | null;
 }
+
+/** GET returns null fields when no maintenance schedule exists. */
+export interface MaintenanceSchedule {
+  id: string | null;
+  asset_id: string;
+  interval_value: number | null;
+  interval_unit: CalibrationIntervalUnit | null;
+  next_due_date: string | null;
+  created_by_id: string | null;
+  updated_by_id: string | null;
+}
+
+export interface MaintenanceScheduleCreate {
+  interval_value: number;
+  interval_unit: CalibrationIntervalUnit;
+  next_due_date: string | null;
+}
+
+/** PATCH only changes supplied fields; explicit null clears the due date. */
+export interface MaintenanceScheduleUpdate {
+  interval_value?: number;
+  interval_unit?: CalibrationIntervalUnit;
+  next_due_date?: string | null;
+}
