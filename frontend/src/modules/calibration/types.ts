@@ -42,3 +42,24 @@ export interface ListAssetsParams {
   limit?: number;
   offset?: number;
 }
+
+export type CalibrationIntervalUnit = 'days' | 'months' | 'years';
+
+export interface CalibrationSchedule {
+  id: string;
+  asset_id: string;
+  interval_value: number;
+  interval_unit: CalibrationIntervalUnit;
+  next_due_date: string | null;
+  created_by_id: string;
+  updated_by_id: string;
+}
+
+export interface CalibrationScheduleCreate {
+  interval_value: number;
+  interval_unit: CalibrationIntervalUnit;
+}
+
+export interface CalibrationScheduleUpdate extends CalibrationScheduleCreate {
+  next_due_date: string | null;
+}

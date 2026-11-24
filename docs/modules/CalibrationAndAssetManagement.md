@@ -6,7 +6,8 @@ is in progress — full scope, schema, API, and design decisions in the
 Asset CRUD and calibration schedules/events are implemented and tested against
 disposable PostgreSQL, backend only; see [docs/CurrentStatus.md](../CurrentStatus.md)
 for exact scope. The frontend asset register/create and metadata detail/edit/
-soft-delete are implemented; schedule/event/maintenance/due UI and full-stack
+soft-delete and calibration schedule management are implemented; event/
+maintenance/due-list UI and full-stack
 acceptance remain pending.
 
 ## Purpose
@@ -105,8 +106,10 @@ a concurrent PostgreSQL schedule-write/delete test has not yet been run. The
 migration passed a fresh-database upgrade/downgrade/upgrade cycle. The `due`
 list backend is implemented and tested on disposable PostgreSQL for combined
 schedule types, overdue, windows, pagination, tenant isolation and soft deletion.
-The asset-list and metadata-detail UI are implemented, but due/schedule/event/
-maintenance workflows and end-to-end Compose
+The asset-list, metadata-detail and calibration-schedule UI are implemented;
+the detail indicator uses the UTC calendar date and cannot clear a previously
+set due date (backend PATCH treats null as no change). Event, maintenance and
+due-list UI and end-to-end Compose
 acceptance are pending. The boundary with
 [Maintenance](Maintenance.md) (this module owns *scheduled* calibration/maintenance
 of tracked equipment; Maintenance owns *ad hoc requests*, especially for production

@@ -1,5 +1,13 @@
 import { apiDelete, apiGet, apiPatch, apiPost } from '../../shared/api/client';
-import type { Asset, AssetListResponse, AssetWriteRequest, ListAssetsParams } from './types';
+import type {
+  Asset,
+  AssetListResponse,
+  AssetWriteRequest,
+  CalibrationSchedule,
+  CalibrationScheduleCreate,
+  CalibrationScheduleUpdate,
+  ListAssetsParams,
+} from './types';
 
 /** Fetch a page of organisation-scoped calibration assets. */
 export function listAssets(params: ListAssetsParams = {}): Promise<AssetListResponse> {
@@ -30,4 +38,22 @@ export function updateAsset(id: string, payload: AssetWriteRequest): Promise<Ass
 
 export function deleteAsset(id: string): Promise<void> {
   return apiDelete(`/api/v1/calibration/assets/${id}`);
+}
+
+export function getCalibrationSchedule(assetId: string): Promise<CalibrationSchedule> {
+  return apiGet<CalibrationSchedule>(`/api/v1/calibration/assets/${assetId}/schedule`);
+}
+
+export function createCalibrationSchedule(
+  assetId: string,
+  payload: CalibrationScheduleCreate,
+): Promise<CalibrationSchedule> {
+  return apiPost<CalibrationSchedule>(`/api/v1/calibration/assets/${assetId}/schedule`, payload);
+}
+
+export function updateCalibrationSchedule(
+  assetId: string,
+  payload: CalibrationScheduleUpdate,
+): Promise<CalibrationSchedule> {
+  return apiPatch<CalibrationSchedule>(`/api/v1/calibration/assets/${assetId}/schedule`, payload);
 }

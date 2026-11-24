@@ -1,7 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { apiDelete, apiGet, apiPatch, apiPost } from '../../shared/api/client';
-import { createAsset, deleteAsset, getAsset, listAssets, updateAsset } from './api';
+import {
+  createAsset,
+  createCalibrationSchedule,
+  deleteAsset,
+  getAsset,
+  getCalibrationSchedule,
+  listAssets,
+  updateAsset,
+  updateCalibrationSchedule,
+} from './api';
 
 vi.mock('../../shared/api/client');
 
@@ -50,5 +59,28 @@ describe('calibration asset API', () => {
     expect(apiGet).toHaveBeenCalledWith('/api/v1/calibration/assets/a1');
     expect(apiPatch).toHaveBeenCalledWith('/api/v1/calibration/assets/a1', payload);
     expect(apiDelete).toHaveBeenCalledWith('/api/v1/calibration/assets/a1');
+  });
+
+  it('reads, creates and updates a calibration schedule via its asset', async () => {
+    vi.mocked(apiGet).mockResolvedValue({});
+    vi.mocked(apiPost).mockResolvedValue({});
+    vi.mocked(apiPatch).mockResolvedValue({});
+    await getCalibrationSchedule('a1');
+    await createCalibrationSchedule('a1', { interval_value: 12, interval_unit: 'months' });
+    await updateCalibrationSchedule('a1', {
+      interval_value: 1,
+      interval_unit: 'years',
+      next_due_date: '2027-01-01',
+    });
+    expect(apiGet).toHaveBeenCalledWith('/api/v1/calibration/assets/a1/schedule');
+    expect(apiPost).toHaveBeenCalledWith('/api/v1/calibration/assets/a1/schedule', {
+      interval_value: 12,
+      interval_unit: 'months',
+    });
+    expect(apiPatch).toHaveBeenCalledWith('/api/v1/calibration/assets/a1/schedule', {
+      interval_value: 1,
+      interval_unit: 'years',
+      next_due_date: '2027-01-01',
+    });
   });
 });

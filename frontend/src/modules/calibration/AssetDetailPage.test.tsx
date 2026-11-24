@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { listPeople } from '../people/api';
-import { deleteAsset, getAsset, updateAsset } from './api';
+import { deleteAsset, getAsset, getCalibrationSchedule, updateAsset } from './api';
 import { AssetDetailPage } from './AssetDetailPage';
 
 vi.mock('./api');
@@ -74,6 +74,15 @@ function renderPage(strict = false): ReturnType<typeof render> {
 describe('AssetDetailPage', () => {
   beforeEach(() => {
     vi.mocked(getAsset).mockResolvedValue(asset);
+    vi.mocked(getCalibrationSchedule).mockResolvedValue({
+      id: 's1',
+      asset_id: 'a1',
+      interval_value: 12,
+      interval_unit: 'months',
+      next_due_date: '2027-04-10',
+      created_by_id: 'u1',
+      updated_by_id: 'u1',
+    });
     vi.mocked(listPeople).mockResolvedValue({ items: [person], total: 1, limit: 200, offset: 0 });
   });
   afterEach(() => {
@@ -86,6 +95,7 @@ describe('AssetDetailPage', () => {
     expect(await screen.findByText('Micrometer')).toBeInTheDocument();
     expect(getAsset).toHaveBeenCalledWith('a1');
     expect(screen.getByText('CAL-01')).toBeInTheDocument();
+    expect(await screen.findByText('2027-04-10')).toBeInTheDocument();
   });
 
   it('edits all metadata with a selected owner without clearing retained fields', async () => {

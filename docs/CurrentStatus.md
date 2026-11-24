@@ -1461,8 +1461,11 @@ create form with People owner selection and authenticated navigation. Its 288
 Vitest tests, lint, format, typecheck and production build passed; an independent
 review passed the bounded frontend slice. Asset detail metadata view/edit/
 soft-delete is also implemented and independently reviewed (293 frontend tests).
-Milestone 5 is **not** finished: schedule/event/maintenance and due UI, plus
-browser acceptance, remain. Plan:
+Calibration schedule create/edit and due-status display now have a frontend panel
+on asset detail. The indicator compares the date against today's UTC date;
+clearing an already-set date is blocked because the backend PATCH does not
+support that operation. Milestone 5 is **not** finished: event, maintenance
+and due-list UI, plus browser acceptance, remain. Plan:
 [.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md](../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
 
 A new testing-readiness request is planned, not implemented: granular

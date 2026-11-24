@@ -7,6 +7,7 @@ import { fetchAllPages } from '../../shared/api/pagination';
 import { listPeople } from '../people/api';
 import type { Person } from '../people/types';
 import { deleteAsset, getAsset, updateAsset } from './api';
+import { CalibrationSchedulePanel } from './CalibrationSchedulePanel';
 import type { Asset, AssetStatus, AssetType, AssetWriteRequest } from './types';
 
 /** Metadata controls for an organisation-scoped asset. */
@@ -269,6 +270,7 @@ export function AssetDetailPage(): ReactElement {
           <button type="button" className="button" disabled={saving || deleting} onClick={remove}>
             {deleting ? 'Deleting…' : 'Delete asset'}
           </button>
+          <CalibrationSchedulePanel assetId={asset.id} />
         </>
       )}
     </section>
