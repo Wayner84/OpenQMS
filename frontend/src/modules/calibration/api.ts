@@ -12,6 +12,9 @@ import type {
   MaintenanceScheduleUpdate,
   DueListResponse,
   ListDueParams,
+  CalibrationEvent,
+  CalibrationEventCreate,
+  CalibrationEventListResponse,
 } from './types';
 
 /** Fetch a page of organisation-scoped calibration assets. */
@@ -91,4 +94,26 @@ export function listDue(params: ListDueParams = {}): Promise<DueListResponse> {
   if (params.offset !== undefined) query.set('offset', String(params.offset));
   const suffix = query.toString();
   return apiGet<DueListResponse>(`/api/v1/calibration/due${suffix ? `?${suffix}` : ''}`);
+}
+
+const eventsPath = (assetId: string): string => `/api/v1/calibration/assets/${assetId}/events`;
+
+export function listCalibrationEvents(
+  assetId: string,
+  params: { limit?: number; offset?: number } = {},
+): Promise<CalibrationEventListResponse> {
+  const query = new URLSearchParams();
+  if (params.limit !== undefined) query.set('limit', String(params.limit));
+  if (params.offset !== undefined) query.set('offset', String(params.offset));
+  const suffix = query.toString();
+  return apiGet<CalibrationEventListResponse>(
+    `${eventsPath(assetId)}${suffix ? `?${suffix}` : ''}`,
+  );
+}
+
+export function createCalibrationEvent(
+  assetId: string,
+  payload: CalibrationEventCreate,
+): Promise<CalibrationEvent> {
+  return apiPost<CalibrationEvent>(eventsPath(assetId), payload);
 }

@@ -7,8 +7,8 @@ Asset CRUD and calibration schedules/events are implemented and tested against
 disposable PostgreSQL; see [docs/CurrentStatus.md](../CurrentStatus.md)
 for exact scope. The frontend asset register/create and metadata detail/edit/
 soft-delete, calibration schedule and separate asset maintenance schedule
-management and the combined due-list page are implemented; event UI and
-full-stack acceptance remain pending.
+management, the combined due-list page, and calibration-event history/recording
+are implemented; full-stack acceptance remains pending.
 
 ## Purpose
 
@@ -112,7 +112,10 @@ set due date (calibration PATCH treats null as no change). The asset maintenance
 panel supports explicit due-date clearing through its distinct partial PATCH.
 The due-list UI shows both obligations, the backend-configured window (or a
 bounded override), asset links and pagination; it does not send notifications.
-Event UI and end-to-end Compose acceptance are pending. The boundary with
+The event form selects a People performer or supplier, can link an existing
+Document as a certificate, and refreshes the asset's current calibration
+schedule after recording; events are immutable. End-to-end Compose acceptance
+is pending. The boundary with
 [Maintenance](Maintenance.md) (this module owns *scheduled* calibration/maintenance
 of tracked equipment; Maintenance owns *ad hoc requests*, especially for production
 machinery) is documented here and in [Maintenance.md](Maintenance.md) to prevent

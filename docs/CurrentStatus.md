@@ -1468,8 +1468,11 @@ ignores null. The separate asset maintenance schedule panel supports create/edit
 an explicit due-date clear; its due indicator also uses the UTC calendar date.
 The authenticated due-list page displays both calibration and equipment-
 maintenance obligations with asset links, a configurable window override and
-pagination; it does not deliver outbound reminders. Milestone 5 is **not**
-finished: event UI and browser acceptance remain. Plan:
+pagination; it does not deliver outbound reminders. The calibration-event
+history/record panel now supports in-house or
+supplier performers, an existing document certificate, pagination and a schedule
+refresh after recording. Milestone 5 is **not** finished: full-stack browser
+acceptance remains. Plan:
 [.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md](../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
 
 A new testing-readiness request is planned, not implemented: granular
@@ -1539,8 +1542,8 @@ dependency, `reportlab` (plus its own transitive `pillow`), introduces no new
 
 ## Next recommended tasks
 
-Continue Milestone 5 with calibration event frontend workflows, then full-stack
-acceptance — test-first, in small
+Continue Milestone 5 with full-stack browser acceptance, including calibration
+event and certificate workflows — test-first, in small
 independently-committable vertical slices, following the same pattern used
 for Milestones 1–4, with an independent security review after each slice
 (not only at final closeout — per the plan's own reasoning, drawn from three

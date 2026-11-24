@@ -109,3 +109,25 @@ export interface ListDueParams {
   limit?: number;
   offset?: number;
 }
+
+export type CalibrationResult = 'pass' | 'fail' | 'limited';
+export interface CalibrationEventCreate {
+  performed_at: string;
+  performed_by_id: string | null;
+  performed_by_supplier_id: string | null;
+  certificate_document_id: string | null;
+  result: CalibrationResult;
+  notes: string | null;
+}
+export interface CalibrationEvent extends CalibrationEventCreate {
+  id: string;
+  asset_id: string;
+  next_due_date: string | null;
+  created_by_id: string;
+}
+export interface CalibrationEventListResponse {
+  items: CalibrationEvent[];
+  total: number;
+  limit: number;
+  offset: number;
+}

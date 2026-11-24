@@ -14,6 +14,8 @@ import {
   createMaintenanceSchedule,
   updateMaintenanceSchedule,
   listDue,
+  listCalibrationEvents,
+  createCalibrationEvent,
 } from './api';
 
 vi.mock('../../shared/api/client');
@@ -118,5 +120,22 @@ describe('calibration asset API', () => {
     expect(apiGet).toHaveBeenCalledWith(
       '/api/v1/calibration/due?within_days=14&limit=20&offset=20',
     );
+  });
+
+  it('lists and records immutable calibration events for an asset', async () => {
+    vi.mocked(apiGet).mockResolvedValue({});
+    vi.mocked(apiPost).mockResolvedValue({});
+    await listCalibrationEvents('a1', { limit: 20, offset: 20 });
+    const payload = {
+      performed_at: '2026-11-24',
+      performed_by_id: null,
+      performed_by_supplier_id: 's1',
+      certificate_document_id: 'd1',
+      result: 'pass' as const,
+      notes: 'Certificate received',
+    };
+    await createCalibrationEvent('a1', payload);
+    expect(apiGet).toHaveBeenCalledWith('/api/v1/calibration/assets/a1/events?limit=20&offset=20');
+    expect(apiPost).toHaveBeenCalledWith('/api/v1/calibration/assets/a1/events', payload);
   });
 });

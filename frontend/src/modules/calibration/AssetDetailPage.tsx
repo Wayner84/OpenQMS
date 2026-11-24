@@ -8,6 +8,7 @@ import { listPeople } from '../people/api';
 import type { Person } from '../people/types';
 import { deleteAsset, getAsset, updateAsset } from './api';
 import { CalibrationSchedulePanel } from './CalibrationSchedulePanel';
+import { CalibrationEventsPanel } from './CalibrationEventsPanel';
 import { MaintenanceSchedulePanel } from './MaintenanceSchedulePanel';
 import type { Asset, AssetStatus, AssetType, AssetWriteRequest } from './types';
 
@@ -26,6 +27,7 @@ export function AssetDetailPage(): ReactElement {
   const [actionError, setActionError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [scheduleRevision, setScheduleRevision] = useState(0);
   const mountedRef = useRef(true);
   const requestRef = useRef(0);
   const peopleRequestRef = useRef(0);
@@ -271,8 +273,14 @@ export function AssetDetailPage(): ReactElement {
           <button type="button" className="button" disabled={saving || deleting} onClick={remove}>
             {deleting ? 'Deleting…' : 'Delete asset'}
           </button>
-          <CalibrationSchedulePanel assetId={asset.id} />
+          <CalibrationSchedulePanel key={`${asset.id}:${scheduleRevision}`} assetId={asset.id} />
           <MaintenanceSchedulePanel assetId={asset.id} />
+          <CalibrationEventsPanel
+            assetId={asset.id}
+            onRecorded={() => {
+              setScheduleRevision((value) => value + 1);
+            }}
+          />
         </>
       )}
     </section>

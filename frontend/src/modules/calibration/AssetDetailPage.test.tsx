@@ -3,18 +3,24 @@ import { StrictMode } from 'react';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { listPeople } from '../people/api';
+import { listCompanies, listPeople } from '../people/api';
+import { listDocuments } from '../documents/api';
+import { listSuppliers } from '../suppliers/api';
 import {
+  createCalibrationEvent,
   deleteAsset,
   getAsset,
   getCalibrationSchedule,
   getMaintenanceSchedule,
+  listCalibrationEvents,
   updateAsset,
 } from './api';
 import { AssetDetailPage } from './AssetDetailPage';
 
 vi.mock('./api');
 vi.mock('../people/api');
+vi.mock('../documents/api');
+vi.mock('../suppliers/api');
 
 const asset = {
   id: 'a1',
@@ -90,6 +96,15 @@ describe('AssetDetailPage', () => {
       updated_by_id: 'u1',
     });
     vi.mocked(listPeople).mockResolvedValue({ items: [person], total: 1, limit: 200, offset: 0 });
+    vi.mocked(listCompanies).mockResolvedValue({ items: [], total: 0, limit: 200, offset: 0 });
+    vi.mocked(listSuppliers).mockResolvedValue({ items: [], total: 0, limit: 200, offset: 0 });
+    vi.mocked(listDocuments).mockResolvedValue({ items: [], total: 0, limit: 200, offset: 0 });
+    vi.mocked(listCalibrationEvents).mockResolvedValue({
+      items: [],
+      total: 0,
+      limit: 20,
+      offset: 0,
+    });
     vi.mocked(getMaintenanceSchedule).mockResolvedValue({
       id: null,
       asset_id: 'a1',
@@ -112,6 +127,49 @@ describe('AssetDetailPage', () => {
     expect(screen.getByText('CAL-01')).toBeInTheDocument();
     expect(await screen.findByText('2027-04-10')).toBeInTheDocument();
     expect(await screen.findByText(/no maintenance schedule yet/i)).toBeInTheDocument();
+    expect(await screen.findByText(/no calibration events yet/i)).toBeInTheDocument();
+  });
+
+  it('refreshes the calibration due date after recording an event', async () => {
+    vi.mocked(createCalibrationEvent).mockResolvedValue({
+      id: 'e1',
+      asset_id: 'a1',
+      performed_at: '2026-11-20',
+      performed_by_id: null,
+      performed_by_supplier_id: null,
+      certificate_document_id: null,
+      result: 'pass',
+      notes: null,
+      next_due_date: '2027-11-20',
+      created_by_id: 'u1',
+    });
+    vi.mocked(getCalibrationSchedule)
+      .mockResolvedValueOnce({
+        id: 's1',
+        asset_id: 'a1',
+        interval_value: 12,
+        interval_unit: 'months',
+        next_due_date: '2027-04-10',
+        created_by_id: 'u1',
+        updated_by_id: 'u1',
+      })
+      .mockResolvedValueOnce({
+        id: 's1',
+        asset_id: 'a1',
+        interval_value: 12,
+        interval_unit: 'months',
+        next_due_date: '2027-11-20',
+        created_by_id: 'u1',
+        updated_by_id: 'u1',
+      });
+    renderPage();
+    await screen.findByText(/no calibration events yet/i);
+    fireEvent.change(screen.getByLabelText(/performed at/i), { target: { value: '2026-11-20' } });
+    fireEvent.click(screen.getByRole('button', { name: /record calibration/i }));
+    await waitFor(() => {
+      expect(getCalibrationSchedule).toHaveBeenCalledTimes(2);
+    });
+    expect(await screen.findByText('2027-11-20')).toBeInTheDocument();
   });
 
   it('edits all metadata with a selected owner without clearing retained fields', async () => {
