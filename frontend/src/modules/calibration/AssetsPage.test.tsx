@@ -61,6 +61,10 @@ describe('AssetsPage', () => {
   it('loads assets and owner options in StrictMode', async () => {
     renderPage(true);
     expect(await screen.findByText('Micrometer')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'CAL-01' })).toHaveAttribute(
+      'href',
+      '/calibration/assets/a1',
+    );
     expect(await screen.findByRole('option', { name: 'Ada Lovelace' })).toBeInTheDocument();
   });
 

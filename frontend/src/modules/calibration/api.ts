@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from '../../shared/api/client';
+import { apiDelete, apiGet, apiPatch, apiPost } from '../../shared/api/client';
 import type { Asset, AssetListResponse, AssetWriteRequest, ListAssetsParams } from './types';
 
 /** Fetch a page of organisation-scoped calibration assets. */
@@ -17,4 +17,17 @@ export function listAssets(params: ListAssetsParams = {}): Promise<AssetListResp
 /** Create an asset within the authenticated user's organisation. */
 export function createAsset(payload: AssetWriteRequest): Promise<Asset> {
   return apiPost<Asset>('/api/v1/calibration/assets', payload);
+}
+
+export function getAsset(id: string): Promise<Asset> {
+  return apiGet<Asset>(`/api/v1/calibration/assets/${id}`);
+}
+
+/** Full replacement of editable fields: the backend PATCH uses AssetWriteRequest. */
+export function updateAsset(id: string, payload: AssetWriteRequest): Promise<Asset> {
+  return apiPatch<Asset>(`/api/v1/calibration/assets/${id}`, payload);
+}
+
+export function deleteAsset(id: string): Promise<void> {
+  return apiDelete(`/api/v1/calibration/assets/${id}`);
 }

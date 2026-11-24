@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent, ReactElement } from 'react';
+import { Link } from 'react-router-dom';
 import { getErrorDetail } from '../../shared/api/client';
 import { fetchAllPages } from '../../shared/api/pagination';
 import { listPeople } from '../people/api';
@@ -371,7 +372,9 @@ export function AssetsPage(): ReactElement {
                   const owner = people.find((person) => person.id === asset.owner_id);
                   return (
                     <tr key={asset.id}>
-                      <td>{asset.asset_tag}</td>
+                      <td>
+                        <Link to={`/calibration/assets/${asset.id}`}>{asset.asset_tag}</Link>
+                      </td>
                       <td>{asset.name}</td>
                       <td>{TYPE_LABELS[asset.asset_type]}</td>
                       <td>{asset.location ?? ''}</td>

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { apiGet, apiPost } from '../../shared/api/client';
-import { createAsset, listAssets } from './api';
+import { apiDelete, apiGet, apiPatch, apiPost } from '../../shared/api/client';
+import { createAsset, deleteAsset, getAsset, listAssets, updateAsset } from './api';
 
 vi.mock('../../shared/api/client');
 
@@ -33,5 +33,22 @@ describe('calibration asset API', () => {
     };
     await createAsset(payload);
     expect(apiPost).toHaveBeenCalledWith('/api/v1/calibration/assets', payload);
+  });
+
+  it('reads, updates and soft-deletes an asset by id', async () => {
+    vi.mocked(apiGet).mockResolvedValue({ id: 'a1' });
+    vi.mocked(apiPatch).mockResolvedValue({ id: 'a1' });
+    vi.mocked(apiDelete).mockResolvedValue(undefined);
+    const payload = {
+      asset_tag: 'CAL-01',
+      name: 'Micrometer',
+      asset_type: 'measuring_equipment' as const,
+    };
+    await getAsset('a1');
+    await updateAsset('a1', payload);
+    await deleteAsset('a1');
+    expect(apiGet).toHaveBeenCalledWith('/api/v1/calibration/assets/a1');
+    expect(apiPatch).toHaveBeenCalledWith('/api/v1/calibration/assets/a1', payload);
+    expect(apiDelete).toHaveBeenCalledWith('/api/v1/calibration/assets/a1');
   });
 });

@@ -1459,8 +1459,10 @@ review passed (417 tests on disposable PostgreSQL, Ruff and strict mypy).
 The frontend now has a typed asset client, searchable/filterable/paginated register,
 create form with People owner selection and authenticated navigation. Its 288
 Vitest tests, lint, format, typecheck and production build passed; an independent
-review passed the bounded frontend slice. Milestone 5 is **not** finished: asset
-detail, schedule/event/maintenance UI and browser acceptance remain. Plan:
+review passed the bounded frontend slice. Asset detail metadata view/edit/
+soft-delete is also implemented and independently reviewed (293 frontend tests).
+Milestone 5 is **not** finished: schedule/event/maintenance and due UI, plus
+browser acceptance, remain. Plan:
 [.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md](../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
 
 A new testing-readiness request is planned, not implemented: granular

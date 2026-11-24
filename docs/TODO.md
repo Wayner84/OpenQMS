@@ -164,8 +164,9 @@ Full scope and acceptance criteria:
     Dependencies: Tasks 13, 14 (both complete). Complexity: **L**. Status: In
     Progress (`assets` CRUD and calibration schedules/events implemented and
     tested, backend only; asset maintenance schedules and the `due` endpoint
-    backend implemented; asset-list/create frontend implemented, with detail
-    workflows and full-stack acceptance pending).
+    backend implemented; asset-list/create and metadata-detail frontend
+    implemented, with schedule/event/maintenance/due UI and full-stack
+    acceptance pending).
 
 ## High Priority — Testing readiness after Milestone 5 (planned)
 
