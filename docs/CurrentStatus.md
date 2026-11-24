@@ -14,8 +14,8 @@ for the exact scope, schema/API/permissions decisions, and acceptance criteria, 
 [Roadmap.md](Roadmap.md#m5-calibration-and-asset-management) for how it fits the
 overall delivery order.
 
-**Milestone 5 is in progress.** The `assets` schema and CRUD are implemented
-and tested — see "Completed work" below for exactly what's done and what
+**Milestone 5 is in progress.** Asset CRUD and calibration schedules/events
+are implemented in the backend — see "Completed work" below for exactly what's done and what
 remains. M0 (Platform Foundation), M1 (Authentication, Organisations, People),
 M2 (Document Management), M3 (Products and Suppliers), and M4 (NCR) are all
 complete and verified — see "Completed work"
@@ -1445,15 +1445,15 @@ for the full acceptance-criteria checklist, all checked off.
 ## Work in progress
 
 Milestone 5 (Calibration and Asset Management): `assets` schema and CRUD are
-committed and previously verified. A later uncommitted draft of the calibration
-schedules/events backend now exists in the working tree (models, migration,
-service/router/schema and tests), but it is **not accepted or committed**: 271
-backend unit tests and the touched files' Ruff/mypy gates passed on 2026-11-23;
-real PostgreSQL integration tests, migration cycle, full backend gates and
-end-to-end checks have not been run for this draft. Docker Desktop's Linux
-engine was unavailable and `TEST_DATABASE_URL` was unset on that date.
-Remaining after that slice: asset maintenance schedules, the `due` reminders
-endpoint, frontend and M5 closeout. Plan:
+committed. The calibration schedules/events backend has now passed a migration
+downgrade/upgrade cycle on disposable PostgreSQL 16 and the complete backend
+suite (407 passed: 273 unit, 134 integration) on 2026-11-23. Ruff lint/format,
+strict mypy, and unchanged frontend lint/format/typecheck/278 tests/build pass.
+The new slice includes an asset soft-delete race guard and fixes a cross-file
+integration-fixture cleanup failure found by the full suite. This backend slice
+is committed, but Milestone 5 is **not** finished: asset
+maintenance schedules, the `due` reminders endpoint, frontend and browser
+acceptance remain. Plan:
 [.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md](../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
 
 A new testing-readiness request is planned, not implemented: granular
@@ -1523,10 +1523,7 @@ dependency, `reportlab` (plus its own transitive `pillow`), introduces no new
 
 ## Next recommended tasks
 
-Validate and finish the uncommitted Milestone 5 calibration schedules/events
-draft against a disposable PostgreSQL instance (including migrations and
-cross-organisation API tests) before committing it; then asset maintenance
-schedules and the due-reminders
+Continue Milestone 5 with asset maintenance schedules and the due-reminders
 endpoint, frontend, then closeout — test-first, in small
 independently-committable vertical slices, following the same pattern used
 for Milestones 1–4, with an independent security review after each slice
@@ -1551,11 +1548,11 @@ that are intentionally out of scope until their relevant milestone, if ever.
 
 ## Blockers
 
-The 2026-11-23 environment had no running Docker Desktop Linux engine and no
-`TEST_DATABASE_URL`. This blocks the uncommitted calibration schedules/events
-draft's PostgreSQL integration tests and migration cycle. Unit tests are not
-substitutes for these gates. Restore a disposable database before accepting the
-slice; do not aim its destructive integration fixtures at a production database.
+Docker Desktop was started with the user's approval on 2026-11-23. A disposable
+PostgreSQL 16 container on localhost:15439 provided real integration and
+migration verification for the schedules/events backend, then was stopped and
+removed after explicit cleanup approval. Never point destructive integration
+fixtures at a production database. There is no current backend database blocker.
 The previous session-local Node execution restriction no longer applies;
 Node/npm and every documented frontend gate ran successfully on 2026-07-28.
 The stack was chosen per the product specification's own

@@ -9,11 +9,20 @@ cross-organisation lookups raising a not-found error, and soft delete.
 
 import uuid
 from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.models.organisation import Organisation
+
+if TYPE_CHECKING:
+    # Deferred at runtime (like every other calibration.models import in this file)
+    # so that merely collecting this test module doesn't register calibration's
+    # tables -- with their FKs to documents/suppliers/people -- on Base.metadata
+    # before those modules are themselves imported, which breaks unrelated files'
+    # bare `Base.metadata.create_all()` fixtures elsewhere in the suite.
+    from app.modules.calibration.models import CalibrationIntervalUnit
 
 SessionMaker = async_sessionmaker[AsyncSession]
 
@@ -21,7 +30,9 @@ SessionMaker = async_sessionmaker[AsyncSession]
 @pytest.fixture
 async def session_maker() -> AsyncIterator[SessionMaker]:
     import app.modules.calibration.models  # noqa: F401
+    import app.modules.documents.models  # noqa: F401
     import app.modules.people.models  # noqa: F401
+    import app.modules.suppliers.models  # noqa: F401
     from app.models.base import Base
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
@@ -96,6 +107,77 @@ async def other_org_owner_id(
     session_maker: SessionMaker, other_organisation_id: uuid.UUID
 ) -> uuid.UUID:
     return await _create_person(session_maker, organisation_id=other_organisation_id)
+
+
+async def _create_supplier(session_maker: SessionMaker, *, organisation_id: uuid.UUID) -> uuid.UUID:
+    from app.modules.people.models import CompanyType
+    from app.modules.people.service import create_company
+    from app.modules.suppliers.models import ApprovalStatus
+    from app.modules.suppliers.service import create_supplier
+
+    async with session_maker() as session:
+        company = await create_company(
+            session,
+            organisation_id=organisation_id,
+            name="Acme Calibration House",
+            type=CompanyType.SUPPLIER,
+            address=None,
+            phone=None,
+            general_email=None,
+            notes=None,
+            created_by_id=None,
+        )
+        supplier = await create_supplier(
+            session,
+            organisation_id=organisation_id,
+            company_id=company.id,
+            approval_status=ApprovalStatus.APPROVED,
+            risk_rating=None,
+            is_preferred=False,
+            notes=None,
+            created_by_id=None,
+        )
+        return supplier.id
+
+
+@pytest.fixture
+async def supplier_id(session_maker: SessionMaker, organisation_id: uuid.UUID) -> uuid.UUID:
+    return await _create_supplier(session_maker, organisation_id=organisation_id)
+
+
+@pytest.fixture
+async def other_org_supplier_id(
+    session_maker: SessionMaker, other_organisation_id: uuid.UUID
+) -> uuid.UUID:
+    return await _create_supplier(session_maker, organisation_id=other_organisation_id)
+
+
+async def _create_document(session_maker: SessionMaker, *, organisation_id: uuid.UUID) -> uuid.UUID:
+    from app.modules.documents.service import create_document
+
+    async with session_maker() as session:
+        document = await create_document(
+            session,
+            organisation_id=organisation_id,
+            title="Calibration certificate",
+            category_id=None,
+            owner_id=None,
+            tag_ids=[],
+            created_by_id=None,
+        )
+        return document.id
+
+
+@pytest.fixture
+async def document_id(session_maker: SessionMaker, organisation_id: uuid.UUID) -> uuid.UUID:
+    return await _create_document(session_maker, organisation_id=organisation_id)
+
+
+@pytest.fixture
+async def other_org_document_id(
+    session_maker: SessionMaker, other_organisation_id: uuid.UUID
+) -> uuid.UUID:
+    return await _create_document(session_maker, organisation_id=other_organisation_id)
 
 
 async def _create_asset(
@@ -526,3 +608,582 @@ async def test_delete_asset_soft_deletes_and_excludes_from_get(
     async with session_maker() as session:
         with pytest.raises(AssetNotFoundError):
             await get_asset(session, organisation_id=organisation_id, asset_id=asset_id)
+
+
+# --- Calibration schedules -----------------------------------------------------
+
+
+async def test_create_and_get_schedule(
+    session_maker: SessionMaker, organisation_id: uuid.UUID, user_id: uuid.UUID
+) -> None:
+    from app.modules.calibration.models import CalibrationIntervalUnit
+    from app.modules.calibration.service import create_schedule, get_schedule
+
+    asset_id = await _create_asset(session_maker, organisation_id=organisation_id, user_id=user_id)
+
+    async with session_maker() as session:
+        schedule = await create_schedule(
+            session,
+            organisation_id=organisation_id,
+            asset_id=asset_id,
+            interval_value=6,
+            interval_unit=CalibrationIntervalUnit.MONTHS,
+            created_by_id=user_id,
+        )
+
+    assert schedule.interval_value == 6
+    assert schedule.next_due_date is None
+
+    async with session_maker() as session:
+        fetched = await get_schedule(session, organisation_id=organisation_id, asset_id=asset_id)
+    assert fetched.id == schedule.id
+
+
+async def test_create_schedule_rejects_a_second_schedule_for_the_same_asset(
+    session_maker: SessionMaker, organisation_id: uuid.UUID, user_id: uuid.UUID
+) -> None:
+    from app.modules.calibration.models import CalibrationIntervalUnit
+    from app.modules.calibration.service import (
+        CalibrationScheduleAlreadyExistsError,
+        create_schedule,
+    )
+
+    asset_id = await _create_asset(session_maker, organisation_id=organisation_id, user_id=user_id)
+    async with session_maker() as session:
+        await create_schedule(
+            session,
+            organisation_id=organisation_id,
+            asset_id=asset_id,
+            interval_value=6,
+            interval_unit=CalibrationIntervalUnit.MONTHS,
+            created_by_id=user_id,
+        )
+
+    async with session_maker() as session:
+        with pytest.raises(CalibrationScheduleAlreadyExistsError):
+            await create_schedule(
+                session,
+                organisation_id=organisation_id,
+                asset_id=asset_id,
+                interval_value=1,
+                interval_unit=CalibrationIntervalUnit.YEARS,
+                created_by_id=user_id,
+            )
+
+
+async def test_schedule_request_rejects_non_positive_interval() -> None:
+    from pydantic import ValidationError
+
+    from app.modules.calibration.schemas import CalibrationScheduleCreateRequest
+
+    with pytest.raises(ValidationError):
+        CalibrationScheduleCreateRequest(interval_value=0, interval_unit="months")
+
+
+async def test_get_schedule_raises_not_found_when_none_exists(
+    session_maker: SessionMaker, organisation_id: uuid.UUID, user_id: uuid.UUID
+) -> None:
+    from app.modules.calibration.service import CalibrationScheduleNotFoundError, get_schedule
+
+    asset_id = await _create_asset(session_maker, organisation_id=organisation_id, user_id=user_id)
+
+    async with session_maker() as session:
+        with pytest.raises(CalibrationScheduleNotFoundError):
+            await get_schedule(session, organisation_id=organisation_id, asset_id=asset_id)
+
+
+async def test_get_schedule_raises_not_found_for_cross_organisation_asset(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    other_organisation_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.calibration.service import AssetNotFoundError, get_schedule
+
+    asset_id = await _create_asset(
+        session_maker, organisation_id=other_organisation_id, user_id=user_id
+    )
+
+    async with session_maker() as session:
+        with pytest.raises(AssetNotFoundError):
+            await get_schedule(session, organisation_id=organisation_id, asset_id=asset_id)
+
+
+async def test_update_schedule_changes_interval_and_manual_next_due_date(
+    session_maker: SessionMaker, organisation_id: uuid.UUID, user_id: uuid.UUID
+) -> None:
+    import datetime
+
+    from app.modules.calibration.models import CalibrationIntervalUnit
+    from app.modules.calibration.service import create_schedule, update_schedule
+
+    asset_id = await _create_asset(session_maker, organisation_id=organisation_id, user_id=user_id)
+    async with session_maker() as session:
+        await create_schedule(
+            session,
+            organisation_id=organisation_id,
+            asset_id=asset_id,
+            interval_value=6,
+            interval_unit=CalibrationIntervalUnit.MONTHS,
+            created_by_id=user_id,
+        )
+
+    async with session_maker() as session:
+        updated = await update_schedule(
+            session,
+            organisation_id=organisation_id,
+            asset_id=asset_id,
+            updated_by_id=user_id,
+            interval_value=1,
+            interval_unit=CalibrationIntervalUnit.YEARS,
+            next_due_date=datetime.date(2027, 1, 1),
+        )
+
+    assert updated.interval_value == 1
+    assert updated.interval_unit == CalibrationIntervalUnit.YEARS
+    assert updated.next_due_date == datetime.date(2027, 1, 1)
+
+
+# --- Calibration events ----------------------------------------------------------
+
+
+async def _create_schedule(
+    session_maker: SessionMaker,
+    *,
+    organisation_id: uuid.UUID,
+    asset_id: uuid.UUID,
+    user_id: uuid.UUID,
+    interval_value: int = 6,
+    interval_unit: "CalibrationIntervalUnit | None" = None,
+) -> None:
+    from app.modules.calibration.models import CalibrationIntervalUnit
+    from app.modules.calibration.service import create_schedule
+
+    async with session_maker() as session:
+        await create_schedule(
+            session,
+            organisation_id=organisation_id,
+            asset_id=asset_id,
+            interval_value=interval_value,
+            interval_unit=interval_unit or CalibrationIntervalUnit.MONTHS,
+            created_by_id=user_id,
+        )
+
+
+async def test_create_event_computes_next_due_date_from_the_schedule_interval(
+    session_maker: SessionMaker, organisation_id: uuid.UUID, user_id: uuid.UUID
+) -> None:
+    import datetime
+
+    from app.modules.calibration.models import CalibrationIntervalUnit, CalibrationResult
+    from app.modules.calibration.service import create_event, get_schedule
+
+    asset_id = await _create_asset(session_maker, organisation_id=organisation_id, user_id=user_id)
+    await _create_schedule(
+        session_maker,
+        organisation_id=organisation_id,
+        asset_id=asset_id,
+        user_id=user_id,
+        interval_value=6,
+        interval_unit=CalibrationIntervalUnit.MONTHS,
+    )
+
+    async with session_maker() as session:
+        event = await create_event(
+            session,
+            organisation_id=organisation_id,
+            asset_id=asset_id,
+            performed_at=datetime.date(2026, 8, 1),
+            performed_by_id=None,
+            performed_by_supplier_id=None,
+            certificate_document_id=None,
+            result=CalibrationResult.PASS,
+            notes=None,
+            created_by_id=user_id,
+        )
+
+    assert event.next_due_date == datetime.date(2027, 2, 1)
+
+    async with session_maker() as session:
+        schedule = await get_schedule(session, organisation_id=organisation_id, asset_id=asset_id)
+    assert schedule.next_due_date == datetime.date(2027, 2, 1)
+
+
+async def test_create_event_clamps_month_end_day_correctly(
+    session_maker: SessionMaker, organisation_id: uuid.UUID, user_id: uuid.UUID
+) -> None:
+    """31 Jan + 1 month must clamp to the last valid day of February, per
+    _add_months -- a real interval-arithmetic edge case, not a contrived one
+    (many calibration intervals are monthly)."""
+    import datetime
+
+    from app.modules.calibration.models import CalibrationIntervalUnit, CalibrationResult
+    from app.modules.calibration.service import create_event
+
+    asset_id = await _create_asset(session_maker, organisation_id=organisation_id, user_id=user_id)
+    await _create_schedule(
+        session_maker,
+        organisation_id=organisation_id,
+        asset_id=asset_id,
+        user_id=user_id,
+        interval_value=1,
+        interval_unit=CalibrationIntervalUnit.MONTHS,
+    )
+
+    async with session_maker() as session:
+        event = await create_event(
+            session,
+            organisation_id=organisation_id,
+            asset_id=asset_id,
+            performed_at=datetime.date(2027, 1, 31),
+            performed_by_id=None,
+            performed_by_supplier_id=None,
+            certificate_document_id=None,
+            result=CalibrationResult.PASS,
+            notes=None,
+            created_by_id=user_id,
+        )
+
+    assert event.next_due_date == datetime.date(2027, 2, 28)
+
+
+async def test_create_event_rejects_without_an_existing_schedule(
+    session_maker: SessionMaker, organisation_id: uuid.UUID, user_id: uuid.UUID
+) -> None:
+    import datetime
+
+    from app.modules.calibration.models import CalibrationResult
+    from app.modules.calibration.service import CalibrationScheduleNotFoundError, create_event
+
+    asset_id = await _create_asset(session_maker, organisation_id=organisation_id, user_id=user_id)
+
+    async with session_maker() as session:
+        with pytest.raises(CalibrationScheduleNotFoundError):
+            await create_event(
+                session,
+                organisation_id=organisation_id,
+                asset_id=asset_id,
+                performed_at=datetime.date(2026, 8, 1),
+                performed_by_id=None,
+                performed_by_supplier_id=None,
+                certificate_document_id=None,
+                result=CalibrationResult.PASS,
+                notes=None,
+                created_by_id=user_id,
+            )
+
+
+async def test_create_event_validates_performer_in_same_organisation(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    other_org_owner_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    import datetime
+
+    from app.modules.calibration.models import CalibrationResult
+    from app.modules.calibration.service import (
+        CalibrationEventPerformerNotFoundError,
+        create_event,
+    )
+
+    asset_id = await _create_asset(session_maker, organisation_id=organisation_id, user_id=user_id)
+    await _create_schedule(
+        session_maker, organisation_id=organisation_id, asset_id=asset_id, user_id=user_id
+    )
+
+    async with session_maker() as session:
+        with pytest.raises(CalibrationEventPerformerNotFoundError):
+            await create_event(
+                session,
+                organisation_id=organisation_id,
+                asset_id=asset_id,
+                performed_at=datetime.date(2026, 8, 1),
+                performed_by_id=other_org_owner_id,
+                performed_by_supplier_id=None,
+                certificate_document_id=None,
+                result=CalibrationResult.PASS,
+                notes=None,
+                created_by_id=user_id,
+            )
+
+
+async def test_create_event_validates_supplier_in_same_organisation(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    other_org_supplier_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    import datetime
+
+    from app.modules.calibration.models import CalibrationResult
+    from app.modules.calibration.service import (
+        CalibrationEventSupplierNotFoundError,
+        create_event,
+    )
+
+    asset_id = await _create_asset(session_maker, organisation_id=organisation_id, user_id=user_id)
+    await _create_schedule(
+        session_maker, organisation_id=organisation_id, asset_id=asset_id, user_id=user_id
+    )
+
+    async with session_maker() as session:
+        with pytest.raises(CalibrationEventSupplierNotFoundError):
+            await create_event(
+                session,
+                organisation_id=organisation_id,
+                asset_id=asset_id,
+                performed_at=datetime.date(2026, 8, 1),
+                performed_by_id=None,
+                performed_by_supplier_id=other_org_supplier_id,
+                certificate_document_id=None,
+                result=CalibrationResult.PASS,
+                notes=None,
+                created_by_id=user_id,
+            )
+
+
+async def test_create_event_validates_certificate_document_in_same_organisation(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    other_org_document_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    import datetime
+
+    from app.modules.calibration.models import CalibrationResult
+    from app.modules.calibration.service import (
+        CalibrationEventDocumentNotFoundError,
+        create_event,
+    )
+
+    asset_id = await _create_asset(session_maker, organisation_id=organisation_id, user_id=user_id)
+    await _create_schedule(
+        session_maker, organisation_id=organisation_id, asset_id=asset_id, user_id=user_id
+    )
+
+    async with session_maker() as session:
+        with pytest.raises(CalibrationEventDocumentNotFoundError):
+            await create_event(
+                session,
+                organisation_id=organisation_id,
+                asset_id=asset_id,
+                performed_at=datetime.date(2026, 8, 1),
+                performed_by_id=None,
+                performed_by_supplier_id=None,
+                certificate_document_id=other_org_document_id,
+                result=CalibrationResult.PASS,
+                notes=None,
+                created_by_id=user_id,
+            )
+
+
+async def test_list_events_returns_newest_first_and_scopes_to_the_asset(
+    session_maker: SessionMaker, organisation_id: uuid.UUID, user_id: uuid.UUID
+) -> None:
+    import datetime
+
+    from app.modules.calibration.models import CalibrationResult
+    from app.modules.calibration.service import create_event, list_events
+
+    asset_id = await _create_asset(session_maker, organisation_id=organisation_id, user_id=user_id)
+    await _create_schedule(
+        session_maker, organisation_id=organisation_id, asset_id=asset_id, user_id=user_id
+    )
+
+    async with session_maker() as session:
+        await create_event(
+            session,
+            organisation_id=organisation_id,
+            asset_id=asset_id,
+            performed_at=datetime.date(2026, 1, 1),
+            performed_by_id=None,
+            performed_by_supplier_id=None,
+            certificate_document_id=None,
+            result=CalibrationResult.PASS,
+            notes="First",
+            created_by_id=user_id,
+        )
+    async with session_maker() as session:
+        await create_event(
+            session,
+            organisation_id=organisation_id,
+            asset_id=asset_id,
+            performed_at=datetime.date(2026, 7, 1),
+            performed_by_id=None,
+            performed_by_supplier_id=None,
+            certificate_document_id=None,
+            result=CalibrationResult.FAIL,
+            notes="Second",
+            created_by_id=user_id,
+        )
+
+    async with session_maker() as session:
+        events, total = await list_events(
+            session, organisation_id=organisation_id, asset_id=asset_id, limit=50, offset=0
+        )
+
+    assert total == 2
+    assert events[0].notes == "Second"
+    assert events[1].notes == "First"
+
+
+async def test_create_event_locks_the_schedule_before_recomputing_next_due_date(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    user_id: uuid.UUID,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`_lock_schedule` must run (and refresh the in-memory `schedule` object)
+    before `create_event` reads `schedule.interval_value`/`interval_unit` to
+    compute `next_due_date`, or a concurrent `update_schedule` that changes the
+    interval and commits in the window between the initial fetch and the lock
+    would be silently ignored. Simulate that race deterministically (matching
+    `test_create_asset_maps_integrity_error_to_conflict_when_the_check_is_raced`'s
+    pattern) by monkeypatching `_lock_schedule` to commit an interval change from
+    a second session immediately before delegating to the real lock-and-refresh."""
+    import datetime
+
+    import app.modules.calibration.service as calibration_service
+    from app.modules.calibration.models import CalibrationIntervalUnit, CalibrationResult
+    from app.modules.calibration.service import _lock_schedule, create_event
+
+    asset_id = await _create_asset(session_maker, organisation_id=organisation_id, user_id=user_id)
+    await _create_schedule(
+        session_maker,
+        organisation_id=organisation_id,
+        asset_id=asset_id,
+        user_id=user_id,
+        interval_value=6,
+        interval_unit=CalibrationIntervalUnit.MONTHS,
+    )
+
+    original_lock_schedule = _lock_schedule
+
+    async def _concurrently_change_interval_then_lock(session: object, schedule: object) -> None:
+        async with session_maker() as other_session:
+            from sqlalchemy import select
+
+            from app.modules.calibration.models import CalibrationSchedule
+
+            other_schedule = (
+                await other_session.execute(
+                    select(CalibrationSchedule).where(CalibrationSchedule.asset_id == asset_id)
+                )
+            ).scalar_one()
+            other_schedule.interval_value = 1
+            other_schedule.interval_unit = CalibrationIntervalUnit.YEARS
+            await other_session.commit()
+        await original_lock_schedule(session, schedule)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        calibration_service, "_lock_schedule", _concurrently_change_interval_then_lock
+    )
+
+    async with session_maker() as session:
+        event = await create_event(
+            session,
+            organisation_id=organisation_id,
+            asset_id=asset_id,
+            performed_at=datetime.date(2026, 1, 1),
+            performed_by_id=None,
+            performed_by_supplier_id=None,
+            certificate_document_id=None,
+            result=CalibrationResult.PASS,
+            notes=None,
+            created_by_id=user_id,
+        )
+
+    # Must reflect the concurrently-committed 1-year interval (2027-01-01), not
+    # the stale 6-month interval read before the lock (which would give 2026-07-01).
+    assert event.next_due_date == datetime.date(2027, 1, 1)
+
+
+async def test_create_event_rejects_asset_deleted_between_fetch_and_lock(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    user_id: uuid.UUID,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import datetime
+
+    from sqlalchemy import select
+
+    import app.modules.calibration.service as calibration_service
+    from app.modules.calibration.models import Asset, CalibrationResult
+    from app.modules.calibration.service import AssetNotFoundError, _lock_asset, create_event
+
+    asset_id = await _create_asset(session_maker, organisation_id=organisation_id, user_id=user_id)
+    await _create_schedule(
+        session_maker, organisation_id=organisation_id, asset_id=asset_id, user_id=user_id
+    )
+    original_lock = _lock_asset
+
+    async def delete_before_lock(session: object, asset: object) -> None:
+        async with session_maker() as other_session:
+            other_asset = (
+                await other_session.execute(select(Asset).where(Asset.id == asset_id))
+            ).scalar_one()
+            other_asset.deleted_at = datetime.datetime.now(datetime.UTC)
+            await other_session.commit()
+        await original_lock(session, asset)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(calibration_service, "_lock_asset", delete_before_lock)
+    async with session_maker() as session:
+        with pytest.raises(AssetNotFoundError):
+            await create_event(
+                session,
+                organisation_id=organisation_id,
+                asset_id=asset_id,
+                performed_at=datetime.date(2026, 8, 1),
+                performed_by_id=None,
+                performed_by_supplier_id=None,
+                certificate_document_id=None,
+                result=CalibrationResult.PASS,
+                notes=None,
+                created_by_id=user_id,
+            )
+
+
+async def test_backfilled_event_preserves_current_due_date_from_later_calibration(
+    session_maker: SessionMaker, organisation_id: uuid.UUID, user_id: uuid.UUID
+) -> None:
+    import datetime
+
+    from app.modules.calibration.models import CalibrationResult
+    from app.modules.calibration.service import create_event, get_schedule
+
+    asset_id = await _create_asset(session_maker, organisation_id=organisation_id, user_id=user_id)
+    await _create_schedule(
+        session_maker, organisation_id=organisation_id, asset_id=asset_id, user_id=user_id
+    )
+    async with session_maker() as session:
+        await create_event(
+            session,
+            organisation_id=organisation_id,
+            asset_id=asset_id,
+            performed_at=datetime.date(2026, 8, 1),
+            performed_by_id=None,
+            performed_by_supplier_id=None,
+            certificate_document_id=None,
+            result=CalibrationResult.PASS,
+            notes=None,
+            created_by_id=user_id,
+        )
+    async with session_maker() as session:
+        older = await create_event(
+            session,
+            organisation_id=organisation_id,
+            asset_id=asset_id,
+            performed_at=datetime.date(2026, 1, 1),
+            performed_by_id=None,
+            performed_by_supplier_id=None,
+            certificate_document_id=None,
+            result=CalibrationResult.PASS,
+            notes="Historical backfill",
+            created_by_id=user_id,
+        )
+    async with session_maker() as session:
+        schedule = await get_schedule(session, organisation_id=organisation_id, asset_id=asset_id)
+    assert older.next_due_date == datetime.date(2026, 7, 1)
+    assert schedule.next_due_date == datetime.date(2027, 2, 1)

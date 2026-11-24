@@ -162,9 +162,9 @@ Full scope and acceptance criteria:
 18. **Calibration and Asset Management module** — see
     [docs/modules/CalibrationAndAssetManagement.md](modules/CalibrationAndAssetManagement.md).
     Dependencies: Tasks 13, 14 (both complete). Complexity: **L**. Status: In
-    Progress (`assets` schema and CRUD implemented and tested, backend only;
-    calibration schedules/events, asset maintenance schedules, the `due`
-    reminders endpoint, and the frontend not yet started).
+    Progress (`assets` CRUD and calibration schedules/events implemented and
+    tested, backend only; asset maintenance schedules, the `due` reminders
+    endpoint and frontend not yet started).
 
 ## High Priority — Testing readiness after Milestone 5 (planned)
 

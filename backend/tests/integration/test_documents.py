@@ -87,6 +87,7 @@ async def context(
     from app.models.configuration import Configuration
     from app.models.organisation import Organisation
     from app.models.user import User, UserRole
+    from app.modules.calibration.models import Asset
     from app.modules.documents.models import (
         Document,
         DocumentAcknowledgement,
@@ -126,6 +127,9 @@ async def context(
         # row (which cascade-deletes its attachments) must be cleared first or the
         # Document delete below fails on a foreign key violation.
         await session.execute(delete(Ncr).where(Ncr.organisation_id == org_a.id))
+        # A prior calibration test can leave an asset referencing both a user
+        # and a certificate document. Its event history cascades with the asset.
+        await session.execute(delete(Asset).where(Asset.organisation_id == org_a.id))
         await session.execute(
             delete(DocumentTagLink).where(
                 DocumentTagLink.document_id.in_(

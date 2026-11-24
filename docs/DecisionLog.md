@@ -1378,3 +1378,37 @@ checks; network mounts and OS ACLs differ by deployment. Neither gate is
 implemented yet. Exact approver override, program identity, retention and
 network topology remain open decisions in
 [modules/ProgramControl.md](modules/ProgramControl.md).
+
+## 2026-11-23 — Calibration child tables inherit tenant scope from assets
+
+**Problem:** Milestone 5's original plan says every new table has an explicit
+`organisation_id`, while the draft schedule/event migration has only mandatory
+`asset_id` foreign keys. The pre-existing Document Management pattern already
+scopes child tables through their organisation-owned parent.
+
+**Options:** duplicate `organisation_id` on each child and enforce consistency
+with the asset, or inherit scope through `asset_id` and resolve every external
+lookup via `get_asset` using the authenticated organisation. **Choice:** inherit
+scope. The second option avoids inconsistent duplicate tenant columns and
+matches Document Management, while keeping cross-organisation reads and writes
+blocked (`404` in real-PostgreSQL integration tests). **Trade-off:** direct SQL
+queries against child tables must never bypass the parent scope, so future
+services and any exports require the same parent-first contract. Soft deletion
+is separately guarded by locking the asset before schedule/event writes and
+rechecking its deleted state after lock acquisition. This explicitly refines
+the Milestone 5 plan's blanket column statement; it does not relax tenant
+isolation.
+
+## 2026-11-23 — Historical calibration backfill does not regress current due date
+
+**Problem:** an operator can record an older calibration after a newer one.
+Naively recomputing the schedule due date on every insert would replace the
+current due date with a date in the past, even though the newer event still
+exists. **Options:** reject historical events, always overwrite, or retain the
+historical event's calculated snapshot while updating the schedule only if
+its `performed_at` is at least as recent as the latest existing event.
+**Choice:** the last option, inside the schedule row lock. It preserves the
+complete historical record without making reminders regress. Equal-date
+entries use the latest recorded calculation. This is a deliberate refinement
+of the Milestone 5 plan's simple "recompute on every event" wording; a
+failing regression test demonstrated the stale-date bug before the fix.

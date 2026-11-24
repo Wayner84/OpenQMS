@@ -6,6 +6,7 @@ the People module's own service layer (module boundary rule -- see
 docs/CodingStandards.md#backend-python), never queried directly.
 """
 
+import calendar
 import datetime
 import uuid
 
@@ -13,8 +14,18 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.calibration.models import Asset, AssetStatus, AssetType
+from app.modules.calibration.models import (
+    Asset,
+    AssetStatus,
+    AssetType,
+    CalibrationEvent,
+    CalibrationIntervalUnit,
+    CalibrationResult,
+    CalibrationSchedule,
+)
+from app.modules.documents.service import DocumentNotFoundError, get_document
 from app.modules.people.service import PersonNotFoundError, get_person
+from app.modules.suppliers.service import SupplierNotFoundError, get_supplier
 
 
 class AssetNotFoundError(Exception):
@@ -29,6 +40,31 @@ class AssetTagConflictError(Exception):
 
 class AssetOwnerNotFoundError(Exception):
     """Raised when an asset's `owner_id` doesn't exist in the caller's organisation."""
+
+
+class CalibrationScheduleNotFoundError(Exception):
+    """Raised when an asset has no calibration schedule yet, or the schedule
+    doesn't exist in the caller's organisation."""
+
+
+class CalibrationScheduleAlreadyExistsError(Exception):
+    """Raised when creating a calibration schedule for an asset that already has
+    one -- `POST` is create-once; use `PATCH` to change an existing schedule."""
+
+
+class CalibrationEventPerformerNotFoundError(Exception):
+    """Raised when a calibration event's `performed_by_id` doesn't exist in the
+    caller's organisation."""
+
+
+class CalibrationEventSupplierNotFoundError(Exception):
+    """Raised when a calibration event's `performed_by_supplier_id` doesn't exist
+    in the caller's organisation."""
+
+
+class CalibrationEventDocumentNotFoundError(Exception):
+    """Raised when a calibration event's `certificate_document_id` doesn't exist
+    in the caller's organisation."""
 
 
 async def _assert_asset_tag_available(
@@ -74,6 +110,17 @@ async def _lock_asset(session: AsyncSession, asset: Asset) -> None:
     if bind is not None and bind.dialect.name != "sqlite":
         await session.execute(select(Asset.id).where(Asset.id == asset.id).with_for_update())
     await session.refresh(asset)
+
+
+async def _lock_live_asset(
+    session: AsyncSession, *, organisation_id: uuid.UUID, asset_id: uuid.UUID
+) -> Asset:
+    """Serialize schedule and event writes against an asset's soft deletion."""
+    asset = await get_asset(session, organisation_id=organisation_id, asset_id=asset_id)
+    await _lock_asset(session, asset)
+    if asset.deleted_at is not None:
+        raise AssetNotFoundError(f"No asset {asset_id} in this organisation")
+    return asset
 
 
 async def create_asset(
@@ -242,3 +289,234 @@ async def delete_asset(
     await _lock_asset(session, asset)
     asset.deleted_at = datetime.datetime.now(datetime.UTC)
     await session.commit()
+
+
+# --- Calibration schedules -----------------------------------------------------
+
+
+def _add_months(base_date: datetime.date, months: int) -> datetime.date:
+    """Add `months` calendar months to `base_date`, clamping the day-of-month to
+    the target month's last valid day (e.g. 31 Jan + 1 month = 28/29 Feb)."""
+    total_months = base_date.month - 1 + months
+    year = base_date.year + total_months // 12
+    month = total_months % 12 + 1
+    day = min(base_date.day, calendar.monthrange(year, month)[1])
+    return base_date.replace(year=year, month=month, day=day)
+
+
+def _add_interval(
+    base_date: datetime.date, value: int, unit: CalibrationIntervalUnit
+) -> datetime.date:
+    """Compute `base_date + value` in the given `unit` -- plan design decision 4:
+    `next_due_date` is always server-computed from the asset's own
+    operator-configured interval, never a hard-coded formula."""
+    if unit == CalibrationIntervalUnit.DAYS:
+        return base_date + datetime.timedelta(days=value)
+    if unit == CalibrationIntervalUnit.MONTHS:
+        return _add_months(base_date, value)
+    return _add_months(base_date, value * 12)
+
+
+async def _lock_schedule(session: AsyncSession, schedule: CalibrationSchedule) -> None:
+    """Lock `schedule`'s row with `SELECT ... FOR UPDATE` (a no-op on SQLite), then
+    refresh -- mirrors `_lock_asset`. Callers must acquire this before recomputing
+    `next_due_date`, so two concurrent calibration events for the same asset (or a
+    concurrent manual schedule update) can't both read the same stale interval and
+    both commit an inconsistent `next_due_date`."""
+    bind = session.bind
+    if bind is not None and bind.dialect.name != "sqlite":
+        await session.execute(
+            select(CalibrationSchedule.id)
+            .where(CalibrationSchedule.id == schedule.id)
+            .with_for_update()
+        )
+    await session.refresh(schedule)
+
+
+async def create_schedule(
+    session: AsyncSession,
+    *,
+    organisation_id: uuid.UUID,
+    asset_id: uuid.UUID,
+    interval_value: int,
+    interval_unit: CalibrationIntervalUnit,
+    created_by_id: uuid.UUID,
+) -> CalibrationSchedule:
+    """Create-once: `POST` fails with `CalibrationScheduleAlreadyExistsError` if the
+    asset already has a schedule -- use `update_schedule` (`PATCH`) to change one."""
+    await _lock_live_asset(session, organisation_id=organisation_id, asset_id=asset_id)
+    existing = (
+        await session.execute(
+            select(CalibrationSchedule).where(CalibrationSchedule.asset_id == asset_id)
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise CalibrationScheduleAlreadyExistsError(
+            f"Asset {asset_id} already has a calibration schedule"
+        )
+
+    schedule = CalibrationSchedule(
+        asset_id=asset_id,
+        interval_value=interval_value,
+        interval_unit=interval_unit,
+        next_due_date=None,
+        created_by_id=created_by_id,
+        updated_by_id=created_by_id,
+    )
+    session.add(schedule)
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        # Belt-and-braces alongside the check above: two concurrent creates for the
+        # same asset can both pass the check before either commits. The
+        # uq_calibration_schedules_asset_id constraint catches it; map that to the
+        # same clean conflict the normal check-path raises, not a raw 500.
+        await session.rollback()
+        raise CalibrationScheduleAlreadyExistsError(
+            f"Asset {asset_id} already has a calibration schedule"
+        ) from exc
+    await session.refresh(schedule)
+    return schedule
+
+
+async def get_schedule(
+    session: AsyncSession, *, organisation_id: uuid.UUID, asset_id: uuid.UUID
+) -> CalibrationSchedule:
+    await get_asset(session, organisation_id=organisation_id, asset_id=asset_id)
+    schedule = (
+        await session.execute(
+            select(CalibrationSchedule).where(CalibrationSchedule.asset_id == asset_id)
+        )
+    ).scalar_one_or_none()
+    if schedule is None:
+        raise CalibrationScheduleNotFoundError(f"Asset {asset_id} has no calibration schedule")
+    return schedule
+
+
+async def update_schedule(
+    session: AsyncSession,
+    *,
+    organisation_id: uuid.UUID,
+    asset_id: uuid.UUID,
+    updated_by_id: uuid.UUID,
+    interval_value: int,
+    interval_unit: CalibrationIntervalUnit,
+    next_due_date: datetime.date | None,
+) -> CalibrationSchedule:
+    await _lock_live_asset(session, organisation_id=organisation_id, asset_id=asset_id)
+    schedule = await get_schedule(session, organisation_id=organisation_id, asset_id=asset_id)
+    await _lock_schedule(session, schedule)
+
+    schedule.interval_value = interval_value
+    schedule.interval_unit = interval_unit
+    if next_due_date is not None:
+        schedule.next_due_date = next_due_date
+    schedule.updated_by_id = updated_by_id
+    await session.commit()
+    await session.refresh(schedule)
+    return schedule
+
+
+# --- Calibration events ----------------------------------------------------------
+
+
+async def create_event(
+    session: AsyncSession,
+    *,
+    organisation_id: uuid.UUID,
+    asset_id: uuid.UUID,
+    performed_at: datetime.date,
+    performed_by_id: uuid.UUID | None,
+    performed_by_supplier_id: uuid.UUID | None,
+    certificate_document_id: uuid.UUID | None,
+    result: CalibrationResult,
+    notes: str | None,
+    created_by_id: uuid.UUID,
+) -> CalibrationEvent:
+    """Record a calibration event and recompute the parent schedule's
+    `next_due_date` in the same transaction (plan design decision 4), row-locking
+    the schedule first so two concurrent events for the same asset can't both
+    compute from the same stale `next_due_date`."""
+    await _lock_live_asset(session, organisation_id=organisation_id, asset_id=asset_id)
+    schedule = await get_schedule(session, organisation_id=organisation_id, asset_id=asset_id)
+    await _lock_schedule(session, schedule)
+
+    if performed_by_id is not None:
+        try:
+            await get_person(session, organisation_id=organisation_id, person_id=performed_by_id)
+        except PersonNotFoundError as exc:
+            raise CalibrationEventPerformerNotFoundError(str(exc)) from exc
+    if performed_by_supplier_id is not None:
+        try:
+            await get_supplier(
+                session, organisation_id=organisation_id, supplier_id=performed_by_supplier_id
+            )
+        except SupplierNotFoundError as exc:
+            raise CalibrationEventSupplierNotFoundError(str(exc)) from exc
+    if certificate_document_id is not None:
+        try:
+            await get_document(
+                session, organisation_id=organisation_id, document_id=certificate_document_id
+            )
+        except DocumentNotFoundError as exc:
+            raise CalibrationEventDocumentNotFoundError(str(exc)) from exc
+
+    latest_performed_at = (
+        await session.execute(
+            select(func.max(CalibrationEvent.performed_at)).where(
+                CalibrationEvent.asset_id == asset_id
+            )
+        )
+    ).scalar_one()
+    computed_next_due_date = _add_interval(
+        performed_at, schedule.interval_value, schedule.interval_unit
+    )
+
+    event = CalibrationEvent(
+        asset_id=asset_id,
+        performed_at=performed_at,
+        performed_by_id=performed_by_id,
+        performed_by_supplier_id=performed_by_supplier_id,
+        certificate_document_id=certificate_document_id,
+        result=result,
+        next_due_date=computed_next_due_date,
+        notes=notes,
+        created_by_id=created_by_id,
+    )
+    session.add(event)
+    if latest_performed_at is None or performed_at >= latest_performed_at:
+        schedule.next_due_date = computed_next_due_date
+    await session.commit()
+    await session.refresh(event)
+    return event
+
+
+async def list_events(
+    session: AsyncSession,
+    *,
+    organisation_id: uuid.UUID,
+    asset_id: uuid.UUID,
+    limit: int,
+    offset: int,
+) -> tuple[list[CalibrationEvent], int]:
+    """Newest-first (by `performed_at`, the calibration date itself, not
+    `created_at`) -- matching `supplier_performance_records`' newest-first history
+    precedent, but ordered by the semantically meaningful date for equipment
+    history rather than entry time."""
+    await get_asset(session, organisation_id=organisation_id, asset_id=asset_id)
+
+    total = (
+        await session.execute(
+            select(func.count())
+            .select_from(CalibrationEvent)
+            .where(CalibrationEvent.asset_id == asset_id)
+        )
+    ).scalar_one()
+    result = await session.execute(
+        select(CalibrationEvent)
+        .where(CalibrationEvent.asset_id == asset_id)
+        .order_by(CalibrationEvent.performed_at.desc(), CalibrationEvent.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return list(result.scalars().all()), total

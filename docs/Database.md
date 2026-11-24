@@ -484,7 +484,7 @@ with an extra lookup keyed by `type` inside the row's value — see
 Per [docs/modules/CalibrationAndAssetManagement.md](modules/CalibrationAndAssetManagement.md)
 and the
 [Milestone 5 plan](../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
-This section covers the asset schema/CRUD slice.
+This section covers asset CRUD and the calibration schedule/event backend slices.
 
 - **`assets`** — `asset_tag` (unique per organisation via
   `UniqueConstraint(organisation_id, asset_tag)`, enforced at the service layer
@@ -503,7 +503,7 @@ This section covers the asset schema/CRUD slice.
   decision 9: an asset carries audit-significant calibration history added
   in a later slice).
 
-`create_asset`/`update_asset` take the same `_lock_asset` row lock (a
+`update_asset`/`delete_asset` take the same `_lock_asset` row lock (a
 per-asset `SELECT ... FOR UPDATE`, mirroring `ncr.service._lock_ncr`/
 `documents.service._lock_document`) applied proactively from this slice's
 first commit, not found reactively by a review — `update_asset` re-checks
@@ -518,8 +518,30 @@ issues.
 A new `configuration` row, `calibration_due_reminder_window_days` (default
 `30`), seeded by the schema migration for the existing default organisation,
 mirroring `supplier_certification_reminder_window_days`'s existing
-precedent — not yet consumed by any endpoint in this slice (the `due`
-reminders endpoint that will use it is a later slice).
+precedent — still not consumed by an endpoint; the `due` reminders endpoint
+that will use it is a later slice.
+
+- **`calibration_schedules`** — one per asset (`asset_id` unique, FK to
+  `assets.id` with cascade on physical deletion), positive `interval_value`,
+  `interval_unit` (`days`/`months`/`years`), nullable `next_due_date`,
+  `created_by_id`/`updated_by_id` and timestamps. `next_due_date` is either
+  operator-set as an initial baseline or recomputed when a current/newer event
+  is added; backfilled older events do not regress it.
+- **`calibration_events`** — append-only event history: `asset_id` (cascade on
+  physical deletion), `performed_at`, optional `performed_by_id` (People) or
+  `performed_by_supplier_id` (Suppliers), optional
+  `certificate_document_id` (Documents, *no* delete cascade), `result`
+  (`pass`/`fail`/`limited`), computed `next_due_date` snapshot, optional
+  `notes`, `created_by_id`, `created_at`. No update/delete endpoint.
+
+These two child tables inherit organisation scope through their mandatory
+`asset_id`, following Document Management's child-table pattern rather than
+carrying their own independent `organisation_id`; service lookups always scope
+through the live parent asset. The schedule and asset rows are locked in a
+consistent order before mutation to prevent an event or schedule update racing
+with soft deletion. The migration `4bac6c2e8f04` was exercised against a
+disposable PostgreSQL 16 database with a downgrade to `e6ad898e1aba` and
+upgrade back to head.
 
 ## Soft delete and audit trail
 

@@ -12,7 +12,17 @@ import datetime
 import enum
 import uuid
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, String, UniqueConstraint, func
+from sqlalchemy import (
+    Date,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -86,4 +96,89 @@ class Asset(Base):
     )
     deleted_at: Mapped[datetime.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+
+
+class CalibrationIntervalUnit(str, enum.Enum):
+    """The unit `interval_value` is expressed in, for both calibration and
+    asset-maintenance schedules."""
+
+    DAYS = "days"
+    MONTHS = "months"
+    YEARS = "years"
+
+
+class CalibrationResult(str, enum.Enum):
+    """The outcome recorded for a calibration event."""
+
+    PASS = "pass"
+    FAIL = "fail"
+    LIMITED = "limited"
+
+
+class CalibrationSchedule(Base):
+    """An asset's calibration interval and current due date -- one row per asset
+    (`UniqueConstraint(asset_id)`). `next_due_date` is server-computed whenever a
+    calibration event is recorded (plan design decision 4), though an operator may
+    also set it directly (e.g. establishing an initial baseline before any event
+    exists)."""
+
+    __tablename__ = "calibration_schedules"
+    __table_args__ = (UniqueConstraint("asset_id", name="uq_calibration_schedules_asset_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    asset_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("assets.id", ondelete="CASCADE"), nullable=False
+    )
+    interval_value: Mapped[int] = mapped_column(Integer, nullable=False)
+    interval_unit: Mapped[CalibrationIntervalUnit] = mapped_column(
+        _calibration_enum_column(CalibrationIntervalUnit, "calibration_interval_unit"),
+        nullable=False,
+    )
+    next_due_date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    created_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    updated_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class CalibrationEvent(Base):
+    """An immutable historical record of a single calibration -- part of the
+    "complete equipment history" the module doc requires. `performed_by_id` and
+    `performed_by_supplier_id` are mutually exclusive but both optional, enforced
+    at the schema layer (plan design decision 3). `certificate_document_id` has no
+    `ON DELETE`, matching `ncr_attachments.document_id`'s precedent -- a
+    certificate being independently soft-deleted later must not silently
+    cascade-delete calibration history. `next_due_date` is the snapshot computed
+    at this event (plan design decision 4); no update/delete route, matching
+    `ncr_status_history`'s immutable-audit-trail precedent."""
+
+    __tablename__ = "calibration_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    asset_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("assets.id", ondelete="CASCADE"), nullable=False
+    )
+    performed_at: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    performed_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("people.id"), nullable=True
+    )
+    performed_by_supplier_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("suppliers.id"), nullable=True
+    )
+    certificate_document_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("documents.id"), nullable=True
+    )
+    result: Mapped[CalibrationResult] = mapped_column(
+        _calibration_enum_column(CalibrationResult, "calibration_result"), nullable=False
+    )
+    next_due_date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )

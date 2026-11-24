@@ -4,10 +4,12 @@ PostgreSQL.
 Follows the tests/integration/test_products.py pattern. Covers the Milestone 5
 plan's hard acceptance criteria for this schema/CRUD slice: organisation isolation
 (`404`, never revealing another organisation's ids), `asset_tag` uniqueness (`409`),
-`owner_id` cross-organisation validation, and soft delete.
+`owner_id`/performer/certificate cross-organisation validation, schedule/event API
+contracts, due-date computation, and immutable event history.
 
 This fixture is self-contained (cleans up every table its own tests create --
-`Asset` and `Person` -- in both its setup and its `org_b` teardown) rather than
+`Asset`, `Person`, `Document`, and `Supplier` -- in both its setup and its
+`org_b` teardown) rather than
 relying on another integration test file's own setup to clean up after it, per the
 cross-file cleanup fragility lesson recorded in
 docs/DecisionLog.md#2026-07-30-ncr-attachments-slice-self-contained-integration-test-fixtures-instead-of-relying-on-cross-file-cleanup-ordering.
@@ -38,12 +40,12 @@ def _database_url() -> str:
     return url
 
 
-def _run_alembic_upgrade_head(database_url: str) -> None:
+def _run_alembic(database_url: str, *args: str) -> None:
     env = dict(
         os.environ, DATABASE_URL=database_url, JWT_SECRET_KEY="alembic-cli-secret", PYTHONPATH=""
     )
     subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        [sys.executable, "-m", "alembic", *args],
         cwd=BACKEND_DIR,
         env=env,
         check=True,
@@ -55,7 +57,7 @@ def _run_alembic_upgrade_head(database_url: str) -> None:
 @pytest.fixture
 def database_url() -> str:
     url = _database_url()
-    _run_alembic_upgrade_head(url)
+    _run_alembic(url, "upgrade", "head")
     return url
 
 
@@ -87,7 +89,9 @@ async def context(database_url: str, monkeypatch: pytest.MonkeyPatch) -> AsyncIt
     from app.models.organisation import Organisation
     from app.models.user import User, UserRole
     from app.modules.calibration.models import Asset
-    from app.modules.people.models import Person
+    from app.modules.documents.models import Document
+    from app.modules.people.models import Company, Person
+    from app.modules.suppliers.models import Supplier
 
     monkeypatch.setenv("DATABASE_URL", database_url)
     monkeypatch.setenv("BACKEND_CORS_ORIGINS", "http://localhost:5173")
@@ -105,10 +109,14 @@ async def context(database_url: str, monkeypatch: pytest.MonkeyPatch) -> AsyncIt
 
         # Shared, persistent dev database: reset the default organisation's rows so
         # earlier local runs don't affect these assertions. Self-contained (see
-        # module docstring) -- Asset must be deleted before Person, since
-        # assets.owner_id references people.id.
+        # module docstring) -- Asset must be deleted before Person/Document, since
+        # assets.owner_id references people.id and calibration_events (which
+        # cascades away with its Asset) references documents.id with no ON DELETE.
         await session.execute(delete(Asset).where(Asset.organisation_id == org_a.id))
+        await session.execute(delete(Document).where(Document.organisation_id == org_a.id))
+        await session.execute(delete(Supplier).where(Supplier.organisation_id == org_a.id))
         await session.execute(delete(Person).where(Person.organisation_id == org_a.id))
+        await session.execute(delete(Company).where(Company.organisation_id == org_a.id))
         await session.execute(delete(User).where(User.organisation_id == org_a.id))
         await session.commit()
 
@@ -155,7 +163,16 @@ async def context(database_url: str, monkeypatch: pytest.MonkeyPatch) -> AsyncIt
         cleanup_session_maker = async_sessionmaker(cleanup_engine, expire_on_commit=False)
         async with cleanup_session_maker() as cleanup_session:
             await cleanup_session.execute(delete(Asset).where(Asset.organisation_id == org_b.id))
+            await cleanup_session.execute(
+                delete(Document).where(Document.organisation_id == org_b.id)
+            )
+            await cleanup_session.execute(
+                delete(Supplier).where(Supplier.organisation_id == org_b.id)
+            )
             await cleanup_session.execute(delete(Person).where(Person.organisation_id == org_b.id))
+            await cleanup_session.execute(
+                delete(Company).where(Company.organisation_id == org_b.id)
+            )
             await cleanup_session.execute(delete(User).where(User.organisation_id == org_b.id))
             await cleanup_session.execute(delete(Organisation).where(Organisation.id == org_b.id))
             await cleanup_session.commit()
@@ -322,3 +339,109 @@ async def test_calibration_endpoints_require_authentication(context: Context) ->
         response = await client.get("/api/v1/calibration/assets")
 
     assert response.status_code == 401
+
+
+async def test_schedule_event_roundtrip_computes_due_date_and_history_is_immutable(
+    context: Context,
+) -> None:
+    async with AsyncClient(
+        transport=ASGITransport(app=context.app), base_url="http://test"
+    ) as client:
+        asset_id = await _create_asset(client, context.org_a_headers)
+        created = await client.post(
+            f"/api/v1/calibration/assets/{asset_id}/schedule",
+            headers=context.org_a_headers,
+            json={"interval_value": 1, "interval_unit": "months"},
+        )
+        assert created.status_code == 201, created.text
+        event = await client.post(
+            f"/api/v1/calibration/assets/{asset_id}/events",
+            headers=context.org_a_headers,
+            json={"performed_at": "2026-01-31", "result": "pass"},
+        )
+        assert event.status_code == 201, event.text
+        assert event.json()["next_due_date"] == "2026-02-28"
+        listing = await client.get(
+            f"/api/v1/calibration/assets/{asset_id}/events", headers=context.org_a_headers
+        )
+        assert listing.status_code == 200
+        assert listing.json()["total"] == 1
+        assert listing.json()["items"][0]["id"] == event.json()["id"]
+        schedule = await client.get(
+            f"/api/v1/calibration/assets/{asset_id}/schedule", headers=context.org_a_headers
+        )
+        assert schedule.json()["next_due_date"] == "2026-02-28"
+        update = await client.patch(
+            f"/api/v1/calibration/assets/{asset_id}/events/{event.json()['id']}",
+            headers=context.org_a_headers,
+            json={"notes": "rewrite"},
+        )
+        delete_event = await client.delete(
+            f"/api/v1/calibration/assets/{asset_id}/events/{event.json()['id']}",
+            headers=context.org_a_headers,
+        )
+    assert update.status_code == 404
+    assert delete_event.status_code == 404
+    async with AsyncClient(
+        transport=ASGITransport(app=context.app), base_url="http://test"
+    ) as client:
+        history = await client.get(
+            f"/api/v1/calibration/assets/{asset_id}/events", headers=context.org_a_headers
+        )
+    assert history.json()["items"][0]["notes"] is None
+
+
+async def test_cross_organisation_schedule_and_event_routes_return_404(context: Context) -> None:
+    async with AsyncClient(
+        transport=ASGITransport(app=context.app), base_url="http://test"
+    ) as client:
+        asset_id = await _create_asset(client, context.org_b_headers)
+        schedule = await client.post(
+            f"/api/v1/calibration/assets/{asset_id}/schedule",
+            headers=context.org_b_headers,
+            json={"interval_value": 2, "interval_unit": "years"},
+        )
+        assert schedule.status_code == 201, schedule.text
+        responses = [
+            await client.get(
+                f"/api/v1/calibration/assets/{asset_id}/schedule", headers=context.org_a_headers
+            ),
+            await client.post(
+                f"/api/v1/calibration/assets/{asset_id}/schedule",
+                headers=context.org_a_headers,
+                json={"interval_value": 3, "interval_unit": "days"},
+            ),
+            await client.post(
+                f"/api/v1/calibration/assets/{asset_id}/events",
+                headers=context.org_a_headers,
+                json={"performed_at": "2026-01-01", "result": "pass"},
+            ),
+            await client.get(
+                f"/api/v1/calibration/assets/{asset_id}/events", headers=context.org_a_headers
+            ),
+        ]
+    assert [response.status_code for response in responses] == [404, 404, 404, 404]
+
+
+async def test_event_rejects_both_performer_fields(context: Context) -> None:
+    async with AsyncClient(
+        transport=ASGITransport(app=context.app), base_url="http://test"
+    ) as client:
+        asset_id = await _create_asset(client, context.org_a_headers)
+        schedule = await client.post(
+            f"/api/v1/calibration/assets/{asset_id}/schedule",
+            headers=context.org_a_headers,
+            json={"interval_value": 1, "interval_unit": "years"},
+        )
+        assert schedule.status_code == 201, schedule.text
+        response = await client.post(
+            f"/api/v1/calibration/assets/{asset_id}/events",
+            headers=context.org_a_headers,
+            json={
+                "performed_at": "2026-01-01",
+                "performed_by_id": str(uuid.uuid4()),
+                "performed_by_supplier_id": str(uuid.uuid4()),
+                "result": "pass",
+            },
+        )
+    assert response.status_code == 422

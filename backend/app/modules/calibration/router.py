@@ -1,5 +1,5 @@
-"""Calibration and Asset Management endpoints: assets (this slice) and, in later
-slices, their calibration schedules/events and maintenance schedules.
+"""Calibration and Asset Management endpoints: assets, calibration schedules/events
+(this slice), and, in a later slice, maintenance schedules.
 
 Per docs/API.md and the Milestone 5 plan's design decision 1: every operation here
 requires only authentication (any active user), not admin privilege -- matching
@@ -17,16 +17,36 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import get_session
 from app.core.deps import CurrentUser
 from app.modules.calibration.models import AssetStatus, AssetType
-from app.modules.calibration.schemas import AssetListResponse, AssetRead, AssetWriteRequest
+from app.modules.calibration.schemas import (
+    AssetListResponse,
+    AssetRead,
+    AssetWriteRequest,
+    CalibrationEventCreateRequest,
+    CalibrationEventListResponse,
+    CalibrationEventRead,
+    CalibrationScheduleCreateRequest,
+    CalibrationScheduleRead,
+    CalibrationScheduleUpdateRequest,
+)
 from app.modules.calibration.service import (
     AssetNotFoundError,
     AssetOwnerNotFoundError,
     AssetTagConflictError,
+    CalibrationEventDocumentNotFoundError,
+    CalibrationEventPerformerNotFoundError,
+    CalibrationEventSupplierNotFoundError,
+    CalibrationScheduleAlreadyExistsError,
+    CalibrationScheduleNotFoundError,
     create_asset,
+    create_event,
+    create_schedule,
     delete_asset,
     get_asset,
+    get_schedule,
     list_assets,
+    list_events,
     update_asset,
+    update_schedule,
 )
 
 router = APIRouter(prefix="/calibration", tags=["calibration"])
@@ -147,3 +167,146 @@ async def delete_asset_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found"
         ) from exc
+
+
+# --- Calibration schedules -----------------------------------------------------
+
+
+@router.post("/assets/{asset_id}/schedule", status_code=status.HTTP_201_CREATED)
+async def create_schedule_endpoint(
+    asset_id: uuid.UUID,
+    payload: CalibrationScheduleCreateRequest,
+    current_user: CurrentUser,
+    session: SessionDependency,
+) -> CalibrationScheduleRead:
+    try:
+        schedule = await create_schedule(
+            session,
+            organisation_id=current_user.organisation_id,
+            asset_id=asset_id,
+            interval_value=payload.interval_value,
+            interval_unit=payload.interval_unit,
+            created_by_id=current_user.id,
+        )
+    except AssetNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found"
+        ) from exc
+    except CalibrationScheduleAlreadyExistsError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return CalibrationScheduleRead.model_validate(schedule)
+
+
+@router.get("/assets/{asset_id}/schedule")
+async def get_schedule_endpoint(
+    asset_id: uuid.UUID, current_user: CurrentUser, session: SessionDependency
+) -> CalibrationScheduleRead:
+    try:
+        schedule = await get_schedule(
+            session, organisation_id=current_user.organisation_id, asset_id=asset_id
+        )
+    except AssetNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found"
+        ) from exc
+    except CalibrationScheduleNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return CalibrationScheduleRead.model_validate(schedule)
+
+
+@router.patch("/assets/{asset_id}/schedule")
+async def update_schedule_endpoint(
+    asset_id: uuid.UUID,
+    payload: CalibrationScheduleUpdateRequest,
+    current_user: CurrentUser,
+    session: SessionDependency,
+) -> CalibrationScheduleRead:
+    try:
+        schedule = await update_schedule(
+            session,
+            organisation_id=current_user.organisation_id,
+            asset_id=asset_id,
+            updated_by_id=current_user.id,
+            interval_value=payload.interval_value,
+            interval_unit=payload.interval_unit,
+            next_due_date=payload.next_due_date,
+        )
+    except AssetNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found"
+        ) from exc
+    except CalibrationScheduleNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return CalibrationScheduleRead.model_validate(schedule)
+
+
+# --- Calibration events ----------------------------------------------------------
+
+
+@router.post("/assets/{asset_id}/events", status_code=status.HTTP_201_CREATED)
+async def create_event_endpoint(
+    asset_id: uuid.UUID,
+    payload: CalibrationEventCreateRequest,
+    current_user: CurrentUser,
+    session: SessionDependency,
+) -> CalibrationEventRead:
+    try:
+        event = await create_event(
+            session,
+            organisation_id=current_user.organisation_id,
+            asset_id=asset_id,
+            performed_at=payload.performed_at,
+            performed_by_id=payload.performed_by_id,
+            performed_by_supplier_id=payload.performed_by_supplier_id,
+            certificate_document_id=payload.certificate_document_id,
+            result=payload.result,
+            notes=payload.notes,
+            created_by_id=current_user.id,
+        )
+    except AssetNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found"
+        ) from exc
+    except CalibrationScheduleNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except CalibrationEventPerformerNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Person not found"
+        ) from exc
+    except CalibrationEventSupplierNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Supplier not found"
+        ) from exc
+    except CalibrationEventDocumentNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
+        ) from exc
+    return CalibrationEventRead.model_validate(event)
+
+
+@router.get("/assets/{asset_id}/events")
+async def list_events_endpoint(
+    asset_id: uuid.UUID,
+    current_user: CurrentUser,
+    session: SessionDependency,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> CalibrationEventListResponse:
+    try:
+        events, total = await list_events(
+            session,
+            organisation_id=current_user.organisation_id,
+            asset_id=asset_id,
+            limit=limit,
+            offset=offset,
+        )
+    except AssetNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found"
+        ) from exc
+    return CalibrationEventListResponse(
+        items=[CalibrationEventRead.model_validate(e) for e in events],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )

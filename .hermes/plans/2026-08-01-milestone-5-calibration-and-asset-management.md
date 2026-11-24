@@ -1,6 +1,6 @@
 # Milestone 5 — Calibration and Asset Management
 
-**Status:** Planned — not yet implemented.
+**Status:** In progress — asset CRUD and calibration schedules/events backend implemented; maintenance/due/frontend pending.
 **Date planned:** 2026-08-01
 
 ## Purpose
@@ -62,7 +62,11 @@ security/tenant-isolation review after each vertical slice).
    is recorded (`interval_value`/`interval_unit` read from the asset's own
    schedule row, never hard-coded — per CLAUDE.md's "no hard-coded business
    rules" rule, this is operator-configured interval arithmetic, not an
-   invented scoring formula). `calibration_events.next_due_date` is a
+   invented scoring formula). For a backfilled event older than the latest
+   recorded calibration, the event keeps its computed snapshot but the
+   schedule's current due date does not regress (see
+   [DecisionLog.md](../../docs/DecisionLog.md#2026-11-23-historical-calibration-backfill-does-not-regress-current-due-date)).
+   `calibration_events.next_due_date` is a
    point-in-time historical snapshot of what was computed at that event (part
    of "complete equipment history," per the module doc) and, once written, is
    immutable — matching `ncr_status_history`'s existing immutable-audit-trail
@@ -119,8 +123,11 @@ security/tenant-isolation review after each vertical slice).
 
 ### 1. Schema
 
-All new tables carry `organisation_id` per
-[Database.md](../../docs/Database.md#multi-tenancy-baseline). UUID primary
+Root asset rows carry `organisation_id`; calibration schedules/events inherit
+tenant scope through mandatory `asset_id` (the Document Management child-table
+pattern). This refines the original all-tables statement per
+[DecisionLog.md](../../docs/DecisionLog.md#2026-11-23-calibration-child-tables-inherit-tenant-scope-from-assets).
+UUID primary
 keys, `created_at`/`updated_at` timestamptz where applicable,
 `created_by_id`/`updated_by_id` → `users.id` per the established convention.
 
@@ -327,7 +334,7 @@ established than after three more slices have had the chance to repeat it.
       `asset_maintenance_schedules` exist via reviewed Alembic migrations,
       each verified with a real upgrade → downgrade → upgrade cycle against
       PostgreSQL.
-- [ ] Full asset CRUD (including soft delete) works end-to-end against real
+- [x] Full asset CRUD (including soft delete) works end-to-end against real
       PostgreSQL, covered by tests.
 - [ ] Calibration schedules and events work end-to-end, including
       server-computed, race-safe `next_due_date` recalculation on recording

@@ -1,13 +1,12 @@
 # Calibration and Asset Management
 
-**Status: Implemented (asset schema/CRUD only).** [Milestone 5](../Roadmap.md#m5-calibration-and-asset-management)
+**Status: Implemented (asset CRUD and calibration schedules/events backend only).** [Milestone 5](../Roadmap.md#m5-calibration-and-asset-management)
 is in progress — full scope, schema, API, and design decisions in the
 [Milestone 5 plan](../../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
-Asset creation, editing, listing, and soft deletion (`assets`) are implemented
-and tested, backend only; see [docs/CurrentStatus.md](../CurrentStatus.md) for
-exactly what is and isn't done yet. Calibration schedules/events, asset
-maintenance schedules, the `due` reminders endpoint, and the frontend are not
-yet implemented.
+Asset CRUD and calibration schedules/events are implemented and tested against
+disposable PostgreSQL, backend only; see [docs/CurrentStatus.md](../CurrentStatus.md)
+for exact scope. Asset maintenance schedules, the `due` reminders endpoint and
+frontend are not implemented.
 
 ## Purpose
 
@@ -18,37 +17,38 @@ gauges, surface testers and torque equipment. **Production machinery belongs in
 [Maintenance](Maintenance.md), not this module** — this is the explicit boundary
 drawn in [ProductSpecification.md](../ProductSpecification.md#calibration-and-asset-management).
 
-## Planned database tables
+## Database tables
 
-All tables carry `organisation_id` per [Database.md](../Database.md#multi-tenancy-baseline).
+`assets` carries `organisation_id`; schedule/event tenant scope is inherited
+through mandatory `asset_id` and checked via the parent asset service, as with
+Document Management's child tables (see [Database.md](../Database.md#multi-tenancy-baseline)).
 
 - **`assets`** — `id`, `organisation_id`, `asset_tag`, `name`, `asset_type`
   (`measuring_equipment` / `inspection_equipment` / `company_asset`),
   `serial_number`, `location`, `owner_id` → [People](People.md), `status`
   (`in_service` / `out_of_service` / `retired`), `purchase_date`, `created_at`,
   `updated_at`.
-- **`calibration_schedules`** — `id`, `asset_id`, `interval_value`, `interval_unit`
+- **`calibration_schedules`** — implemented. `id`, `asset_id`, `interval_value`, `interval_unit`
   (`days` / `months` / `years`), `next_due_date`.
-- **`calibration_events`** — `id`, `asset_id`, `performed_at`, `performed_by_id`
+- **`calibration_events`** — implemented. `id`, `asset_id`, `performed_at`, `performed_by_id`
   (nullable → `people`) or `performed_by_supplier_id` (nullable →
   [Suppliers](Suppliers.md), for external calibration houses), `certificate_document_id`
   → [Document Management](DocumentManagement.md), `result` (`pass` / `fail` /
-  `limited`), `next_due_date`. Full event history is the "complete equipment history"
+  `limited`), `next_due_date`, optional `notes`, creator and timestamp. Full immutable event history is the "complete equipment history"
   required by the spec.
 - **`asset_maintenance_schedules`** — `id`, `asset_id`, `interval_value`,
   `interval_unit`, `next_due_date` — scheduled maintenance *for tracked
   equipment/assets specifically* (e.g. a CMM's annual service), distinct from the
   ad hoc, request-driven workflow in [Maintenance](Maintenance.md).
 
-## Planned APIs
+## APIs
 
 Under `/api/v1/calibration`:
 
 - `GET/POST /api/v1/calibration/assets`, `GET/PATCH/DELETE /api/v1/calibration/assets/{id}`
   — CRUD, filterable by type, status, location.
-- `GET/POST /api/v1/calibration/assets/{id}/schedule` — calibration schedule.
-- `GET/POST /api/v1/calibration/assets/{id}/events` — record/list calibration
-  events (with certificate upload).
+- `GET/POST/PATCH /api/v1/calibration/assets/{id}/schedule` — implemented calibration schedule; one per asset, positive interval, due date updated on an event or set manually.
+- `GET/POST /api/v1/calibration/assets/{id}/events` — implemented immutable record/paginated list. An existing certificate document is linked after upload through Document Management, not uploaded through this endpoint. A recorded event computes its due-date snapshot using the schedule interval; only a current/newer calibration updates the schedule, so backfilled history cannot regress its due date.
 - `GET/POST /api/v1/calibration/assets/{id}/maintenance-schedule` — equipment
   maintenance schedule.
 - `GET /api/v1/calibration/due` — assets due or overdue for calibration/maintenance,
@@ -91,7 +91,10 @@ precedent. `update_asset`/`delete_asset` use the same per-asset row-locking
 pattern as `documents`/`ncrs`, applied proactively from this slice's first
 commit (an independent security review confirmed the guard is genuine, not a
 gap) rather than found reactively as happened three times during Milestone 4.
-Not yet implemented: calibration schedules/events, asset maintenance
+Calibration schedules/events are now backend-implemented, with row locks for
+concurrent updates and a read-after-lock guard against a soft-deleted asset.
+The real-PostgreSQL integration suite and migration downgrade/upgrade were
+exercised against a disposable database. Not yet implemented: asset maintenance
 schedules, the `due` reminders endpoint, and the frontend. The boundary with
 [Maintenance](Maintenance.md) (this module owns *scheduled* calibration/maintenance
 of tracked equipment; Maintenance owns *ad hoc requests*, especially for production

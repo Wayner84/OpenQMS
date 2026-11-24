@@ -684,9 +684,9 @@ and the
 [Milestone 5 plan](../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
 Every operation requires only authentication (any active user), matching
 People/Products/Suppliers/NCR's precedent — not admin-gated, per design
-decision 1. This section covers the asset schema/CRUD slice; calibration
-schedules/events, asset maintenance schedules, and the `due` reminders
-endpoint are added in later slices and documented here as they land.
+decision 1. Asset CRUD and calibration schedules/events are implemented in the
+backend; asset maintenance schedules, `due` reminders and frontend remain later
+slices.
 
 ### `POST /api/v1/calibration/assets` / `PATCH /api/v1/calibration/assets/{id}`
 
@@ -711,9 +711,35 @@ List (paginated) or fetch one asset. List filters: `asset_type`, `status`,
 
 Any active user (not admin-gated, per design decision 1). Soft delete
 (`deleted_at`) — design decision 9: an asset carries audit-significant
-calibration history (added in a later slice), matching `documents`/`ncrs`'
+calibration history, matching `documents`/`ncrs`'
 precedent, unlike Products/Suppliers' hard-deletable pure reference data.
 `404` for a cross-organisation `{id}`.
+
+### `GET/POST/PATCH /api/v1/calibration/assets/{id}/schedule`
+
+One schedule per asset. `POST` requires positive `interval_value` and
+`interval_unit` (`days`, `months`, `years`); a second `POST` returns `409`.
+`GET` and `PATCH` return `404` for a missing schedule or foreign asset. `PATCH`
+requires a positive interval and can optionally set `next_due_date` manually.
+Responses include the interval, due date and creator/updater IDs. Asset writes
+are serialised against soft deletion; updates to an existing schedule also lock
+its row before changing the due date.
+
+### `GET/POST /api/v1/calibration/assets/{id}/events`
+
+`POST` records immutable history: required `performed_at` (date) and `result`
+(`pass`, `fail`, `limited`); optional `performed_by_id` (People),
+`performed_by_supplier_id` (Suppliers), `certificate_document_id` (Documents)
+and `notes`. The two performer IDs cannot both be set (`422`); referenced
+records must belong to the caller's organisation (`404` otherwise). A schedule
+must already exist (`404`). The server computes `next_due_date` by adding the
+schedule interval to `performed_at`, stores the historical value on the event
+and updates the schedule only if this event is not older than the latest
+recorded calibration. Writes are locked and month/year arithmetic clamps at
+the end of short months. `GET` returns a bounded paginated list (`limit` 1–200,
+default 50; `offset` >= 0), newest calibration date first. There are no event
+update/delete routes; both attempts return `404` for the unregistered URL.
+Foreign assets return `404` for every schedule/event operation.
 
 ## Health and readiness endpoints (Milestone 0)
 
@@ -764,7 +790,7 @@ implemented:
 | `/api/v1/suppliers` | Suppliers (Milestone 3) — implemented |
 | `/api/v1/products`, `/api/v1/product-categories` | Products (Milestone 3) — implemented (backend) |
 | `/api/v1/ncr` | NCR (Milestone 4) — implemented and closed out (schema/CRUD/workflow/actions/tools/attachments/PDF export, backend and frontend) |
-| `/api/v1/calibration` | Calibration and Asset Management (Milestone 5) — implemented (asset schema/CRUD only; schedules/events/maintenance/due-reminders in progress) |
+| `/api/v1/calibration` | Calibration and Asset Management (Milestone 5) — asset CRUD and schedules/events backend implemented; maintenance/due/frontend pending |
 | `/api/v1/maintenance` | Maintenance |
 | `/api/v1/fair` | FAIR |
 | `/api/v1/spc` | SPC |
