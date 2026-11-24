@@ -16,6 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.core.deps import CurrentUser
+from app.modules.calibration.maintenance_schemas import (
+    MaintenanceScheduleEmpty,
+    MaintenanceScheduleRead,
+    MaintenanceScheduleUpdateRequest,
+    MaintenanceScheduleWrite,
+)
 from app.modules.calibration.models import AssetStatus, AssetType
 from app.modules.calibration.schemas import (
     AssetListResponse,
@@ -29,6 +35,8 @@ from app.modules.calibration.schemas import (
     CalibrationScheduleUpdateRequest,
 )
 from app.modules.calibration.service import (
+    AssetMaintenanceScheduleAlreadyExistsError,
+    AssetMaintenanceScheduleNotFoundError,
     AssetNotFoundError,
     AssetOwnerNotFoundError,
     AssetTagConflictError,
@@ -39,13 +47,16 @@ from app.modules.calibration.service import (
     CalibrationScheduleNotFoundError,
     create_asset,
     create_event,
+    create_maintenance_schedule,
     create_schedule,
     delete_asset,
     get_asset,
+    get_maintenance_schedule,
     get_schedule,
     list_assets,
     list_events,
     update_asset,
+    update_maintenance_schedule,
     update_schedule,
 )
 
@@ -310,3 +321,67 @@ async def list_events_endpoint(
         limit=limit,
         offset=offset,
     )
+
+
+@router.get("/assets/{asset_id}/maintenance-schedule")
+async def get_maintenance_schedule_endpoint(
+    asset_id: uuid.UUID, current_user: CurrentUser, session: SessionDependency
+) -> MaintenanceScheduleRead | MaintenanceScheduleEmpty:
+    try:
+        row = await get_maintenance_schedule(
+            session, organisation_id=current_user.organisation_id, asset_id=asset_id
+        )
+    except AssetNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Asset not found") from exc
+    if row is None:
+        return MaintenanceScheduleEmpty(asset_id=asset_id)
+    return MaintenanceScheduleRead.model_validate(row)
+
+
+@router.post("/assets/{asset_id}/maintenance-schedule", status_code=status.HTTP_201_CREATED)
+async def create_maintenance_schedule_endpoint(
+    asset_id: uuid.UUID,
+    payload: MaintenanceScheduleWrite,
+    current_user: CurrentUser,
+    session: SessionDependency,
+) -> MaintenanceScheduleRead:
+    try:
+        row = await create_maintenance_schedule(
+            session,
+            organisation_id=current_user.organisation_id,
+            asset_id=asset_id,
+            interval_value=payload.interval_value,
+            interval_unit=payload.interval_unit,
+            next_due_date=payload.next_due_date,
+            created_by_id=current_user.id,
+        )
+    except AssetNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Asset not found") from exc
+    except AssetMaintenanceScheduleAlreadyExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return MaintenanceScheduleRead.model_validate(row)
+
+
+@router.patch("/assets/{asset_id}/maintenance-schedule")
+async def update_maintenance_schedule_endpoint(
+    asset_id: uuid.UUID,
+    payload: MaintenanceScheduleUpdateRequest,
+    current_user: CurrentUser,
+    session: SessionDependency,
+) -> MaintenanceScheduleRead:
+    try:
+        row = await update_maintenance_schedule(
+            session,
+            organisation_id=current_user.organisation_id,
+            asset_id=asset_id,
+            interval_value=payload.interval_value,
+            interval_unit=payload.interval_unit,
+            next_due_date=payload.next_due_date,
+            next_due_date_supplied="next_due_date" in payload.model_fields_set,
+            updated_by_id=current_user.id,
+        )
+    except AssetNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Asset not found") from exc
+    except AssetMaintenanceScheduleNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return MaintenanceScheduleRead.model_validate(row)

@@ -1,6 +1,6 @@
 # Current Status
 
-_Last updated: 2026-11-23 (Milestone 5 draft remains unverified; testing-readiness additions planned)_
+_Last updated: 2026-11-24 (Milestone 5 asset-maintenance-schedule backend slice verified; due endpoint and frontend pending)_
 
 This document is kept truthful and current in the same commit as any work that
 changes it, per [Contributing.md](Contributing.md). It must never describe
@@ -14,7 +14,7 @@ for the exact scope, schema/API/permissions decisions, and acceptance criteria, 
 [Roadmap.md](Roadmap.md#m5-calibration-and-asset-management) for how it fits the
 overall delivery order.
 
-**Milestone 5 is in progress.** Asset CRUD and calibration schedules/events
+**Milestone 5 is in progress.** Asset CRUD, calibration schedules/events, and the asset-maintenance-schedule backend slice
 are implemented in the backend — see "Completed work" below for exactly what's done and what
 remains. M0 (Platform Foundation), M1 (Authentication, Organisations, People),
 M2 (Document Management), M3 (Products and Suppliers), and M4 (NCR) are all
@@ -1444,16 +1444,14 @@ for the full acceptance-criteria checklist, all checked off.
 
 ## Work in progress
 
-Milestone 5 (Calibration and Asset Management): `assets` schema and CRUD are
-committed. The calibration schedules/events backend has now passed a migration
-downgrade/upgrade cycle on disposable PostgreSQL 16 and the complete backend
-suite (407 passed: 273 unit, 134 integration) on 2026-11-23. Ruff lint/format,
-strict mypy, and unchanged frontend lint/format/typecheck/278 tests/build pass.
-The new slice includes an asset soft-delete race guard and fixes a cross-file
-integration-fixture cleanup failure found by the full suite. This backend slice
-is committed, but Milestone 5 is **not** finished: asset
-maintenance schedules, the `due` reminders endpoint, frontend and browser
-acceptance remain. Plan:
+Milestone 5 (Calibration and Asset Management): asset CRUD and calibration
+schedules/events are committed. The single-row asset-maintenance-schedule
+backend is now implemented with a PostgreSQL migration, scoped GET/POST/PATCH,
+partial updates and a soft-delete write guard. Its disposable PostgreSQL 16
+migration downgrade/upgrade passed, as did the complete backend suite (415
+tests), Ruff lint/format and strict mypy on 2026-11-24. Independent review
+passed and the backend slice is committed. Milestone 5 is **not** finished: the
+`due` reminders endpoint, frontend and browser acceptance remain. Plan:
 [.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md](../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
 
 A new testing-readiness request is planned, not implemented: granular

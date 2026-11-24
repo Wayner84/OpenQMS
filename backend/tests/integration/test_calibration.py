@@ -445,3 +445,78 @@ async def test_event_rejects_both_performer_fields(context: Context) -> None:
             },
         )
     assert response.status_code == 422
+
+
+async def test_maintenance_schedule_api_lifecycle_and_guards(context: Context) -> None:
+    async with AsyncClient(
+        transport=ASGITransport(app=context.app), base_url="http://test"
+    ) as client:
+        asset_id = await _create_asset(client, context.org_a_headers, "MAINT-1")
+        path = f"/api/v1/calibration/assets/{asset_id}/maintenance-schedule"
+        empty = await client.get(path, headers=context.org_a_headers)
+        assert empty.status_code == 200 and empty.json()["asset_id"] == asset_id
+        assert empty.json()["interval_value"] is None and empty.json()["next_due_date"] is None
+        assert (
+            await client.post(
+                path,
+                headers=context.org_a_headers,
+                json={"interval_value": 0, "interval_unit": "months"},
+            )
+        ).status_code == 422
+        created = await client.post(
+            path,
+            headers=context.org_a_headers,
+            json={"interval_value": 3, "interval_unit": "months"},
+        )
+        assert created.status_code == 201, created.text
+        duplicate = await client.post(
+            path,
+            headers=context.org_a_headers,
+            json={"interval_value": 4, "interval_unit": "months"},
+        )
+        assert duplicate.status_code == 409
+        changed = await client.patch(
+            path,
+            headers=context.org_a_headers,
+            json={"interval_value": 6, "interval_unit": "months", "next_due_date": "2027-01-01"},
+        )
+        assert changed.status_code == 200 and changed.json()["interval_value"] == 6
+        partial = await client.patch(
+            path, headers=context.org_a_headers, json={"interval_value": 8}
+        )
+        assert partial.status_code == 200, partial.text
+        assert partial.json()["interval_value"] == 8
+        assert partial.json()["interval_unit"] == "months"
+        assert partial.json()["next_due_date"] == "2027-01-01"
+        assert (
+            await client.patch(path, headers=context.org_a_headers, json={"interval_value": None})
+        ).status_code == 422
+        assert (
+            await client.patch(path, headers=context.org_a_headers, json={"interval_unit": None})
+        ).status_code == 422
+        cleared = await client.patch(
+            path, headers=context.org_a_headers, json={"next_due_date": None}
+        )
+        assert cleared.status_code == 200, cleared.text
+        assert cleared.json()["next_due_date"] is None
+        assert cleared.json()["interval_value"] == 8
+        deleted_asset = await _create_asset(client, context.org_a_headers, "MAINT-2")
+        assert (
+            await client.delete(
+                f"/api/v1/calibration/assets/{deleted_asset}", headers=context.org_a_headers
+            )
+        ).status_code == 204
+        assert (
+            await client.post(
+                f"/api/v1/calibration/assets/{deleted_asset}/maintenance-schedule",
+                headers=context.org_a_headers,
+                json={"interval_value": 1, "interval_unit": "years"},
+            )
+        ).status_code == 404
+        other_asset = await _create_asset(client, context.org_b_headers, "MAINT-3")
+        assert (
+            await client.get(
+                f"/api/v1/calibration/assets/{other_asset}/maintenance-schedule",
+                headers=context.org_a_headers,
+            )
+        ).status_code == 404

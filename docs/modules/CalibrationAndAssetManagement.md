@@ -1,12 +1,11 @@
 # Calibration and Asset Management
 
-**Status: Implemented (asset CRUD and calibration schedules/events backend only).** [Milestone 5](../Roadmap.md#m5-calibration-and-asset-management)
+**Status: Implemented (asset CRUD, calibration schedules/events, and asset-maintenance-schedule backend).** [Milestone 5](../Roadmap.md#m5-calibration-and-asset-management)
 is in progress — full scope, schema, API, and design decisions in the
 [Milestone 5 plan](../../.hermes/plans/2026-08-01-milestone-5-calibration-and-asset-management.md).
 Asset CRUD and calibration schedules/events are implemented and tested against
 disposable PostgreSQL, backend only; see [docs/CurrentStatus.md](../CurrentStatus.md)
-for exact scope. Asset maintenance schedules, the `due` reminders endpoint and
-frontend are not implemented.
+for exact scope. The `due` reminders endpoint and frontend are not implemented.
 
 ## Purpose
 
@@ -94,8 +93,14 @@ gap) rather than found reactively as happened three times during Milestone 4.
 Calibration schedules/events are now backend-implemented, with row locks for
 concurrent updates and a read-after-lock guard against a soft-deleted asset.
 The real-PostgreSQL integration suite and migration downgrade/upgrade were
-exercised against a disposable database. Not yet implemented: asset maintenance
-schedules, the `due` reminders endpoint, and the frontend. The boundary with
+exercised against a disposable database. Asset maintenance schedules are
+backend-implemented; sequential API lifecycle, tenant and deleted-asset
+rejections were tested against disposable PostgreSQL, plus unit coverage for
+the positive-interval constraint, named unique-error classification and partial
+PATCH. The asset row lock serializes writes with soft deletion by design, but
+a concurrent PostgreSQL schedule-write/delete test has not yet been run. The
+migration passed a fresh-database upgrade/downgrade/upgrade cycle. The `due`
+reminders endpoint and frontend are not yet implemented. The boundary with
 [Maintenance](Maintenance.md) (this module owns *scheduled* calibration/maintenance
 of tracked equipment; Maintenance owns *ad hoc requests*, especially for production
 machinery) is documented here and in [Maintenance.md](Maintenance.md) to prevent

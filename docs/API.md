@@ -685,8 +685,7 @@ and the
 Every operation requires only authentication (any active user), matching
 People/Products/Suppliers/NCR's precedent — not admin-gated, per design
 decision 1. Asset CRUD and calibration schedules/events are implemented in the
-backend; asset maintenance schedules, `due` reminders and frontend remain later
-slices.
+backend; the asset maintenance schedule backend slice is now implemented. The `due` reminders endpoint and frontend remain later slices.
 
 ### `POST /api/v1/calibration/assets` / `PATCH /api/v1/calibration/assets/{id}`
 
@@ -740,6 +739,16 @@ the end of short months. `GET` returns a bounded paginated list (`limit` 1–200
 default 50; `offset` >= 0), newest calibration date first. There are no event
 update/delete routes; both attempts return `404` for the unregistered URL.
 Foreign assets return `404` for every schedule/event operation.
+
+### `GET/POST/PATCH /api/v1/calibration/assets/{id}/maintenance-schedule`
+
+One positive-interval maintenance schedule per live asset. `GET` returns the
+schedule or an empty payload with `asset_id` and null schedule fields when not
+configured. `POST` creates once (`409` on duplicate); `PATCH` updates the existing
+row. `PATCH` accepts any subset of fields: omitted values are retained, an
+explicit `null` clears `next_due_date`, and interval fields cannot be null.
+Cross-organisation and soft-deleted assets return `404`; writes are serialized
+against asset soft deletion. `next_due_date` is operator-settable.
 
 ## Health and readiness endpoints (Milestone 0)
 

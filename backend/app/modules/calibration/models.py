@@ -13,6 +13,7 @@ import enum
 import uuid
 
 from sqlalchemy import (
+    CheckConstraint,
     Date,
     DateTime,
     Enum,
@@ -181,4 +182,35 @@ class CalibrationEvent(Base):
     created_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class AssetMaintenanceSchedule(Base):
+    """Single scheduled maintenance interval for a tracked asset."""
+
+    __tablename__ = "asset_maintenance_schedules"
+    __table_args__ = (
+        UniqueConstraint("asset_id", name="uq_asset_maintenance_schedules_asset_id"),
+        CheckConstraint(
+            "interval_value > 0", name="ck_asset_maintenance_schedules_positive_interval"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    asset_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("assets.id", ondelete="CASCADE"), nullable=False
+    )
+    interval_value: Mapped[int] = mapped_column(Integer, nullable=False)
+    interval_unit: Mapped[CalibrationIntervalUnit] = mapped_column(
+        _calibration_enum_column(CalibrationIntervalUnit, "calibration_interval_unit"),
+        nullable=False,
+    )
+    next_due_date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    created_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    updated_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )

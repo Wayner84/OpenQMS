@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.calibration.models import (
     Asset,
+    AssetMaintenanceSchedule,
     AssetStatus,
     AssetType,
     CalibrationEvent,
@@ -520,3 +521,97 @@ async def list_events(
         .offset(offset)
     )
     return list(result.scalars().all()), total
+
+
+class AssetMaintenanceScheduleNotFoundError(Exception):
+    """Asset maintenance schedule is not configured."""
+
+
+class AssetMaintenanceScheduleAlreadyExistsError(Exception):
+    """An asset already has its single maintenance schedule."""
+
+
+async def get_maintenance_schedule(
+    session: AsyncSession, *, organisation_id: uuid.UUID, asset_id: uuid.UUID
+) -> AssetMaintenanceSchedule | None:
+    await get_asset(session, organisation_id=organisation_id, asset_id=asset_id)
+    return (
+        await session.execute(
+            select(AssetMaintenanceSchedule).where(AssetMaintenanceSchedule.asset_id == asset_id)
+        )
+    ).scalar_one_or_none()
+
+
+async def create_maintenance_schedule(
+    session: AsyncSession,
+    *,
+    organisation_id: uuid.UUID,
+    asset_id: uuid.UUID,
+    interval_value: int,
+    interval_unit: CalibrationIntervalUnit,
+    next_due_date: datetime.date | None,
+    created_by_id: uuid.UUID,
+) -> AssetMaintenanceSchedule:
+    await _lock_live_asset(session, organisation_id=organisation_id, asset_id=asset_id)
+    if (
+        await session.execute(
+            select(AssetMaintenanceSchedule).where(AssetMaintenanceSchedule.asset_id == asset_id)
+        )
+    ).scalar_one_or_none() is not None:
+        raise AssetMaintenanceScheduleAlreadyExistsError(
+            f"Asset {asset_id} already has a maintenance schedule"
+        )
+    row = AssetMaintenanceSchedule(
+        asset_id=asset_id,
+        interval_value=interval_value,
+        interval_unit=interval_unit,
+        next_due_date=next_due_date,
+        created_by_id=created_by_id,
+        updated_by_id=created_by_id,
+    )
+    session.add(row)
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        diagnostic = getattr(exc.orig, "diag", None)
+        driver_cause = getattr(exc.orig, "__cause__", None)
+        constraint_name = getattr(diagnostic, "constraint_name", None) or getattr(
+            driver_cause, "constraint_name", None
+        )
+        if constraint_name == "uq_asset_maintenance_schedules_asset_id":
+            raise AssetMaintenanceScheduleAlreadyExistsError(
+                f"Asset {asset_id} already has a maintenance schedule"
+            ) from exc
+        raise
+    await session.refresh(row)
+    return row
+
+
+async def update_maintenance_schedule(
+    session: AsyncSession,
+    *,
+    organisation_id: uuid.UUID,
+    asset_id: uuid.UUID,
+    updated_by_id: uuid.UUID,
+    interval_value: int | None = None,
+    interval_unit: CalibrationIntervalUnit | None = None,
+    next_due_date: datetime.date | None = None,
+    next_due_date_supplied: bool = False,
+) -> AssetMaintenanceSchedule:
+    await _lock_live_asset(session, organisation_id=organisation_id, asset_id=asset_id)
+    row = await get_maintenance_schedule(
+        session, organisation_id=organisation_id, asset_id=asset_id
+    )
+    if row is None:
+        raise AssetMaintenanceScheduleNotFoundError(f"Asset {asset_id} has no maintenance schedule")
+    if interval_value is not None:
+        row.interval_value = interval_value
+    if interval_unit is not None:
+        row.interval_unit = interval_unit
+    if next_due_date_supplied:
+        row.next_due_date = next_due_date
+    row.updated_by_id = updated_by_id
+    await session.commit()
+    await session.refresh(row)
+    return row

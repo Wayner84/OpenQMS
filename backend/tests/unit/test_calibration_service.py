@@ -1187,3 +1187,229 @@ async def test_backfilled_event_preserves_current_due_date_from_later_calibratio
         schedule = await get_schedule(session, organisation_id=organisation_id, asset_id=asset_id)
     assert older.next_due_date == datetime.date(2026, 7, 1)
     assert schedule.next_due_date == datetime.date(2027, 2, 1)
+
+
+async def test_maintenance_schedule_create_get_update_and_live_asset_guard(
+    session_maker: SessionMaker, organisation_id: uuid.UUID, user_id: uuid.UUID
+) -> None:
+    import datetime
+
+    from app.modules.calibration.models import CalibrationIntervalUnit
+    from app.modules.calibration.service import (
+        AssetMaintenanceScheduleAlreadyExistsError,
+        create_maintenance_schedule,
+        get_maintenance_schedule,
+        update_maintenance_schedule,
+    )
+
+    asset_id = await _create_asset(session_maker, organisation_id=organisation_id, user_id=user_id)
+    async with session_maker() as session:
+        empty = await get_maintenance_schedule(
+            session, organisation_id=organisation_id, asset_id=asset_id
+        )
+    assert empty is None
+    async with session_maker() as session:
+        row = await create_maintenance_schedule(
+            session,
+            organisation_id=organisation_id,
+            asset_id=asset_id,
+            interval_value=3,
+            interval_unit=CalibrationIntervalUnit.MONTHS,
+            next_due_date=None,
+            created_by_id=user_id,
+        )
+    async with session_maker() as session:
+        with pytest.raises(AssetMaintenanceScheduleAlreadyExistsError):
+            await create_maintenance_schedule(
+                session,
+                organisation_id=organisation_id,
+                asset_id=asset_id,
+                interval_value=1,
+                interval_unit=CalibrationIntervalUnit.YEARS,
+                next_due_date=None,
+                created_by_id=user_id,
+            )
+    async with session_maker() as session:
+        updated = await update_maintenance_schedule(
+            session,
+            organisation_id=organisation_id,
+            asset_id=asset_id,
+            interval_value=6,
+            interval_unit=CalibrationIntervalUnit.MONTHS,
+            next_due_date=datetime.date(2027, 1, 1),
+            next_due_date_supplied=True,
+            updated_by_id=user_id,
+        )
+    assert row.id == updated.id and updated.interval_value == 6
+    assert updated.next_due_date == datetime.date(2027, 1, 1)
+
+
+async def test_maintenance_partial_update_preserves_omitted_fields(
+    session_maker: SessionMaker, organisation_id: uuid.UUID, user_id: uuid.UUID
+) -> None:
+    import datetime
+
+    from app.modules.calibration.models import CalibrationIntervalUnit
+    from app.modules.calibration.service import (
+        create_maintenance_schedule,
+        update_maintenance_schedule,
+    )
+
+    asset_id = await _create_asset(session_maker, organisation_id=organisation_id, user_id=user_id)
+    due = datetime.date(2027, 5, 1)
+    async with session_maker() as session:
+        await create_maintenance_schedule(
+            session,
+            organisation_id=organisation_id,
+            asset_id=asset_id,
+            interval_value=4,
+            interval_unit=CalibrationIntervalUnit.MONTHS,
+            next_due_date=due,
+            created_by_id=user_id,
+        )
+    async with session_maker() as session:
+        row = await update_maintenance_schedule(
+            session,
+            organisation_id=organisation_id,
+            asset_id=asset_id,
+            updated_by_id=user_id,
+            interval_value=5,
+        )
+        assert row.interval_unit == CalibrationIntervalUnit.MONTHS
+        assert row.next_due_date == due
+    async with session_maker() as session:
+        cleared = await update_maintenance_schedule(
+            session,
+            organisation_id=organisation_id,
+            asset_id=asset_id,
+            updated_by_id=user_id,
+            next_due_date=None,
+            next_due_date_supplied=True,
+        )
+        assert cleared.next_due_date is None
+        assert cleared.interval_value == 5
+
+
+async def test_maintenance_model_declares_positive_interval_constraint() -> None:
+    from typing import cast
+
+    from sqlalchemy import CheckConstraint, Enum, Table
+
+    from app.modules.calibration.models import AssetMaintenanceSchedule
+
+    table = cast(Table, AssetMaintenanceSchedule.__table__)
+    assert cast(Enum, table.c.interval_unit.type).name == "calibration_interval_unit"
+    checks = [
+        constraint for constraint in table.constraints if isinstance(constraint, CheckConstraint)
+    ]
+    assert any(
+        constraint.name == "ck_asset_maintenance_schedules_positive_interval"
+        and str(constraint.sqltext) == "interval_value > 0"
+        for constraint in checks
+    )
+
+
+@pytest.mark.parametrize(
+    "constraint_name,conflict,via_cause",
+    [
+        ("uq_asset_maintenance_schedules_asset_id", True, False),
+        ("fk_asset_maintenance_schedules_created_by_id", False, False),
+        ("uq_asset_maintenance_schedules_asset_id", True, True),
+    ],
+)
+async def test_maintenance_create_classifies_only_unique_integrity_error(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    user_id: uuid.UUID,
+    monkeypatch: pytest.MonkeyPatch,
+    constraint_name: str,
+    conflict: bool,
+    via_cause: bool,
+) -> None:
+    from types import SimpleNamespace
+
+    from sqlalchemy.exc import IntegrityError
+
+    from app.modules.calibration.models import CalibrationIntervalUnit
+    from app.modules.calibration.service import (
+        AssetMaintenanceScheduleAlreadyExistsError,
+        create_maintenance_schedule,
+    )
+
+    class SimulatedWrapperError(Exception):
+        diag: SimpleNamespace
+
+    class SimulatedDriverError(Exception):
+        constraint_name: str
+
+    asset_id = await _create_asset(session_maker, organisation_id=organisation_id, user_id=user_id)
+    async with session_maker() as session:
+
+        async def fail_commit() -> None:
+            original = SimulatedWrapperError("simulated")
+            if via_cause:
+                cause = SimulatedDriverError("driver unique violation")
+                cause.constraint_name = constraint_name
+                original.__cause__ = cause
+            else:
+                original.diag = SimpleNamespace(constraint_name=constraint_name)
+            raise IntegrityError("INSERT", {}, original)
+
+        monkeypatch.setattr(session, "commit", fail_commit)
+        expected = AssetMaintenanceScheduleAlreadyExistsError if conflict else IntegrityError
+        with pytest.raises(expected):
+            await create_maintenance_schedule(
+                session,
+                organisation_id=organisation_id,
+                asset_id=asset_id,
+                interval_value=2,
+                interval_unit=CalibrationIntervalUnit.MONTHS,
+                next_due_date=None,
+                created_by_id=user_id,
+            )
+
+
+async def test_maintenance_schedule_service_rejects_foreign_and_deleted_assets(
+    session_maker: SessionMaker,
+    organisation_id: uuid.UUID,
+    other_organisation_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    from app.modules.calibration.models import CalibrationIntervalUnit
+    from app.modules.calibration.service import (
+        AssetNotFoundError,
+        create_maintenance_schedule,
+        delete_asset,
+        get_maintenance_schedule,
+        update_maintenance_schedule,
+    )
+
+    asset_id = await _create_asset(session_maker, organisation_id=organisation_id, user_id=user_id)
+    async with session_maker() as session:
+        with pytest.raises(AssetNotFoundError):
+            await create_maintenance_schedule(
+                session,
+                organisation_id=other_organisation_id,
+                asset_id=asset_id,
+                interval_value=1,
+                interval_unit=CalibrationIntervalUnit.YEARS,
+                next_due_date=None,
+                created_by_id=user_id,
+            )
+    async with session_maker() as session:
+        await delete_asset(session, organisation_id=organisation_id, asset_id=asset_id)
+    async with session_maker() as session:
+        with pytest.raises(AssetNotFoundError):
+            await get_maintenance_schedule(
+                session,
+                organisation_id=organisation_id,
+                asset_id=asset_id,
+            )
+        with pytest.raises(AssetNotFoundError):
+            await update_maintenance_schedule(
+                session,
+                organisation_id=organisation_id,
+                asset_id=asset_id,
+                updated_by_id=user_id,
+                interval_value=2,
+            )

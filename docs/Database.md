@@ -578,3 +578,8 @@ materially larger, separate piece of work).
 - [Architecture.md](Architecture.md) — how the database fits the layered backend.
 - [API.md](API.md) — how database state is exposed over HTTP.
 - [Docker.md](Docker.md) — how PostgreSQL runs and persists data in Compose.
+
+
+### Asset maintenance schedules (Milestone 5 backend slice)
+
+`asset_maintenance_schedules` stores one row per asset (`asset_id` unique), with a positive `interval_value`, `interval_unit` (`days`/`months`/`years`), optional operator-set `next_due_date`, and creator/updater attribution. The migration is `2026f00d1a21`; downgrade removes the table and its enum. Tenant scope is inherited from the parent asset and service operations reject foreign or soft-deleted assets.

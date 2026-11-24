@@ -1,6 +1,6 @@
 # Milestone 5 — Calibration and Asset Management
 
-**Status:** In progress — asset CRUD and calibration schedules/events backend implemented; maintenance/due/frontend pending.
+**Status:** In progress — asset CRUD, calibration schedules/events and asset-maintenance schedules backend implemented; due/frontend pending.
 **Date planned:** 2026-08-01
 
 ## Purpose
